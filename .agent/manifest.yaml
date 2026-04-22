@@ -1,0 +1,123 @@
+project:
+  name: MantisAnalysis
+  version: "0.1.0"
+  description: "Analysis suite for MantisCam GSense BSI dual-gain RGB-NIR recordings — USAF resolution, FPN, depth-of-field."
+  license: MIT
+  author:
+    name: Zhongmin Zhu
+    email: j@polarxphotonics.com
+  organization: BioSensors Lab @ UIUC
+  homepage: https://github.com/BioSensorsLab-Illinois/MantisAnalysis
+
+languages:
+  primary: python
+  python_floor: "3.10"
+  ui_toolkit: "PySide6 / Qt 6"
+
+major_modules:
+  - path: mantisanalysis/app.py
+    role: app entry shim
+  - path: mantisanalysis/__main__.py
+    role: "`python -m mantisanalysis` entry"
+  - path: scripts/pick_lines_gui.py
+    role: GUI implementation (MainWindow, USAFPickerApp, themes, QSS) ~1936 LoC
+  - path: mantisanalysis/extract.py
+    role: "GSense dual-gain 4×4 super-pixel Bayer extractor"
+  - path: mantisanalysis/image_io.py
+    role: unified loader for H5 + PNG/TIFF/JPG
+  - path: mantisanalysis/image_processing.py
+    role: sharpen + tone-curve helpers
+  - path: mantisanalysis/usaf_groups.py
+    role: "USAF lp/mm + Michelson estimators (percentile / minmax / FFT)"
+  - path: mantisanalysis/usaf_render.py
+    role: 6-tab USAF analysis window + figure builders
+  - path: mantisanalysis/fpn_analysis.py
+    role: FPN math (ISP filters + outlier mask + statistics)
+  - path: mantisanalysis/fpn_render.py
+    role: FPN figures + Qt window
+  - path: mantisanalysis/dof_analysis.py
+    role: "DoF focus metrics (laplacian, brenner, tenengrad, fft_hf)"
+  - path: mantisanalysis/dof_render.py
+    role: DoF figures + Qt window
+  - path: mantisanalysis/modes/common.py
+    role: "shared widgets (Card, ImageCanvas, slider_row, ChannelSelector)"
+  - path: mantisanalysis/modes/fpn.py
+    role: FPN mode UI (QWidget)
+  - path: mantisanalysis/modes/dof.py
+    role: DoF mode UI (QWidget) with H/V calibration card
+  - path: mantisanalysis/resolution.py
+    role: "LEGACY auto-strip FFT MTF (kept per D-0004)"
+
+entry_points:
+  - "python -m mantisanalysis"
+  - "mantisanalysis"                 # via pyproject [project.scripts]
+  - "python scripts/pick_lines_gui.py"
+  - "MantisAnalysis.bat"             # Windows
+  - "python scripts/run_usaf_resolution.py"   # legacy CLI
+  - "python scripts/inspect_recording.py"     # H5 inspector
+
+commands:
+  install_user: "python -m pip install -e ."
+  install_dev:  "python -m pip install -e .[dev]"
+  run:          "python -m mantisanalysis"
+  smoke_t1:     "python scripts/smoke_test.py --tier 1"
+  smoke_t2:     "python scripts/smoke_test.py --tier 2"
+  smoke_t3:     "python scripts/smoke_test.py --tier 3"
+  test:         "python -m pytest tests/ -q"
+  lint:         "python -m ruff check mantisanalysis scripts tests"
+  format:       "python -m ruff format mantisanalysis scripts tests"
+  typecheck:    "python -m mypy mantisanalysis"
+
+quality_gates:
+  mandatory:
+    - "scripts/smoke_test.py --tier 1"
+    - "scripts/smoke_test.py --tier 2"
+    - "pytest tests/"
+  conditional_on_ui_change:
+    - "scripts/smoke_test.py --tier 3"
+  not_yet_in_ci:
+    - "tier 3"
+    - "tier 4"
+    - "ruff lint"
+    - "mypy"
+
+risky_areas:
+  - "GSense Bayer constants in mantisanalysis/extract.py:25-26 (locked)"
+  - "Channel key schema HG-R..LG-Y / R..L (frozen contract)"
+  - "USAFPickerApp QMainWindow embedded via takeCentralWidget + monkey-patch"
+  - "Widget classes Card / ImageCanvas / slider_row duplicated in pick_lines_gui.py and modes/common.py"
+  - "Sidebar overflow regression risk if QScrollArea ScrollBarAsNeeded + setMinimumWidth(180) + body.setMinimumWidth(0) is reverted"
+  - "Sharpen-to-analysis can produce Michelson > 1 (unphysical); not clamped"
+  - "Rotate / flip silently invalidates picks (no remap)"
+
+important_docs:
+  agent_layer:    .agent/00_START_HERE.md
+  rules:          .agent/AGENT_RULES.md
+  setup:          .agent/SETUP_AND_RUN.md
+  workflows:      .agent/WORKFLOWS.md
+  architecture:   .agent/ARCHITECTURE.md
+  repo_map:       .agent/REPO_MAP.md
+  quality_gates:  .agent/QUALITY_GATES.md
+  decisions:      .agent/DECISIONS.md
+  risks:          .agent/RISKS.md
+  backlog:        .agent/BACKLOG.md
+  handoff:        .agent/HANDOFF.md
+  changelog:      .agent/CHANGELOG_AGENT.md
+  user_readme:    README.md
+  ui_spec:        UI_SPEC.md
+  phase1_audit:   HANDOFF.md             # at repo root, predates .agent/HANDOFF.md
+
+current_status:
+  phase: "Phase 2 implementation complete; awaiting user review + initial commit"
+  branch: main
+  commits: 0
+  smoke_tier_1: pass
+  smoke_tier_2: pass
+  smoke_tier_3: "verified during dev, not formally re-run after rename"
+  smoke_tier_4: "not implemented"
+  pytest_tests: 39
+  pytest_pass:  true
+  open_initiatives: 0
+  next_action: "B-0010 — initial git commit + push to origin/main (waiting for user consent)"
+
+handoff: .agent/HANDOFF.md

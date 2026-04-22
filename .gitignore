@@ -1,0 +1,48 @@
+# Byte-compiled / cached
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# Outputs (analysis artifacts; user can keep selected ones tracked manually)
+outputs/
+!outputs/.gitkeep
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*~
+
+# Project notes that should not be committed
+*.local.md
+TODO.local.*
+
+# Coverage / test artifacts
+.coverage
+htmlcov/
+coverage.xml
+*.cover
+nosetests.xml
+
+# Sensitive / generated env
+.env
+.env.*
+!.env.example
