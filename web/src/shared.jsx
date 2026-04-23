@@ -161,6 +161,12 @@ const DEFAULT_PLOT_STYLE = {
   // forced to fill the available 1fr slot. 0 disables the cap.
   cardMaxWidth: 0,
   aspect: 'auto',            // 'auto' | '4:3' | '16:9' | '1:1' | '3:4'
+  // Background model (analysis-page-overhaul-v1) — unified page → card → body.
+  // `pageBackground` sets the modal/page body; `chartBodyBackground` sets
+  // the inner SVG surface. 'inherit' lets the surrounding card show through
+  // so a single `pageBackground` toggle flips everything coherently.
+  pageBackground: 'theme',           // 'theme' | 'white' | 'black' | 'transparent' | <hex>
+  chartBodyBackground: 'inherit',    // 'inherit' | 'panel' | 'white' | 'transparent'
   // Palette — 'channel' = the per-channel colors (default, physics-correct);
   //          other palettes override channel colors with a shared sequential
   //          or cyclic scheme, useful when greyscale printing.
@@ -374,6 +380,49 @@ const cardChromeFor = (style, t) => {
     borderRadius: style.cardBorderRadius,
     padding: style.cardPadding,
   };
+};
+
+// analysis-page-overhaul-v1 — unified background model.
+// `pageBackground` is the one knob that flips the modal body + cards + SVG
+// bodies together when `chartBodyBackground === 'inherit'` and
+// `cardBackground === 'panel'` (the cascade chain). `themeFallback` is the
+// theme color to use when pageBackground === 'theme'.
+const pageBgFor = (style, t, themeFallback) => {
+  const pb = style?.pageBackground || 'theme';
+  if (pb === 'transparent') return 'transparent';
+  if (pb === 'white') return '#ffffff';
+  if (pb === 'black') return '#000000';
+  if (pb === 'theme') return themeFallback || t.panelAlt;
+  if (typeof pb === 'string' && pb.startsWith('#')) return pb;
+  return themeFallback || t.panelAlt;
+};
+
+// Chart body SVG surface. 'inherit' returns transparent so the surrounding
+// card (or page) shows through; other values pin the body to a specific
+// color regardless of the card setting.
+const chartBodyBgFor = (style, t) => {
+  const cb = style?.chartBodyBackground || 'inherit';
+  if (cb === 'inherit') return 'transparent';
+  if (cb === 'white') return '#ffffff';
+  if (cb === 'panel') return t.panel;
+  if (cb === 'transparent') return 'transparent';
+  return 'transparent';
+};
+
+// Canonical channel → color resolver. Mirrors analysis.jsx's local helper
+// so code in shared.jsx (<Chart>, renderChartToPng, etc.) can resolve
+// channel swatches without reaching back into analysis.jsx. Accepts bare
+// bands ('R') or gain-prefixed keys ('HG-R', 'LG-NIR').
+const _BAND_FROM = (ch) => {
+  if (!ch || typeof ch !== 'string') return '';
+  return ch.includes('-') ? ch.split('-').pop() : ch;
+};
+const channelColor = (ch) => CHANNEL_COLORS[_BAND_FROM(ch)] || '#888';
+const _BAND_IDX_FOR_PALETTE = { R: 0, G: 1, B: 2, NIR: 3, Y: 4, L: 5 };
+const paletteColor = (style, ch) => {
+  const band = _BAND_FROM(ch);
+  const idx = _BAND_IDX_FOR_PALETTE[band] ?? 0;
+  return plotPaletteColor(style, channelColor, ch, idx);
 };
 
 // ---------------------------------------------------------------------------
@@ -2191,6 +2240,545 @@ const ResizeHandle = ({ value, onChange, min = 200, max = 800, side = 'right',
   );
 };
 
+// ===========================================================================
+// analysis-page-overhaul-v1 — Foundation primitives
+// ---------------------------------------------------------------------------
+// New exports that later phases migrate every analysis-modal chart onto:
+//   - `tokens(style, t)` / `useTokens()`: one memoized dict of inline-style
+//     objects (title, axisLabel, tick, legend, gridLine, axisLine, line,
+//     marker) so chart bodies stop repeating `fontSize={scaled(...)}` boiler.
+//   - `useChartGeom({ W, H, PAD, xDomain, yDomain, yFlipped })`: geometry
+//     hook that honors `style.aspect` and returns `{ W, H, PAD, plotW,
+//     plotH, xOf, yOf }`. No args → reads from `<Chart>` context.
+//   - `<Chart title sub footer channel exportName aspect>`: single chart
+//     primitive. Card chrome + title row + per-card PNG button + aspect-
+//     bounded body + a `ChartGeomCtx` child SVG code reads geometry from.
+//   - `<Page themeFallback>`: `PlotStyleCtx.Provider` wrapper that also
+//     applies the resolved `pageBackground` to the wrapped container. If
+//     `plotStyleState` isn't passed, mints its own.
+//   - `renderChartToPng(node, opts)`: new export path. Pure-SVG roots
+//     serialize directly (XMLSerializer → Blob → Image → canvas); canvas
+//     + SVG overlays composite; HTML-heavy falls back to `renderNodeToPng`
+//     (dom-to-image). No `width="100%"` collapse. No CORS panics on
+//     Google Fonts — cloned SVGs inline the document's font rules.
+// Old helpers (`cardChromeFor`, `ChartCard`, `mantisExport`) remain live
+// until Phase 4 / Phase 5 migrate every caller.
+// ===========================================================================
+
+const tokens = (style, t) => {
+  const s = style || DEFAULT_PLOT_STYLE;
+  return {
+    title: {
+      fontSize: scaled(s.titleSize, s),
+      fontWeight: s.titleWeight,
+      fontStyle: s.titleItalic ? 'italic' : 'normal',
+      fontFamily: s.fontFamily,
+      fill: t.text,
+    },
+    axisLabel: {
+      fontSize: scaled(s.axisLabelSize, s),
+      fontWeight: s.axisLabelWeight,
+      fontFamily: s.fontFamily,
+      fill: t.textMuted,
+    },
+    tick: {
+      fontSize: scaled(s.tickSize, s),
+      fontWeight: s.tickWeight,
+      fontFamily: s.fontFamily,
+      fill: t.textMuted,
+    },
+    legend: {
+      fontSize: scaled(s.legendSize, s),
+      fontWeight: s.legendWeight,
+      fontFamily: s.fontFamily,
+      fill: t.textMuted,
+    },
+    annotation: {
+      fontSize: scaled(s.annotationSize, s),
+      fontFamily: s.fontFamily,
+      fill: t.textMuted,
+    },
+    gridLine: {
+      stroke: t.border,
+      strokeWidth: s.gridWidth,
+      opacity: s.gridOpacity,
+    },
+    axisLine: {
+      stroke: t.border,
+      strokeWidth: s.axisStrokeWidth,
+      fill: 'none',
+    },
+    line: {
+      strokeWidth: s.lineWidth,
+      fill: 'none',
+      strokeLinejoin: 'round',
+      strokeLinecap: 'round',
+    },
+    marker: {
+      strokeWidth: s.markerStrokeWidth,
+    },
+    showGrid: !!s.showGrid,
+    showLegend: s.showLegend !== false,
+    palette: s.palette || 'channel',
+  };
+};
+
+const useTokens = () => {
+  const { style } = usePlotStyle();
+  const t = useTheme();
+  return useMemo(() => tokens(style, t), [style, t]);
+};
+
+// Geometry context. `<Chart>` provides; `useChartGeom()` without args reads.
+const _ASPECT_RATIOS = {
+  auto: null,
+  '16:9': 16 / 9,
+  '4:3': 4 / 3,
+  '1:1': 1,
+  '3:4': 3 / 4,
+};
+
+const ChartGeomCtx = createContext(null);
+
+const _computeGeom = ({
+  W = 400, H = 240,
+  PAD = { l: 48, r: 12, t: 14, b: 34 },
+  xDomain, yDomain, yFlipped = false,
+  aspect = 'auto',
+} = {}) => {
+  const ratio = _ASPECT_RATIOS[aspect];
+  let outW = W;
+  let outH = H;
+  if (ratio != null && ratio > 0) outH = Math.max(60, Math.round(W / ratio));
+  const plotW = Math.max(1, outW - PAD.l - PAD.r);
+  const plotH = Math.max(1, outH - PAD.t - PAD.b);
+  const xOf = xDomain
+    ? (v) => {
+        const span = xDomain[1] - xDomain[0];
+        const n = span !== 0 ? (v - xDomain[0]) / span : 0;
+        return PAD.l + n * plotW;
+      }
+    : null;
+  const yOf = yDomain
+    ? (v) => {
+        const span = yDomain[1] - yDomain[0];
+        const n = span !== 0 ? (v - yDomain[0]) / span : 0;
+        return yFlipped ? PAD.t + n * plotH : PAD.t + plotH - n * plotH;
+      }
+    : null;
+  return { W: outW, H: outH, PAD, plotW, plotH, xOf, yOf };
+};
+
+const useChartGeom = (opts) => {
+  // Hooks must run in the same order every render — call all of them first,
+  // then pick the winning value.
+  const ctx = useContext(ChartGeomCtx);
+  const { style } = usePlotStyle();
+  const explicit = useMemo(
+    () => (opts ? _computeGeom({ aspect: style?.aspect || 'auto', ...opts }) : null),
+    [style?.aspect, opts ? JSON.stringify(opts) : null],
+  );
+  const fallback = useMemo(
+    () => _computeGeom({ aspect: style?.aspect || 'auto' }),
+    [style?.aspect],
+  );
+  if (explicit) return explicit;
+  if (ctx) return ctx;
+  return fallback;
+};
+
+// ---------------------------------------------------------------------------
+// renderChartToPng — SVG-first export pipeline
+// ---------------------------------------------------------------------------
+// Path 1 (SVG-only node): serialize the inner <svg> directly, rasterize via
+//   an in-memory <img> + <canvas>. Deterministic; no DOM traversal; no CORS
+//   trap on Google Fonts.
+// Path 2 (canvas + SVG composite, e.g. heatmap cards): paint each <canvas>
+//   at its bounding-rect position, then paint each <svg> overlay on top.
+// Path 3 (HTML-heavy, e.g. Summary tab table): renderNodeToPng → dom-to-
+//   image with the same `copyDefaultStyles:false, cacheBust:true` hardening
+//   that `mantisExport` already uses.
+
+const _blobDownload = (blob, filename, ext) => {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${filename}.${ext}`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1200);
+  return { format: ext, bytes: blob.size };
+};
+
+const _canvasToPng = (canvas, filename) =>
+  new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) { reject(new Error('canvas toBlob returned null')); return; }
+      resolve(_blobDownload(blob, filename, 'png'));
+    }, 'image/png');
+  });
+
+// Clone an <svg> and return a self-contained, rasterizable markup string.
+// Fonts are inlined as a <style> block copying `font-family` from the
+// original's computed style so the offscreen Image renders the same face.
+const _serializeSvg = (svg) => {
+  const rect = svg.getBoundingClientRect();
+  const w = Math.max(1, Math.round(rect.width));
+  const h = Math.max(1, Math.round(rect.height));
+  const clone = svg.cloneNode(true);
+  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+  clone.setAttribute('width', String(w));
+  clone.setAttribute('height', String(h));
+  // Force exact viewBox→canvas mapping so polyline/dots/axes stay aligned.
+  if (clone.getAttribute('viewBox')) {
+    clone.setAttribute('preserveAspectRatio', 'none');
+  }
+  // Inline the font-family from the original so offscreen rasterization
+  // doesn't drop to sans-serif. We don't @font-face-embed Google Fonts;
+  // that's Phase 5 territory. Falls back to ui-sans-serif cleanly.
+  const cs = window.getComputedStyle(svg);
+  const ff = cs.fontFamily || 'Inter Tight, ui-sans-serif, system-ui, sans-serif';
+  const styleEl = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+  styleEl.textContent = `svg, svg * { font-family: ${ff}; }`;
+  clone.insertBefore(styleEl, clone.firstChild);
+  const xml = new XMLSerializer().serializeToString(clone);
+  return { xml, w, h };
+};
+
+const _loadSvgAsImage = (xml) =>
+  new Promise((resolve, reject) => {
+    const blob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.decoding = 'async';
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = (err) => { URL.revokeObjectURL(url); reject(err); };
+    img.src = url;
+  });
+
+const _resolveExportBg = (style, themeFallback) => {
+  const pb = style?.exportBackground;
+  if (pb === 'transparent') return null;
+  if (pb === 'white') return '#ffffff';
+  return themeFallback || '#ffffff';
+};
+
+const renderChartToPng = async (node, opts = {}) => {
+  if (!node) throw new Error('no node to render');
+  const {
+    filename = `mantis-chart-${Date.now()}`,
+    style = DEFAULT_PLOT_STYLE,
+    themeFallbackBg,
+  } = opts;
+  const scale = Number.isFinite(style.exportScale) ? style.exportScale : 2;
+  const format = style.exportFormat === 'svg' ? 'svg' : 'png';
+  const bg = _resolveExportBg(style, themeFallbackBg);
+
+  // SVG export format: skip the raster path entirely — serialize the node
+  // (or its only <svg>) and download.
+  if (format === 'svg') {
+    return renderNodeToPng(node, { filename, style, themeFallbackBg });
+  }
+
+  // Hide export-hostile UI (per-card buttons, tab toolbars, etc.) while
+  // rasterizing. Restores on finally so the live DOM is untouched.
+  const hidden = [...node.querySelectorAll('[data-no-export]')];
+  const prevDisp = hidden.map((n) => n.style.display);
+  hidden.forEach((n) => { n.style.display = 'none'; });
+  await Promise.resolve();
+
+  try {
+    const svgs = [...node.querySelectorAll('svg')];
+    const canvases = [...node.querySelectorAll('canvas')];
+    // Path 1: single SVG, no canvas → direct serialize.
+    if (svgs.length === 1 && canvases.length === 0) {
+      const { xml, w, h } = _serializeSvg(svgs[0]);
+      const img = await _loadSvgAsImage(xml);
+      const out = document.createElement('canvas');
+      out.width = Math.round(w * scale);
+      out.height = Math.round(h * scale);
+      const ctx = out.getContext('2d');
+      if (bg) { ctx.fillStyle = bg; ctx.fillRect(0, 0, out.width, out.height); }
+      ctx.drawImage(img, 0, 0, out.width, out.height);
+      return await _canvasToPng(out, filename);
+    }
+    // Path 2: any canvas present, or multiple SVGs → composite by
+    // bounding-rect position relative to `node`.
+    if (canvases.length > 0 || svgs.length > 1) {
+      const rect = node.getBoundingClientRect();
+      const W = Math.max(1, Math.round(rect.width * scale));
+      const H = Math.max(1, Math.round(rect.height * scale));
+      const out = document.createElement('canvas');
+      out.width = W; out.height = H;
+      const ctx = out.getContext('2d');
+      if (bg) { ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H); }
+      // Paint canvases first (the heatmap raster layer).
+      for (const c of canvases) {
+        const r = c.getBoundingClientRect();
+        const dx = Math.round((r.left - rect.left) * scale);
+        const dy = Math.round((r.top - rect.top) * scale);
+        const dw = Math.max(1, Math.round(r.width * scale));
+        const dh = Math.max(1, Math.round(r.height * scale));
+        try { ctx.drawImage(c, dx, dy, dw, dh); } catch { /* tainted canvas */ }
+      }
+      // Paint SVGs on top, in document order.
+      for (const s of svgs) {
+        const r = s.getBoundingClientRect();
+        const dx = Math.round((r.left - rect.left) * scale);
+        const dy = Math.round((r.top - rect.top) * scale);
+        const dw = Math.max(1, Math.round(r.width * scale));
+        const dh = Math.max(1, Math.round(r.height * scale));
+        const { xml } = _serializeSvg(s);
+        const img = await _loadSvgAsImage(xml);
+        ctx.drawImage(img, dx, dy, dw, dh);
+      }
+      return await _canvasToPng(out, filename);
+    }
+    // Path 3: no SVG and no canvas → HTML-only card. Fall back to dom-to-image.
+    return await renderNodeToPng(node, { filename, style, themeFallbackBg });
+  } finally {
+    hidden.forEach((n, i) => { n.style.display = prevDisp[i] || ''; });
+  }
+};
+
+// HTML-heavy fallback — uses dom-to-image-more with the same hardening
+// `mantisExport` already uses. Kept here so both paths share the filename
+// + style + bg resolution.
+const renderNodeToPng = async (node, opts = {}) => {
+  if (!node) throw new Error('no node to render');
+  const dti = window.domtoimage;
+  if (!dti) throw new Error('dom-to-image not loaded');
+  const {
+    filename = `mantis-chart-${Date.now()}`,
+    style = DEFAULT_PLOT_STYLE,
+    themeFallbackBg,
+  } = opts;
+  const scale = Number.isFinite(style.exportScale) ? style.exportScale : 2;
+  const format = style.exportFormat === 'svg' ? 'svg' : 'png';
+  const bg = style.exportBackground === 'transparent' ? 'transparent'
+           : style.exportBackground === 'white' ? '#ffffff'
+           : (themeFallbackBg || '#ffffff');
+  const hidden = [...node.querySelectorAll('[data-no-export]')];
+  const prevDisp = hidden.map((n) => n.style.display);
+  hidden.forEach((n) => { n.style.display = 'none'; });
+  // Lock inner SVG pixel sizes so dom-to-image's data-URL SVG image doesn't
+  // collapse `width="100%"` to 300 × 150 on serialize.
+  const svgs = [...node.querySelectorAll('svg')];
+  const origAttrs = svgs.map((s) => {
+    const r = s.getBoundingClientRect();
+    const prev = {
+      w: s.getAttribute('width'),
+      h: s.getAttribute('height'),
+      pa: s.getAttribute('preserveAspectRatio'),
+    };
+    if (r.width && r.height) {
+      s.setAttribute('width', String(Math.round(r.width)));
+      s.setAttribute('height', String(Math.round(r.height)));
+      s.setAttribute('preserveAspectRatio', 'none');
+    }
+    return { svg: s, prev };
+  });
+  void node.offsetHeight;
+  const dopts = {
+    scale,
+    width: node.scrollWidth,
+    height: node.scrollHeight,
+    copyDefaultStyles: false,
+    cacheBust: true,
+  };
+  if (bg !== 'transparent') dopts.bgcolor = bg;
+  const withTimeout = (p, ms) => Promise.race([
+    p,
+    new Promise((_, rej) => setTimeout(
+      () => rej(new Error(`export timed out after ${ms / 1000}s`)), ms)),
+  ]);
+  try {
+    let blob;
+    if (format === 'svg') {
+      const dataUrl = await withTimeout(dti.toSvg(node, dopts), 15000);
+      const svgText = decodeURIComponent(
+        dataUrl.replace(/^data:image\/svg\+xml;charset=utf-8,/, ''));
+      blob = new Blob([svgText], { type: 'image/svg+xml' });
+    } else {
+      blob = await withTimeout(dti.toBlob(node, dopts), 15000);
+    }
+    return _blobDownload(blob, filename, format);
+  } finally {
+    hidden.forEach((n, i) => { n.style.display = prevDisp[i] || ''; });
+    origAttrs.forEach(({ svg, prev }) => {
+      if (prev.w == null) svg.removeAttribute('width'); else svg.setAttribute('width', prev.w);
+      if (prev.h == null) svg.removeAttribute('height'); else svg.setAttribute('height', prev.h);
+      if (prev.pa == null) svg.removeAttribute('preserveAspectRatio');
+      else svg.setAttribute('preserveAspectRatio', prev.pa);
+    });
+  }
+};
+
+// ---------------------------------------------------------------------------
+// <Chart> — the single chart primitive.
+// ---------------------------------------------------------------------------
+// Props:
+//   title, sub, footer, channel, exportName, aspect, noExport, children
+//   geom: { W, H, PAD, xDomain, yDomain, yFlipped } — optional; when
+//         provided, `<Chart>` computes geometry once and exposes it to
+//         child SVG code via `useChartGeom()`. Without `geom`, children
+//         either call `useChartGeom({W,H,...})` with their own opts or
+//         fall back to a bare default.
+const Chart = ({
+  title, sub, footer, channel, exportName,
+  aspect, noExport = false,
+  geom,
+  chartBg,             // optional override for body background
+  children,
+  className, style: extraCssStyle,
+}) => {
+  const t = useTheme();
+  const { style } = usePlotStyle();
+  const tok = useMemo(() => tokens(style, t), [style, t]);
+  const chrome = cardChromeFor(style, t);
+  const cardRef = useRef(null);
+
+  const resolvedAspect = aspect || style?.aspect || 'auto';
+  const ratio = _ASPECT_RATIOS[resolvedAspect];
+  const geomValue = useMemo(() => {
+    if (!geom) return null;
+    return _computeGeom({ aspect: resolvedAspect, ...geom });
+  }, [resolvedAspect, geom && JSON.stringify(geom)]);
+
+  const displayTitle = title || channel;
+  const hasHeader = displayTitle || sub || !noExport;
+
+  const onExport = async () => {
+    const base = exportName || (channel ? `mantis-${channel}` : 'mantis-chart');
+    const name = `${base}-${Date.now()}`.replace(/\s+/g, '_').toLowerCase();
+    try {
+      await renderChartToPng(cardRef.current, {
+        filename: name,
+        style,
+        themeFallbackBg: t.panel,
+      });
+    } catch (err) {
+      console.error('Chart export failed', err);
+    }
+  };
+
+  const bodyStyle = {
+    flex: '1 1 auto',
+    minWidth: 0,
+    minHeight: 0,
+    background: chartBg || chartBodyBgFor(style, t),
+    aspectRatio: ratio != null ? `${ratio}` : undefined,
+    display: 'flex',
+    flexDirection: 'column',
+  };
+
+  const content = (
+    <div
+      ref={cardRef}
+      className={className}
+      style={{
+        ...chrome,
+        display: 'flex',
+        flexDirection: 'column',
+        boxShadow: style.cardBorder
+          ? `0 1px 2px ${t.shadow || 'rgba(0,0,0,0.04)'}`
+          : 'none',
+        ...extraCssStyle,
+      }}
+    >
+      {hasHeader && (
+        <div style={{
+          display: 'flex', alignItems: 'baseline', gap: 8,
+          marginBottom: 6, flexWrap: 'wrap',
+        }}>
+          {channel && (
+            <>
+              <span style={{
+                width: scaled(9, style), height: scaled(9, style),
+                borderRadius: '50%', background: paletteColor(style, channel),
+                flexShrink: 0,
+              }} />
+              <span style={{ ...tok.title }}>{channel}</span>
+            </>
+          )}
+          {title && !channel && (
+            <span style={{ ...tok.title }}>{title}</span>
+          )}
+          {sub && (
+            <span style={{ ...tok.legend, color: t.textMuted }}>{sub}</span>
+          )}
+          <span style={{ flex: 1 }} />
+          {!noExport && (
+            <button
+              data-no-export
+              onClick={onExport}
+              title="Download this chart as an image (tight crop)"
+              style={{
+                background: 'transparent', border: `1px solid ${t.border}`,
+                color: t.textMuted, borderRadius: 4,
+                padding: '2px 6px', cursor: 'pointer',
+                fontFamily: 'inherit', fontSize: 10.5,
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+              }}
+            >
+              <Icon name="export" size={10} />PNG
+            </button>
+          )}
+        </div>
+      )}
+      <div style={bodyStyle}>{children}</div>
+      {footer && (
+        <div style={{
+          marginTop: 6, ...tok.legend, color: t.textMuted, lineHeight: 1.5,
+        }}>
+          {footer}
+        </div>
+      )}
+    </div>
+  );
+
+  if (geomValue) {
+    return <ChartGeomCtx.Provider value={geomValue}>{content}</ChartGeomCtx.Provider>;
+  }
+  return content;
+};
+
+// ---------------------------------------------------------------------------
+// <Page> — PlotStyleCtx provider + resolved page background.
+// ---------------------------------------------------------------------------
+// Use it to wrap the analysis-modal body. If `plotStyleState` is passed
+// (from an existing `usePlotStyleState()` call), the Provider forwards it
+// untouched; otherwise `<Page>` mints its own so callers can drop it in
+// without plumbing state manually.
+const Page = ({
+  plotStyleState,    // optional; must match PlotStyleCtx's expected shape
+  themeFallback,     // resolves the 'theme' pageBackground token
+  as: Tag = 'div',
+  style: cssStyle,
+  children,
+  ...rest
+}) => {
+  const t = useTheme();
+  // Hooks must run unconditionally — always mint a local state; if the
+  // caller passed `plotStyleState`, that wins below.
+  const ownState = usePlotStyleState();
+  const value = plotStyleState || ownState;
+  const style = value?.style || DEFAULT_PLOT_STYLE;
+  const bg = pageBgFor(style, t, themeFallback);
+  return (
+    <PlotStyleCtx.Provider value={value}>
+      <Tag
+        style={{ background: bg, ...cssStyle }}
+        {...rest}
+      >
+        {children}
+      </Tag>
+    </PlotStyleCtx.Provider>
+  );
+};
+
 Object.assign(window, {
   THEMES, CHANNEL_COLORS, ELEMENT_COLORS, BRAND, IMAGE_DIMS,
   ThemeCtx, useTheme,
@@ -2217,4 +2805,9 @@ Object.assign(window, {
   // Heatmap primitives (plot-style-completion-v1)
   HeatmapCanvas, HeatmapColorBar,
   decodeFloat32Grid, decodeUint8Mask, colormapLUT, CMAP_STOPS,
+  // analysis-page-overhaul-v1 foundation primitives
+  Chart, Page, ChartGeomCtx, useChartGeom, tokens, useTokens,
+  channelColor, paletteColor,
+  pageBgFor, chartBodyBgFor,
+  renderChartToPng, renderNodeToPng,
 });
