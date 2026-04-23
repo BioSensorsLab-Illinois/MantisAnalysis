@@ -1,18 +1,20 @@
 # MantisAnalysis
 
-[![smoke](https://img.shields.io/badge/smoke-tier1%2F2%20pass-brightgreen)](scripts/smoke_test.py)
-[![tests](https://img.shields.io/badge/pytest-39%20passed-brightgreen)](tests/)
+[![smoke](https://img.shields.io/badge/smoke-tier1%2F2%2F3%20pass-brightgreen)](scripts/smoke_test.py)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
+[![stack](https://img.shields.io/badge/stack-FastAPI%20%C2%B7%20React%2018-blue)](web/)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Desktop analysis suite for **MantisCam GSense BSI dual-gain RGB-NIR** recordings,
-plus generic PNG / TIFF / JPG images. Three modes:
+Browser-based analysis suite for **MantisCam GSense BSI dual-gain RGB-NIR**
+recordings, plus generic PNG / TIFF / JPG images. A local FastAPI server
+wraps pure-NumPy / SciPy analysis; a React single-page app in `web/` is the
+UI. Three modes:
 
 | Mode | What it does |
 |---|---|
-| **USAF Resolution** | Pick profile lines across USAF-1951 chart bar groups; report Michelson contrast vs lp/mm and per-channel detection limits. Six-tab analysis window: MTF curves · Profile gallery · Summary table · Detection heatmap · Group sweep · FFT/MTF. |
-| **FPN Analysis** | Drag a rectangular ROI; optional ISP (median, Gaussian, hot-pixel, bilateral); percentile outlier mask with live red overlay; DSNU / PRNU / row σ / col σ / residual σ. Five figure types per channel. |
-| **Depth of Field** | Pick focus probe points or scan lines on a DoF target; choose from four focus metrics (variance of Laplacian, Brenner, Tenengrad, FFT-HF energy); H/V reference-line calibration converts pixel distances to μm or mm. Five figure types per channel. |
+| **USAF Resolution** | Pick profile lines across USAF-1951 chart bar groups; per-line Michelson contrast (percentile / FFT / min-max) and per-channel detection limit are computed server-side. Six-tab analysis window. |
+| **FPN Analysis** | Drag a rectangular ROI on any channel; live DSNU / PRNU / row-σ / col-σ / residual-σ updates from the server on every ROI / ISP / channel change. Four figure types per channel. |
+| **Depth of Field** | Drop focus probe points or draw scan lines; four focus metrics (variance of Laplacian, Brenner, Tenengrad, FFT-HF). Optional H/V reference-length calibration converts all readouts to μm / mm / cm. |
 
 Designed by **Zhongmin Zhu** (`j@polarxphotonics.com`) — **BioSensors Lab @ UIUC**.
 Released under the [MIT License](LICENSE).
@@ -29,28 +31,48 @@ cd MantisAnalysis
 python -m pip install -e .
 ```
 
-For development (pytest + ruff + mypy + pytest-qt):
+For development (pytest + ruff + mypy + httpx):
 
 ```bash
 python -m pip install -e .[dev]
 ```
 
+No Node / npm — the frontend is React 18 + Babel standalone, loaded from CDN by `web/index.html` and transpiled in the browser. No build step.
+
 ## Run
 
+### Double-click (recommended for non-developers)
+
+- **macOS**: double-click [`MantisAnalysis.command`](MantisAnalysis.command) in Finder. If Gatekeeper blocks the first launch, right-click → **Open** once.
+- **Windows**: double-click [`MantisAnalysis.bat`](MantisAnalysis.bat) in Explorer.
+
+Either launcher detects your Python, runs `pip install -e .` the first time if the package is not yet installed, then starts the server and opens your default browser. Close the terminal window or press <kbd>Ctrl</kbd>-<kbd>C</kbd> to stop.
+
+### From a shell
+
 ```bash
-python -m mantisanalysis                        # opens GUI; use File → Open
-python -m mantisanalysis path/to/recording.h5   # open immediately
-python -m mantisanalysis --dark path/to/file    # dark theme
+mantisanalysis                                  # starts server + opens browser
+python -m mantisanalysis                        # same thing, without pip install
+python -m mantisanalysis path/to/recording.h5   # preload a file
+python -m mantisanalysis --no-browser           # server only
+python -m mantisanalysis --port 9001            # custom port
 ```
 
-Equivalent direct invocations:
+The server binds `http://127.0.0.1:8765` by default and serves the `web/` tree at the root. `python -m mantisanalysis` waits for the port, then opens your default browser.
+
+### Or use any HTTP client / Swagger
+
+Interactive API docs: `http://127.0.0.1:8765/api/docs` (FastAPI auto-generated).
+
+Example curl round-trip:
 
 ```bash
-python scripts/pick_lines_gui.py [path]         # legacy direct entry
-mantisanalysis [path]                           # if pip-installed
+curl http://127.0.0.1:8765/api/health
+curl -X POST http://127.0.0.1:8765/api/sources/load-sample
+curl -X POST http://127.0.0.1:8765/api/usaf/measure \
+  -H 'content-type: application/json' \
+  -d '{"source_id":"<id>","channel":"HG-G","line":{"group":2,"element":3,"direction":"H","p0":[80,80],"p1":[150,80]}}'
 ```
-
-Windows users can also double-click `MantisAnalysis.bat`.
 
 ## Channel layout (GSense dual-gain)
 
@@ -65,9 +87,7 @@ mosaic. The Bayer extraction follows the lab's MantisCam ISP exactly:
 | G   | (1, 0) | (0, 0) | `[2::4, 0::4]` |
 | NIR | (1, 1) | (0, 0) | `[2::4, 2::4]` |
 
-After extraction every per-channel image is `(H/4, W/4)` — for the
-2048×2048 half-frame, 512×512 per channel. Per-channel Nyquist is **0.5
-cy/channel-pixel = 0.125 cy/sensor-pixel**.
+After extraction every per-channel image is `(H/4, W/4)` — for the 2048×2048 half-frame, 512×512 per channel. Per-channel Nyquist is **0.5 cy/channel-pixel = 0.125 cy/sensor-pixel**.
 
 ## USAF lp/mm reference (groups 0–5)
 
@@ -82,84 +102,83 @@ cy/channel-pixel = 0.125 cy/sensor-pixel**.
 
 `lp/mm = 2^(group + (element-1)/6)`.
 
-## Two analysis workflows
+## Architecture
 
-### A. Auto FFT line-profile MTF *(legacy CLI)*
-
-```bash
-python scripts/run_usaf_resolution.py "path/to/h5" [out-dir]
+```
+Browser (web/)                    FastAPI server (mantisanalysis/server.py)
+┌────────────────────┐  HTTP      ┌──────────────────────────────────────┐
+│ React 18 SPA       │ ─────────► │ /api/sources/{upload,load-sample,..} │
+│ · USAF / FPN / DoF │            │ /api/sources/<id>/channel/../thumb   │
+│   mode panes       │            │ /api/usaf/{measure,analyze}          │
+│ · Canvas overlays  │            │ /api/fpn/{compute,analyze}           │
+│ · ⌘K palette       │            │ /api/dof/{compute,analyze}           │
+│ · Live stats from  │            └──────────┬───────────────────────────┘
+│   server           │                       │
+└────────────────────┘                       ▼
+                              ┌──────────────────────────────────────┐
+                              │ Pure NumPy / SciPy analysis          │
+                              │ · extract.py (Bayer, GSense)         │
+                              │ · image_io.py (H5 + PNG/TIFF/JPG)    │
+                              │ · usaf_groups.py (Michelson, FFT)    │
+                              │ · fpn_analysis.py (DSNU, PRNU, …)    │
+                              │ · dof_analysis.py (4 focus metrics)  │
+                              │ · figures.py → matplotlib PNGs       │
+                              └──────────────────────────────────────┘
 ```
 
-Generates per-gain panel + overlay + HG-vs-LG summary figures using a
-horizontal and vertical strip auto-placed at the row/column of strongest
-periodic content. Orthogonal to the GUI.
-
-### B. Interactive USAF per-element picking *(default workflow in the GUI)*
-
-Pick lines through specific USAF elements; the analysis window reports
-Michelson contrast vs lp/mm with the first-dip detection limit per
-channel, in three measurement-method flavors (percentile / FFT @
-fundamental / peak-to-peak).
-
-## Test + lint
-
-```bash
-python -m pytest tests/ -q              # 39 tests, ~0.7 s
-python -m ruff check mantisanalysis scripts tests
-python -m ruff format mantisanalysis scripts tests
-python -m mypy mantisanalysis           # progressive
-```
+The analysis math layer stays Qt-free and pure NumPy / SciPy — the smoke gate and pytest suite both drive it headlessly. The FastAPI layer is a thin JSON + PNG adapter.
 
 ## Smoke gates
 
 ```bash
-python scripts/smoke_test.py --tier 1   # imports only
-python scripts/smoke_test.py --tier 2   # headless figure builders
-python scripts/smoke_test.py --tier 3   # Qt boot (needs display)
+python scripts/smoke_test.py --tier 1   # imports
+python scripts/smoke_test.py --tier 2   # headless figure builders (Agg)
+python scripts/smoke_test.py --tier 3   # FastAPI endpoints (TestClient)
 ```
 
-Tiers 1 + 2 are mandatory before claiming any non-doc change complete.
-Both run in CI on every push (Linux / macOS / Windows × Python
-3.10–3.13). See [`.agent/QUALITY_GATES.md`](.agent/QUALITY_GATES.md).
+All three are mandatory before claiming any non-doc change complete. Tier 3 boots the ASGI app in-process (no external uvicorn) and exercises health + sample load + thumbnail + USAF measure + FPN compute + DoF compute. See [`.agent/QUALITY_GATES.md`](.agent/QUALITY_GATES.md).
 
 ## Repository structure
 
 ```
 MantisAnalysis/
-├── mantisanalysis/          ← Python package (analysis math + figures + UI modes)
-├── scripts/                 ← entry points + smoke harness
-├── tests/                   ← unit + headless test suites
-├── .agent/                  ← agent operating layer (start here for AI work)
+├── mantisanalysis/          ← Python package (analysis math + FastAPI server)
+│   ├── extract.py           ← GSense Bayer extractor (constants locked)
+│   ├── image_io.py          ← load_any: H5 + PNG/TIFF/JPG
+│   ├── usaf_groups.py       ← lp/mm, LineSpec, Michelson (3 flavors)
+│   ├── fpn_analysis.py      ← ISP + FPN stats + percentile mask
+│   ├── dof_analysis.py      ← 4 focus metrics + heatmap + calibration
+│   ├── image_processing.py  ← sharpen / tone / percentile clip
+│   ├── {usaf,fpn,dof}_render.py  ← matplotlib figure builders
+│   ├── figures.py           ← PNG byte serializer over render modules
+│   ├── server.py            ← FastAPI app + JSON schemas
+│   ├── session.py           ← in-memory source store (LRU)
+│   ├── app.py               ← `mantisanalysis` CLI → uvicorn + browser
+│   └── __main__.py          ← `python -m mantisanalysis`
+├── web/                     ← React 18 SPA (CDN; no toolchain)
+│   ├── index.html
+│   └── src/{shared,app,usaf,fpn,dof,analysis}.jsx
+├── scripts/
+│   ├── inspect_recording.py ← one-shot H5 inspector
+│   ├── run_usaf_resolution.py  ← legacy Workflow A CLI
+│   └── smoke_test.py        ← tiered smoke harness
+├── tests/                   ← unit + headless
+├── .agent/                  ← agent operating layer
 ├── .github/workflows/       ← CI
-├── pyproject.toml           ← packaging + tool configs
-├── README.md                ← this file
-├── UI_SPEC.md               ← long UX spec (for design / UI rework)
+├── pyproject.toml
+├── README.md
 └── LICENSE                  ← MIT
 ```
 
-For deeper architecture see [`.agent/ARCHITECTURE.md`](.agent/ARCHITECTURE.md)
-and [`.agent/REPO_MAP.md`](.agent/REPO_MAP.md).
+## Caveats
+
+- HG can be heavily saturated near bright targets — Michelson contrast collapses to ≈ 0 once both bar and gap are clipped. Use LG for the resolvable-element verdict.
+- The auto-strip FFT MTF (`scripts/run_usaf_resolution.py`) is a rigorous estimator of the system spatial-content envelope, not a formal optical-MTF measurement (which would require a slanted-edge target, ISO 12233).
+- USAF Michelson is a per-element, per-direction estimate; lines for high-frequency elements must span all 3 bars cleanly, which becomes hard when the bars are sub-pixel-period in the per-channel image (Nyquist = 0.5 cy/channel-pixel).
 
 ## Contributing / agent workflow
 
-This repo ships with a `.agent/` operating layer. Coding agents
-(Claude Code, Cursor, etc.) should start at
-[`.agent/00_START_HERE.md`](.agent/00_START_HERE.md). Human contributors
-working with an agent should read the same file plus
-[`.agent/AGENT_RULES.md`](.agent/AGENT_RULES.md).
-
-## Caveats
-
-- HG can be heavily saturated near bright targets — Michelson contrast
-  collapses to ≈ 0 once both bar and gap are clipped. Use LG for the
-  resolvable-element verdict.
-- The auto-strip FFT MTF (Workflow A) is a rigorous estimator of the
-  system spatial-content envelope, not a formal optical-MTF measurement
-  (which would require a slanted-edge target, ISO 12233).
-- USAF Michelson in the interactive picker is a per-element,
-  per-direction estimate; lines for high-frequency elements must span
-  all 3 bars cleanly, which becomes hard when the bars are sub-pixel-
-  period in the per-channel image (Nyquist = 0.5 cy/channel-pixel).
+This repo ships with a `.agent/` operating layer. Start at [`.agent/00_START_HERE.md`](.agent/00_START_HERE.md), then read [`.agent/AGENT_RULES.md`](.agent/AGENT_RULES.md) and [`.agent/ARCHITECTURE.md`](.agent/ARCHITECTURE.md).
 
 ## License + attribution
 

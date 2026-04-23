@@ -22,10 +22,13 @@ on this and adjacent projects.
 6. **Never change channel key names.** `HG-R`, `HG-G`, …, `LG-Y`, `R`,
    `G`, `B`, `Y`, `L` are consumed everywhere — JSON persistence, figure
    code, analysis output. Renames break saved-lines JSON.
-7. **Analysis math modules forbid Qt imports.** `usaf_groups.py`,
+7. **Analysis math modules stay pure NumPy/SciPy.** `usaf_groups.py`,
    `fpn_analysis.py`, `dof_analysis.py`, `resolution.py`, `image_io.py`,
-   `extract.py`, `image_processing.py` stay pure NumPy/SciPy so they are
-   unit-testable without a display.
+   `extract.py`, `image_processing.py` must not import Qt, FastAPI, or
+   any other UI/transport framework — they need to remain unit-testable
+   in a headless process. The FastAPI layer (`server.py`, `session.py`,
+   `figures.py`) is the only adapter between analysis math and the HTTP
+   frontend; it lives at the outermost ring.
 8. **Every non-doc change updates docs.** If you change architecture →
    `ARCHITECTURE.md` + `REPO_MAP.md`. If you change workflow →
    `WORKFLOWS.md`. If you change commands → `SETUP_AND_RUN.md`. If you
@@ -40,6 +43,20 @@ on this and adjacent projects.
 12. **No cosmetic refactors.** Style-only changes burn time and
     obscure review. Ruff handles format on demand; don't pre-emptively
     format unrelated files.
+13. **One agentic-workflow directory: `.agent/`.** The Claude Code
+    framework looks for tool-config files (`launch.json`,
+    `settings.local.json`) at `.claude/`. We satisfy both by making
+    `.claude` a **symlink to `.agent`** — every file lives once, under
+    `.agent/`, but `.claude/<name>` resolves there too. Don't create a
+    real `.claude/` directory: keep the symlink so there is one source
+    of truth.
+14. **Verify frontend changes by actually rendering them.** The
+    Claude Preview MCP (`mcp__Claude_Preview__*`) launches the local
+    server (config in `.agent/launch.json`) and lets the agent
+    screenshot, evaluate JS, and inspect the live DOM. After any
+    non-trivial UI change, take a screenshot and look at it before
+    claiming the work done. "Looks correct in the diff" is not
+    sufficient evidence.
 
 ## Soft rules (prefer)
 

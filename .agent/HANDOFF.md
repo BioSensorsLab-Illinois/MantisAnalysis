@@ -1,81 +1,107 @@
 # HANDOFF — current live state pointer
 
-Last updated: **2026-04-22**, end of Phase-2 implementation pass by
-Claude Opus 4.7.
+Last updated: **2026-04-23**, end of `backlog-cleanup-v1` (post-trio
+backlog fully drained; committable).
 
 ## Current state of the working tree
 
-- Branch: `main` (only branch).
-- VCS state: `git init` complete; `git remote add origin
-  https://github.com/BioSensorsLab-Illinois/MantisAnalysis.git`. **No
-  commits yet.** All files are uncommitted-untracked from git's POV.
-- Folder rename: complete. Repo now lives at
-  `C:\Users\J\BioSensors-Lab\MantisAnalysis`.
-- Empty husk at `C:\Users\J\BioSensors-Lab\rgbnir-analysis` — see
-  RISK R-0008. User can delete after closing any open Explorer windows
-  on the path.
+- Branch: `main`.
+- VCS state: **large multi-session refactor uncommitted** on `main`.
+  B-0010 (initial commit + push) is the only open gate left from this
+  cleanup sweep and awaits explicit user consent.
 
-## What just shipped
+## What just shipped (backlog-cleanup-v1)
 
-1. Folder + Python-package rename (`rgbnir-analysis/rgbnir` →
-   `MantisAnalysis/mantisanalysis`).
-2. Imports rewritten across all scripts; package importable.
-3. `pyproject.toml` (PEP 621) + `LICENSE` (MIT) +
-   `.gitignore`.
-4. `mantisanalysis/__init__.py` carries `__version__ = "0.1.0"`,
-   `__author__`, `__email__`.
-5. `mantisanalysis/app.py` + `mantisanalysis/__main__.py` —
-   `python -m mantisanalysis` works.
-6. `MantisAnalysis.bat` Windows launcher renamed.
-7. `scripts/smoke_test.py` with Tiers 1, 2, 3 implemented (Tier 4
-   stub).
-8. `tests/` with 39 tests across 5 unit + 1 headless modules. All
-   green.
-9. `.agent/` operating layer — 17 docs + machine manifest.
-10. `.github/workflows/smoke.yml` — Tier 1 + pytest on Linux/macOS/
-    Windows × Python 3.10/3.11/3.12/3.13; Tier 2 on Linux.
-11. Root `README.md` rewritten as user-facing docs.
+Single session that swept the open backlog after the USAF/FPN/DoF
+rewrite trio closed:
 
-## What did NOT ship in this pass (intentional, see DECISIONS / BACKLOG)
+- **B-0016 + B-0005 (R-0007)** — new `mantisanalysis/plotting.py` owns
+  `_color` / `_ch` / `_style_axes` + `CHANNEL_COLORS`. Deleted dead
+  `open_*_window` Qt factories and their entire tab / draw / theme
+  helper chain. −~1500 LoC across three render files; R-0007
+  cross-module coupling closed.
+- **B-0020** — DoF analysis modal gets a `Unit` segmented control
+  (Auto / px / µm / mm / cm) + helpers that fall back to px with a
+  "calibration missing" hint when a physical unit is picked on an
+  uncalibrated line.
+- **B-0021** — DoF target-tilt correction. `Target tilt (°)` slider on
+  the picker (persisted at `dof/tiltAngleDeg`, disabled until a
+  calibration reference is set) propagates through the run payload as
+  `tilt_angle_deg`; the modal shows a live °-input + applies
+  `1/cos(θ·π/180)` to every peak / σ / FWHM / DoF width, with a
+  header suffix making pre/post-correction numbers unambiguous. CSV
+  + JSON exports carry the raw-px values and the active tilt.
+- **B-0019** — every hardcoded `fontSize={N}` / `strokeWidth={N}` /
+  `fontFamily="ui-monospace,..."` literal in `web/src/analysis.jsx`
+  replaced with `scaled(N, style)` / `style.*` / cascade-from-modal-
+  root fontFamily. Renamed `MiniMTFChart`'s draw-style prop from
+  `style` → `drawStyle` to disambiguate.
+- **B-0015** — Playwright smoke scaffolded + passing locally at
+  `tests/web/test_web_boot.py`. Opt-in extras
+  `[web-smoke]` + `web_smoke` pytest marker.
+- **B-0018** — documented the required real-sample validation captures
+  in `docs/validation/README.md`; still BLOCKED on H5 recordings.
+- **B-0011** — deleted stale `requirements.txt` (was listing PySide6);
+  `pyproject.toml` is now the only dependency source.
+- **Legacy sweep** — B-0001 / B-0002 / B-0003 / B-0004 / B-0008 /
+  B-0009 / B-0013 closed in BACKLOG.md as obsolete or already-done.
+- **D-0014** added for the dead-Qt delete + `plotting.py` hoist.
 
-- Sub-packaging into `io/`, `isp/`, `widgets/`, `modes/{usaf,fpn,dof}/`
-  (B-0001, B-0002, B-0003, B-0004).
-- Widget deduplication.
-- USAFPickerApp demotion to QWidget.
-- Tier-4 end-to-end smoke (B-0008).
-- Tier-3 CI integration (B-0009).
-- Initial commit + push to remote (B-0010 — held for user review).
+## Smoke status, last verified 2026-04-23
 
-## Smoke tier status, last verified
+- ✅ Tier 1 — PASS (15 modules imported)
+- ✅ Tier 2 — PASS (figures written to `outputs/smoke/`)
+- ✅ Tier 3 — PASS (FastAPI TestClient exercises health / sample /
+  thumbnail / USAF measure / FPN compute / DoF compute / analyze)
+- ✅ pytest — 40/40 green (including the new Playwright smoke at
+  `tests/web/test_web_boot.py`)
 
-- ✅ Tier 1 — PASS (15 modules)
-- ✅ Tier 2 — PASS (USAF + FPN + DoF figure builders all output PNGs)
-- ⚠ Tier 3 — partially verified mid-development (`timeout 4 python
-  -m mantisanalysis` exits 0). NOT formally re-run after the rename;
-  recommended as the first action of next session.
-- ❌ Tier 4 — not implemented (B-0008).
+## Quick verification for the next agent
 
-`pytest tests/` — ✅ 39 passed in ~0.7s.
+```bash
+python scripts/smoke_test.py --tier 1
+python scripts/smoke_test.py --tier 2
+python scripts/smoke_test.py --tier 3
+python -m pytest               # 40 tests including tests/web
+python -m mantisanalysis --no-browser   # real uvicorn boot
+curl http://127.0.0.1:8765/api/health
+```
 
 ## Where to pick up next
 
-1. **First**: run Tier 3 smoke on the current tree. If green, proceed.
-2. Pick the next initiative from `.agent/BACKLOG.md`.
-   - Recommended order: B-0010 (commit + push) → B-0005 (hoist
-     plotting helpers, easy win) → B-0001 (move app.py) →
-     B-0002 (widget dedup) → B-0003 (USAFPickerApp demotion) →
-     B-0008 (tier-4 smoke) → B-0009 (CI tier-3).
-3. Open a new initiative folder under `.agent/runs/<slug>/` from the
-   templates in `.agent/templates/` before doing the work.
+1. **B-0010** — initial commit + `git push -u origin main`. This is
+   the explicit user-consent gate from the previous handoff and is
+   still the next action after this session's backlog sweep.
+2. **B-0018** — real-sample validation: needs real H5 captures. Staging
+   area is `docs/validation/` per its README.
+3. **B-0015 extended** — per-mode interaction tests + CI gating of the
+   Playwright smoke (installing chromium in CI is ~300 MB).
+4. **B-0014** — adopt a bundler for `web/` (Vite/esbuild) if the CDN
+   Babel boot becomes a bottleneck.
+5. **B-0006, B-0007, B-0012** — untouched legacy items that stayed
+   valid after Qt removal (legacy Workflow A CLI smoke, rotate-clears-
+   picks warning, onboarding helper script).
 
 ## Known dirty files
 
-All files in the tree are "new" from git's POV (`git status -s` will
-show `??`). Nothing is in a half-edited state.
+Everything in `mantisanalysis/` (incl. new `plotting.py`, shrunken
+`*_render.py`), `web/src/analysis.jsx`, `web/src/dof.jsx`, `tests/web/`,
+`docs/validation/`, `pyproject.toml`, `.agent/BACKLOG.md`,
+`.agent/CHANGELOG_AGENT.md`, `.agent/DECISIONS.md`,
+`.agent/ARCHITECTURE.md`, `.agent/REPO_MAP.md`, `.agent/HANDOFF.md`,
+and the `.agent/runs/backlog-cleanup-v1/` initiative folder. Deleted:
+`requirements.txt`. `git status -sb` will show the full list.
 
 ## Active initiative
 
-None open. The Phase-2 implementation work was tracked inline in this
-HANDOFF rather than as a `.agent/runs/` folder because it crossed many
-files and was driven by the user's prompt. Next agent should follow
-the initiative pattern strictly per `WORKFLOWS.md` § B.
+`.agent/runs/backlog-cleanup-v1/` — post-trio backlog drain. All
+milestones ticked except the final commit (B-0010) which is up to the
+user.
+
+Preceded by:
+- `.agent/runs/analysis-polish-v1/` — publication-grade plotStyle
+  framework (infrastructure that this session wired up across every
+  chart component).
+- `.agent/runs/dof-rewrite-v1/` — DoF mode brought to USAF/FPN parity.
+- `.agent/runs/fpn-rewrite-v1/` — FPN mode parity + EMVA extras.
+- `.agent/runs/gui-rewrite-v1/` — original PyQt→web refactor (D-0009).

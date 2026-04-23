@@ -21,17 +21,46 @@ We support 4 focus metrics so the user can sanity-check across them:
                  — direct measure of "fine detail" content; immune to
                  absolute brightness
 
+Research extras (dof-rewrite-v1):
+
+    Gaussian fit         : scipy.optimize.curve_fit of
+                           f(s) = A·exp(-(s-μ)²/(2σ²)) + b against the
+                           line scan. `μ` is a parametric peak estimate
+                           that's more robust than argmax; `σ` is
+                           directly proportional to the optical circle-
+                           of-confusion; FWHM = 2·√(2 ln 2)·σ ≈ 2.355·σ
+                           gives a noise-resilient DoF estimate.
+    Bootstrap CI         : percentile-bootstrap on the focus array
+                           (B=200 by default) to deliver a 95% CI on
+                           the peak position and DoF width. Big CIs
+                           mean the ROI / exposure is too noisy.
+    Multi-metric sweep   : same line scanned with all 4 metrics; if
+                           the peak positions agree, the estimate is
+                           robust; if they disagree, the image content
+                           doesn't have enough fine detail for that
+                           metric to discriminate focus.
+    Per-channel compare  : `analyze_dof_multi` runs the full pipeline
+                           across several channels in one call,
+                           enabling chromatic-focus-shift detection.
+    Tilt-plane fit       : `fit_focus_plane(points)` — least-squares
+                           bilinear surface over (x, y, focus); the
+                           slope gives the image-plane tilt direction.
+    Stability curve      : `compute_dof_stability()` shrinks the line's
+                           half-window to see if the DoF estimate is
+                           window-size-dependent.
+
 References:
     Pech-Pacheco et al., 2000 — Diatom Autofocusing (variance of Laplacian)
     Brenner et al., 1976 — Quantitative microscopy autofocus
     Pertuz et al., 2013 — Analysis of focus measure operators for SFF
     Edmund Optics — Depth of Field & Depth of Focus application note
+    ISO 12233 — MTF / SFR (for the COC-from-Gaussian-σ interpretation)
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Tuple
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 from scipy.ndimage import gaussian_filter, laplace, sobel
@@ -67,7 +96,6 @@ def focus_brenner(window: np.ndarray) -> float:
         return 0.0
     if window.shape[0] < 3 or window.shape[1] < 3:
         return 0.0
-    # Sum of squared 2-step horizontal + vertical differences
     dx = window[:, 2:] - window[:, :-2]
     dy = window[2:, :] - window[:-2, :]
     return float((dx ** 2).sum() + (dy ** 2).sum()) / float(window.size)
@@ -121,6 +149,24 @@ def measure_focus(image: np.ndarray, cx: float, cy: float, *,
     raise ValueError(f"unknown focus metric: {metric!r}")
 
 
+def measure_focus_all(image: np.ndarray, cx: float, cy: float, *,
+                      half_window: int = 32) -> Dict[str, float]:
+    """Compute all four focus metrics against the same window in one pass.
+
+    The window is extracted once and reused, which is cheaper than four
+    independent ``measure_focus`` calls for long line scans.
+    """
+    win = _window(image, cx, cy, half_window)
+    if win is None:
+        return {m: 0.0 for m in FOCUS_METRICS}
+    return {
+        "laplacian": focus_laplacian(win),
+        "brenner":   focus_brenner(win),
+        "tenengrad": focus_tenengrad(win),
+        "fft_hf":    focus_fft_hf(win),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Data classes
 
@@ -138,6 +184,31 @@ class DoFPointResult:
     point: DoFPoint
     focus: float
     focus_norm: float       # = focus / peak_focus (0..1)
+    # All-metrics response at this point (dof-rewrite-v1). Present when
+    # ``analyze_dof(..., compute_all_metrics=True)`` was used.
+    focus_all: Optional[Dict[str, float]] = None
+
+
+@dataclass
+class GaussianFit:
+    """Parametric fit ``A·exp(-(s-μ)²/(2σ²)) + b`` on a focus curve.
+
+    ``converged`` is False when ``scipy.optimize.curve_fit`` raised or
+    returned a degenerate σ; callers should fall back to the argmax /
+    threshold-walk estimate in that case.
+    """
+    converged: bool
+    amp: float              # A
+    mu: float               # peak position
+    sigma: float            # standard deviation (px along line)
+    baseline: float         # b
+    fwhm: float             # = 2·√(2·ln 2)·σ ≈ 2.355·σ
+    r_squared: float        # goodness-of-fit in [0, 1]; NaN if undefined
+
+    @classmethod
+    def empty(cls) -> "GaussianFit":
+        nan = float("nan")
+        return cls(False, nan, nan, nan, nan, nan, nan)
 
 
 @dataclass
@@ -153,6 +224,7 @@ class DoFLineResult:
     dof_low_px: Optional[float]      # left edge of focus band
     dof_high_px: Optional[float]     # right edge
     dof_width_px: Optional[float]
+
     # Physical-unit conversions (filled when calibration is present)
     px_per_unit: Optional[float] = None     # px / unit ALONG this line
     unit_name: Optional[str] = None
@@ -161,6 +233,22 @@ class DoFLineResult:
     dof_low_unit: Optional[float] = None
     dof_high_unit: Optional[float] = None
     dof_width_unit: Optional[float] = None
+
+    # --- dof-rewrite-v1 extras ---------------------------------------------
+    # Gaussian fit on ``focus`` vs ``positions``. Parametric peak / σ / FWHM
+    # is usually a stabler DoF estimate than the argmax / threshold walk.
+    gaussian: GaussianFit = field(default_factory=GaussianFit.empty)
+
+    # Percentile bootstrap 95% CI (2.5th, 97.5th) on peak position + DoF
+    # width. ``None`` when not requested or when the bootstrap failed.
+    peak_ci95_px: Optional[Tuple[float, float]] = None
+    dof_width_ci95_px: Optional[Tuple[float, float]] = None
+
+    # All-metrics parallel scan. Keys are FOCUS_METRICS; values are dicts
+    # with ``focus_norm`` (array), ``peak_position_px`` (float), and
+    # ``dof_width_px`` (optional float) so the UI can show a single overlay
+    # of every metric without a second request.
+    metric_sweep: Optional[Dict[str, Dict[str, Any]]] = None
 
 
 @dataclass
@@ -184,15 +272,130 @@ class DoFChannelResult:
     px_per_unit_h: Optional[float] = None
     px_per_unit_v: Optional[float] = None
 
+    # dof-rewrite-v1: bilinear plane fit (z_of_focus = a + b·x + c·y) over
+    # the picked points. ``None`` when < 3 points. Populated only when
+    # ``analyze_dof(..., fit_tilt_plane=True)`` was used.
+    tilt_plane: Optional[Dict[str, Any]] = None
+
     @property
     def color(self) -> str:
-        from .fpn_render import _color
+        from .plotting import _color
         return _color(self.name)
 
     @property
     def is_calibrated(self) -> bool:
         return (self.px_per_unit_h is not None
                 and self.px_per_unit_v is not None)
+
+
+# ---------------------------------------------------------------------------
+# Gaussian fit + bootstrap helpers
+
+def _gaussian_model(s: np.ndarray, amp: float, mu: float,
+                    sigma: float, baseline: float) -> np.ndarray:
+    return amp * np.exp(-((s - mu) ** 2) / (2.0 * sigma ** 2)) + baseline
+
+
+def fit_gaussian(positions: np.ndarray, focus: np.ndarray) -> GaussianFit:
+    """Least-squares Gaussian fit on a focus curve.
+
+    Returns a ``GaussianFit`` with ``converged=False`` on failure so
+    callers can fall back to the argmax estimate.
+    """
+    try:
+        from scipy.optimize import curve_fit
+    except Exception:
+        return GaussianFit.empty()
+    if positions.size < 5 or focus.size != positions.size:
+        return GaussianFit.empty()
+    s = positions.astype(np.float64)
+    y = focus.astype(np.float64)
+    if not np.all(np.isfinite(y)) or float(y.max()) <= 0:
+        return GaussianFit.empty()
+    # Initial guess: baseline = min, amp = max - min, μ = argmax, σ = span / 6.
+    b0 = float(np.percentile(y, 10))
+    a0 = max(1e-9, float(y.max()) - b0)
+    mu0 = float(s[int(np.argmax(y))])
+    sigma0 = max(1e-3, (float(s[-1]) - float(s[0])) / 6.0)
+    try:
+        popt, _pcov = curve_fit(
+            _gaussian_model, s, y,
+            p0=(a0, mu0, sigma0, b0),
+            bounds=(
+                (0.0, float(s[0]) - sigma0 * 6, 1e-6, -abs(a0) * 2),
+                (a0 * 6 + 1e-9, float(s[-1]) + sigma0 * 6,
+                 (float(s[-1]) - float(s[0])) * 2 + 1.0, a0 * 6 + 1e-9),
+            ),
+            maxfev=6000,
+        )
+    except Exception:
+        return GaussianFit.empty()
+    amp, mu, sigma, baseline = (float(v) for v in popt)
+    if not np.isfinite(sigma) or sigma <= 0:
+        return GaussianFit.empty()
+    yhat = _gaussian_model(s, amp, mu, sigma, baseline)
+    ss_res = float(np.sum((y - yhat) ** 2))
+    ss_tot = float(np.sum((y - y.mean()) ** 2)) or 1e-9
+    r2 = max(0.0, 1.0 - ss_res / ss_tot)
+    fwhm = 2.0 * np.sqrt(2.0 * np.log(2.0)) * sigma
+    return GaussianFit(
+        converged=True, amp=amp, mu=mu, sigma=sigma,
+        baseline=baseline, fwhm=fwhm, r_squared=r2,
+    )
+
+
+def _bootstrap_peak_and_dof(positions: np.ndarray, focus: np.ndarray,
+                            threshold: float,
+                            n_boot: int = 200,
+                            seed: int = 1234,
+                            ) -> Tuple[Optional[Tuple[float, float]],
+                                       Optional[Tuple[float, float]]]:
+    """Percentile bootstrap on (peak_position_px, dof_width_px).
+
+    Resamples the (positions, focus) pairs WITH REPLACEMENT `n_boot`
+    times; re-sorts each resample by position to keep the left→right
+    threshold walk consistent, then records the argmax position + the
+    DoF width at `threshold`. Returns two 95% CIs (or None when
+    degenerate).
+    """
+    if positions.size < 8 or focus.size != positions.size:
+        return None, None
+    rng = np.random.default_rng(seed)
+    peaks: List[float] = []
+    widths: List[float] = []
+    n = positions.size
+    for _ in range(int(max(50, n_boot))):
+        idx = rng.integers(0, n, size=n)
+        s = positions[idx]
+        y = focus[idx]
+        order = np.argsort(s, kind="mergesort")
+        s = s[order]
+        y = y[order]
+        y_max = float(y.max())
+        if y_max <= 0:
+            continue
+        yn = y / y_max
+        k = int(np.argmax(yn))
+        peaks.append(float(s[k]))
+        # Walk out for threshold crossings.
+        lo_i = None
+        for j in range(k, -1, -1):
+            if yn[j] < threshold:
+                lo_i = j
+                break
+        hi_i = None
+        for j in range(k, n):
+            if yn[j] < threshold:
+                hi_i = j
+                break
+        if lo_i is not None and hi_i is not None:
+            widths.append(float(s[hi_i] - s[lo_i]))
+    def _ci(arr: List[float]) -> Optional[Tuple[float, float]]:
+        if len(arr) < 20:
+            return None
+        a = np.asarray(arr, dtype=np.float64)
+        return float(np.percentile(a, 2.5)), float(np.percentile(a, 97.5))
+    return _ci(peaks), _ci(widths)
 
 
 # ---------------------------------------------------------------------------
@@ -210,35 +413,89 @@ def analyze_dof(image: np.ndarray, *,
                 build_heatmap: bool = True,
                 heatmap_step: int = 48,
                 calibration: Optional[dict] = None,
+                compute_all_metrics: bool = False,
+                bootstrap: bool = False,
+                n_boot: int = 200,
+                fit_tilt_plane: bool = False,
                 ) -> DoFChannelResult:
     """Compute focus values at every picked point + along each line.
 
-    `calibration` (optional): dict with keys ``unit``, ``px_per_unit_h``,
+    ``calibration`` (optional): dict with keys ``unit``, ``px_per_unit_h``,
     ``px_per_unit_v``. When all three are present, every line's results
     will be available in physical units in addition to pixels.
+
+    ``compute_all_metrics`` — also scan each line with the three other
+    focus metrics; each ``DoFLineResult`` gets a ``metric_sweep`` dict.
+    Per-point we also fill ``DoFPointResult.focus_all``.
+    ``bootstrap`` — attach a percentile-bootstrap 95% CI on each line's
+    peak position + DoF width. Adds O(`n_boot` · N_samples) work per
+    line; safe for small N.
+    ``fit_tilt_plane`` — bilinear least-squares fit on
+    ``(x, y, focus_norm)`` over the picked points; included on the
+    ``DoFChannelResult`` as ``tilt_plane``.
     """
-    # Points
+    # Points — primary metric
     pt_focus = [
         measure_focus(image, p.x, p.y,
                       half_window=half_window, metric=metric)
         for p in points
     ]
     peak_pt = max(pt_focus) if pt_focus else 0.0
-    pt_results = [
-        DoFPointResult(point=p, focus=f,
-                       focus_norm=(f / peak_pt) if peak_pt > 0 else 0.0)
-        for p, f in zip(points, pt_focus)
-    ]
+    pt_results: List[DoFPointResult] = []
+    for p, f in zip(points, pt_focus):
+        all_metrics = (measure_focus_all(image, p.x, p.y,
+                                         half_window=half_window)
+                       if compute_all_metrics else None)
+        pt_results.append(DoFPointResult(
+            point=p, focus=f,
+            focus_norm=(f / peak_pt) if peak_pt > 0 else 0.0,
+            focus_all=all_metrics,
+        ))
 
     # Lines
     line_results: List[DoFLineResult] = []
     for p0, p1 in lines:
-        line_results.append(
-            _scan_line(image, p0, p1,
-                       step_px=line_step_px,
-                       half_window=half_window,
-                       metric=metric, threshold=threshold,
-                       calibration=calibration))
+        lr = _scan_line(image, p0, p1,
+                        step_px=line_step_px,
+                        half_window=half_window,
+                        metric=metric, threshold=threshold,
+                        calibration=calibration)
+        # Gaussian fit on primary metric
+        lr.gaussian = fit_gaussian(lr.positions, lr.focus)
+        # Bootstrap CI
+        if bootstrap:
+            peak_ci, width_ci = _bootstrap_peak_and_dof(
+                lr.positions, lr.focus, float(threshold),
+                n_boot=int(n_boot),
+            )
+            lr.peak_ci95_px = peak_ci
+            lr.dof_width_ci95_px = width_ci
+        # All-metrics sweep — separate scan per metric
+        if compute_all_metrics:
+            sweep: Dict[str, Dict[str, Any]] = {}
+            for m in FOCUS_METRICS:
+                if m == metric:
+                    # Re-use the primary scan so we don't duplicate work.
+                    sweep[m] = {
+                        "focus_norm": lr.focus_norm.tolist(),
+                        "focus": lr.focus.tolist(),
+                        "peak_position_px": float(lr.peak_position_px),
+                        "dof_width_px": lr.dof_width_px,
+                    }
+                    continue
+                alt = _scan_line(image, p0, p1,
+                                 step_px=line_step_px,
+                                 half_window=half_window,
+                                 metric=m, threshold=threshold,
+                                 calibration=calibration)
+                sweep[m] = {
+                    "focus_norm": alt.focus_norm.tolist(),
+                    "focus": alt.focus.tolist(),
+                    "peak_position_px": float(alt.peak_position_px),
+                    "dof_width_px": alt.dof_width_px,
+                }
+            lr.metric_sweep = sweep
+        line_results.append(lr)
 
     # Heatmap (optional, for the focus-map tab)
     heatmap = None
@@ -248,6 +505,10 @@ def analyze_dof(image: np.ndarray, *,
                                        metric=metric)
 
     cal = calibration or {}
+    tilt = None
+    if fit_tilt_plane and len(pt_results) >= 3:
+        tilt = fit_focus_plane(pt_results)
+
     return DoFChannelResult(
         name=name, image=image, metric=metric,
         half_window=half_window, threshold=threshold,
@@ -256,8 +517,122 @@ def analyze_dof(image: np.ndarray, *,
         unit_name=cal.get("unit"),
         px_per_unit_h=cal.get("px_per_unit_h"),
         px_per_unit_v=cal.get("px_per_unit_v"),
+        tilt_plane=tilt,
     )
 
+
+def analyze_dof_multi(channel_images: Dict[str, np.ndarray], *,
+                      points: Sequence[DoFPoint],
+                      lines: Sequence[Tuple[Tuple[float, float],
+                                            Tuple[float, float]]] = (),
+                      metric: str = "laplacian",
+                      half_window: int = 32,
+                      threshold: float = 0.5,
+                      line_step_px: float = 4.0,
+                      build_heatmap: bool = True,
+                      heatmap_step: int = 48,
+                      calibration: Optional[dict] = None,
+                      compute_all_metrics: bool = False,
+                      bootstrap: bool = False,
+                      n_boot: int = 200,
+                      fit_tilt_plane: bool = False,
+                      ) -> List[DoFChannelResult]:
+    """Run ``analyze_dof`` across several channels of the same source.
+
+    Used by the multi-channel analysis modal to produce chromatic-
+    focus-shift comparisons without round-tripping per channel.
+    """
+    out: List[DoFChannelResult] = []
+    for name, image in channel_images.items():
+        out.append(analyze_dof(
+            image, name=name,
+            points=points, lines=lines,
+            metric=metric, half_window=half_window,
+            threshold=threshold, line_step_px=line_step_px,
+            build_heatmap=build_heatmap, heatmap_step=heatmap_step,
+            calibration=calibration,
+            compute_all_metrics=compute_all_metrics,
+            bootstrap=bootstrap, n_boot=n_boot,
+            fit_tilt_plane=fit_tilt_plane,
+        ))
+    return out
+
+
+def compute_dof_stability(image: np.ndarray, *,
+                          p0: Tuple[float, float],
+                          p1: Tuple[float, float],
+                          metric: str = "laplacian",
+                          threshold: float = 0.5,
+                          line_step_px: float = 4.0,
+                          windows: Sequence[int] = (12, 16, 24, 32, 48, 64),
+                          ) -> List[Dict[str, Any]]:
+    """Scan the same line across several half-window sizes and report
+    peak / width for each. A stability plateau = the DoF number is
+    well-bounded; a monotonic rise means the window is still too small."""
+    out: List[Dict[str, Any]] = []
+    for hw in windows:
+        try:
+            scan = _scan_line(image, p0, p1,
+                              step_px=float(line_step_px),
+                              half_window=int(hw),
+                              metric=metric, threshold=float(threshold),
+                              calibration=None)
+            out.append({
+                "half_window": int(hw),
+                "peak_position_px": float(scan.peak_position_px),
+                "dof_width_px": None if scan.dof_width_px is None
+                                   else float(scan.dof_width_px),
+                "focus_norm_peak": float(scan.focus_norm.max()) if scan.focus_norm.size else 0.0,
+            })
+        except Exception:
+            out.append({"half_window": int(hw), "peak_position_px": float("nan"),
+                        "dof_width_px": None, "focus_norm_peak": 0.0})
+    return out
+
+
+def fit_focus_plane(points: Sequence[DoFPointResult]) -> Optional[Dict[str, Any]]:
+    """Least-squares bilinear fit ``focus_norm = a + b·x + c·y`` over the
+    picked points. Returns None when < 3 points or the design matrix is
+    degenerate. The slope direction `(b, c)` points uphill toward the
+    best-focus region; a flat plane (`|b|, |c|` both ~ 0) means the
+    image has no tilt across the picked region.
+
+    Also returns a 2-D `grid` (downsampled to keep payloads small) so
+    the frontend can draw an iso-contour overlay on top of the channel
+    thumbnail.
+    """
+    if len(points) < 3:
+        return None
+    xs = np.array([p.point.x for p in points], dtype=np.float64)
+    ys = np.array([p.point.y for p in points], dtype=np.float64)
+    fs = np.array([p.focus_norm for p in points], dtype=np.float64)
+    A = np.stack([np.ones_like(xs), xs, ys], axis=-1)
+    try:
+        coeffs, *_ = np.linalg.lstsq(A, fs, rcond=None)
+    except Exception:
+        return None
+    a, b, c = (float(v) for v in coeffs)
+    # Residuals
+    pred = a + b * xs + c * ys
+    ss_res = float(np.sum((fs - pred) ** 2))
+    ss_tot = float(np.sum((fs - fs.mean()) ** 2)) or 1e-9
+    r2 = max(0.0, 1.0 - ss_res / ss_tot)
+    # Tilt angle in degrees (atan2 on gradient magnitude vs 1 px unit).
+    slope_mag_per_px = float(np.hypot(b, c))
+    tilt_direction_deg = float(np.degrees(np.arctan2(c, b)))
+    return {
+        "a": a, "b": b, "c": c,
+        "slope_mag_per_px": slope_mag_per_px,
+        "tilt_direction_deg": tilt_direction_deg,
+        "r_squared": r2,
+        "residuals": [float(v) for v in (fs - pred).tolist()],
+        "x_range": [float(xs.min()), float(xs.max())],
+        "y_range": [float(ys.min()), float(ys.max())],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
 
 def _scan_line(image: np.ndarray, p0: Tuple[float, float],
                p1: Tuple[float, float], *,
@@ -307,7 +682,6 @@ def _scan_line(image: np.ndarray, p0: Tuple[float, float],
         pv = calibration.get("px_per_unit_v")
         unit_name = calibration.get("unit")
         if ph and pv and L > 0:
-            # Convert each component, recombine to get px-along-line / unit
             dx_px = abs(float(x1) - float(x0))
             dy_px = abs(float(y1) - float(y0))
             dx_u = dx_px / float(ph)

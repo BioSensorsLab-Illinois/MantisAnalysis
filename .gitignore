@@ -46,3 +46,9 @@ nosetests.xml
 .env
 .env.*
 !.env.example
+
+# Agent layer machine-local state (tool permissions + runtime lock). The
+# shared layer lives under .agent/ and is tracked; these two files
+# are host-specific and should not be committed.
+.agent/settings.local.json
+.agent/scheduled_tasks.lock

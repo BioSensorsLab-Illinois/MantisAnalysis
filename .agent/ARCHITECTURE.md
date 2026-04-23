@@ -1,36 +1,46 @@
 # ARCHITECTURE
 
-## Layered view
+As of D-0009 the app is a local web tool: FastAPI backend + React SPA.
+The PyQt desktop surface has been deleted.
+
+## Layered view (outer → inner)
 
 ```
 ┌───────────────────────────────────────────────────────────────────┐
 │ ENTRY                                                             │
 │   mantisanalysis/__main__.py    — `python -m mantisanalysis`       │
-│   mantisanalysis/app.py          — main() shim → pick_lines_gui    │
-│   scripts/pick_lines_gui.py      — THE GUI module (MainWindow,     │
-│                                     USAFPickerApp, themes, QSS)    │
-│   MantisAnalysis.bat             — Windows double-click launcher   │
+│   mantisanalysis/app.py          — CLI → uvicorn + browser launch │
+│   `mantisanalysis` console script pointed at app.main_argv         │
 ├───────────────────────────────────────────────────────────────────┤
-│ MODES (QWidget pages in MainWindow.QStackedWidget)                 │
-│   mantisanalysis/modes/fpn.py    — FPN UI                          │
-│   mantisanalysis/modes/dof.py    — DoF UI (with calibration card) │
-│   mantisanalysis/modes/common.py — Card / ImageCanvas / slider_row│
-│                                     / ChannelSelector / stretch /  │
-│                                     apply_transform                │
-│   (USAF "mode" today lives inside scripts/pick_lines_gui.py as    │
-│    USAFPickerApp; embedded via takeCentralWidget in MainWindow.   │
-│    Backlog item: demote to QWidget under mantisanalysis/modes/.)   │
+│ FRONTEND — React 18 SPA served from the same server at /          │
+│   web/index.html                                                   │
+│   web/src/shared.jsx   — BRAND, THEMES, icons, API helpers        │
+│                          (apiFetch / apiUpload / channelPngUrl),  │
+│                          SourceCtx / useSource / useDebounced     │
+│   web/src/app.jsx      — App shell, TopBar, ModeRail, ⌘K palette, │
+│                          source bootstrap (auto-loads a sample)   │
+│   web/src/usaf.jsx     — USAF mode (pick lines → live Michelson)  │
+│   web/src/fpn.jsx      — FPN mode (drag ROI → live DSNU/PRNU)     │
+│   web/src/dof.jsx      — DoF mode (points + lines + H/V refs)     │
+│   web/src/analysis.jsx — analysis results modal (server PNGs)     │
 ├───────────────────────────────────────────────────────────────────┤
-│ FIGURE BUILDERS + ANALYSIS VIEWERS (Qt + matplotlib)              │
-│   mantisanalysis/usaf_render.py  — 6-tab USAF analysis window      │
-│   mantisanalysis/fpn_render.py   — FPN window + figures            │
-│   mantisanalysis/dof_render.py   — DoF window + figures            │
+│ HTTP API — FastAPI + uvicorn                                       │
+│   mantisanalysis/server.py   — route definitions + Pydantic schemas│
+│   mantisanalysis/session.py  — in-memory session store (LRU)       │
+│   mantisanalysis/figures.py  — matplotlib → PNG bytes             │
 ├───────────────────────────────────────────────────────────────────┤
-│ ANALYSIS MATH (pure NumPy / SciPy — NO Qt imports allowed here)    │
-│   mantisanalysis/usaf_groups.py  — lp/mm table, line profile,      │
-│                                     3 Michelson estimators         │
-│   mantisanalysis/fpn_analysis.py — ISP filters, FPN stats          │
-│   mantisanalysis/dof_analysis.py — 4 focus metrics + line/heatmap │
+│ FIGURE BUILDERS (pure matplotlib — post D-0014 the files are Qt-free)│
+│   mantisanalysis/usaf_render.py    — `build_analysis_figures`      │
+│   mantisanalysis/fpn_render.py     — build_{overview,rowcol,map,psd,…}│
+│   mantisanalysis/dof_render.py     — build_{heatmap,line_scan,points,…}│
+│   mantisanalysis/plotting.py       — CHANNEL_COLORS + `_color`,    │
+│                                       `_ch`, `_style_axes` (shared │
+│                                       across render + analysis)    │
+├───────────────────────────────────────────────────────────────────┤
+│ ANALYSIS MATH — pure NumPy / SciPy, headless-testable             │
+│   mantisanalysis/usaf_groups.py  — lp/mm, LineSpec, Michelson      │
+│   mantisanalysis/fpn_analysis.py — FPN stats + ISP                 │
+│   mantisanalysis/dof_analysis.py — 4 focus metrics + calibration  │
 │   mantisanalysis/resolution.py   — legacy auto-strip FFT MTF       │
 ├───────────────────────────────────────────────────────────────────┤
 │ IMAGE PIPELINE + I/O                                               │
@@ -44,45 +54,60 @@
 ## Import graph (facts)
 
 - `image_io` → `extract`.
-- `usaf_render` → `image_io` (luminance helper), `usaf_groups`.
-- `fpn_render` → `fpn_analysis`.
-- `dof_render` → `dof_analysis`, `fpn_render` (*reaches for `_color`,
-  `_ch`, `_style_axes` — coupling noted in RISKS*).
-- `modes/fpn` → `fpn_analysis`, `fpn_render`, `modes/common`.
-- `modes/dof` → `dof_analysis`, `dof_render`, `modes/common`.
-- `scripts/pick_lines_gui.py` → `image_io`, `image_processing`,
-  `usaf_groups`; lazy-imports `modes/fpn` and `modes/dof` in `MainWindow`.
-- `mantisanalysis/app` → `pick_lines_gui` via a `sys.path` shim.
+- `plotting` → (no internal deps; pure matplotlib helpers).
+- `usaf_render` → `plotting`, `usaf_groups`.
+- `fpn_render` → `plotting`, `fpn_analysis`.
+- `dof_render` → `plotting`, `dof_analysis`.
+- `dof_analysis` → `plotting` (lazy, inside a `@property`, for color).
+- `figures` → `usaf_render`, `fpn_render`, `dof_render`.
+- `session` → `image_io`.
+- `server` → `figures`, `session`, `usaf_groups`, `fpn_analysis`,
+  `dof_analysis`.
+- `app` → `server` (imports `mantisanalysis.server:app` via uvicorn).
 
-Acyclic.
+Acyclic. The pre-D-0014 cross-module reach from `dof_render` into
+`fpn_render` (R-0007) is gone; both now share `plotting`.
 
 ## Runtime model
 
-`main(argv)` at `scripts/pick_lines_gui.py:1906` creates a
-`QApplication`, parses `--dark`/`--light`, calls `apply_theme()`,
-instantiates `MainWindow`. `MainWindow.__init__` (line 1755) does the
-following:
+`python -m mantisanalysis` → `app.main(argv)` → uvicorn on
+`127.0.0.1:8765`, with a background thread that polls the port and
+opens the browser once the server is listening.
 
-1. Constructs `USAFPickerApp(theme_name=...)` (line 1771). This object
-   is still a `QMainWindow` subclass — a backlog item.
-2. Steals its central widget with `.takeCentralWidget()` (line 1772).
-3. Monkey-patches `usaf_app._update_status` (line 1779) and
-   `usaf_app._do_open` (line 1791) to forward status into the new
-   window's status bar and broadcast file-loads to FPN + DoF.
-4. Lazy-imports `FPNMode` and `DoFMode`; instantiates them with a
-   `theme_provider` lambda that returns `self.theme`.
-5. Builds a `QStackedWidget` of [USAF central widget, FPN, DoF] as
-   central widget of `MainWindow`.
-6. Builds the mode toolbar (3 exclusive checkable actions) + menu bar
-   (File, View, Mode, Help).
+The FastAPI app at `mantisanalysis.server:app` mounts:
+- `/api/*` — JSON endpoints (load-sample, upload, sources list,
+  channel thumbnails, usaf/fpn/dof compute + analyze)
+- `/` — static `web/index.html`
+- `/src/*.jsx`, etc. — static files from `web/`
+- `/api/docs` — FastAPI auto-generated interactive docs
 
-Shared state on `MainWindow`: `channel_images`, `attrs`,
-`source_path`. Each mode reads via `self.app.channel_images` and
-implements `on_file_loaded()` / `on_theme_changed()` hooks.
+Session model: `mantisanalysis.session.STORE` (module-global) keeps
+loaded `LoadedSource` dataclasses keyed by a short hex id. LRU-capped
+at 12 entries. Thread-safe via an RLock. All analysis endpoints take a
+`source_id` and resolve it against the store.
 
-Analysis-window lifecycles: each mode's Run button constructs a new
-non-modal `QMainWindow` child; MainWindow holds references to prevent
-GC (`_analysis_windows` list).
+Analysis response shape:
+- `/api/usaf/measure` → per-line numbers (all three Michelson flavors +
+  samples-per-cycle + reliability flag + profile array).
+- `/api/usaf/analyze` → native JSON: channel × line measurements grid +
+  per-channel detection limit + base64 channel thumbnails (no PNG
+  plots — frontend draws native charts).
+- `/api/fpn/compute` → small summary stats for live-drag ROI updates
+  (extended in `fpn-rewrite-v1` with `mean_signal`, row/col-only DSNU,
+  row/col peak frequencies, hot/cold counts, drift order).
+- `/api/fpn/measure` → rich per-ROI payload (row/col profiles + 1-D
+  PSDs + top-50 hot/cold pixel coordinates).
+- `/api/fpn/measure_batch` → multiple ROIs on one channel in one call.
+- `/api/fpn/stability` → PRNU/DSNU stability curve (shrinking ROI).
+- `/api/fpn/analyze` → multi-channel × multi-ROI native JSON + per-ROI
+  PNGs (overview / rowcol / map / psd / autocorr / psd1d / hotpix).
+- `/api/dof/compute` → rich per-point + per-line JSON: gaussian fit
+  (μ / σ / FWHM / R²), bootstrap 95% CI on peak + DoF, all-metrics
+  parallel sweep, tilt-plane coefficients (post `dof-rewrite-v1`).
+- `/api/dof/stability` → DoF-width vs half-window curve for one line.
+- `/api/dof/analyze` → multi-channel × multi-line native JSON +
+  per-channel base64 PNGs (heatmap / line scan / points / gaussian /
+  tilt / metric_compare) + optional multi-channel chromatic-shift PNG.
 
 ## Key invariants
 
@@ -103,3 +128,31 @@ GC (`_analysis_windows` list).
    `setHorizontalScrollBarPolicy(ScrollBarAsNeeded)` +
    `setMinimumWidth(180)` + `body.setMinimumWidth(0)` to let the
    splitter shrink. Don't revert.
+
+## Web GUI (single authoritative surface, D-0009)
+
+The `web/` tree is the only frontend. Important properties:
+
+- **Single source of truth = the FastAPI server.** The browser never
+  computes Michelson / DSNU / focus values itself. Every number on screen
+  originates in `mantisanalysis/{usaf_groups,fpn_analysis,dof_analysis}.py`
+  and travels over JSON. Procedural image generators (`makeUSAFImage` /
+  `makeFPNImage` / `makeDoFImage` in `shared.jsx`) are vestigial — the real
+  canvas image is a server-rendered PNG thumbnail.
+- **Server autostart.** `python -m mantisanalysis` boots uvicorn and opens
+  the browser. The same server serves the static `web/` tree, so the UI is
+  always co-located with its API — no CORS surprises in the default path.
+- **Branding + metadata** centralized at `web/src/shared.jsx:10` in the
+  `BRAND` object. Keep in sync with `mantisanalysis/__init__.py` on
+  version bumps.
+- **No bundler.** React + Babel standalone from CDN, transpiled in-browser.
+  B-0014 is still on the backlog if boot time becomes a problem.
+- **Channel-key schema** identical on both sides: `HG-R / HG-G / HG-B /
+  HG-NIR / HG-Y / LG-R / LG-G / LG-B / LG-NIR / LG-Y` for H5 sources;
+  `R / G / B / Y` for RGB images; `L` for grayscale. See
+  `image_io.load_any` and `FPN_CHANNELS` / `USAF_CHANNELS_H5` in the mode
+  files.
+- **Persistence** uses `localStorage` via `useLocalStorageState` under the
+  `mantis/` prefix. User-facing state only (theme, mode, DoF references).
+  Server state (loaded sources) is in-memory and does not survive process
+  restarts.

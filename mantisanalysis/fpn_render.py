@@ -1,47 +1,32 @@
-"""FPN analysis figures + tabbed Qt viewer.
+"""FPN analysis figures — pure matplotlib builders.
 
-Tabs:
-  1. Overview         — 2x2 panel: ROI image / FPN map / histogram /
-                         summary stat table
-  2. Row & Column FPN — line plots of row-mean and col-mean profiles +
-                         std bands; reveals row/column-banding noise
-  3. 2-D FPN map      — large divergent display of (image − mean), with
-                         optional row/col profile sidebars
-  4. Power spectrum   — log-magnitude 2-D FFT; periodic patterns appear
-                         as bright lines / spots
-  5. Multi-channel    — when more than one channel is selected, a side-
-                         by-side comparison of headline metrics + maps
+Figure catalog (for PNG export / offline reporting):
+
+  overview   — 2x2 panel: ROI image / FPN map / histogram / stat table
+  rowcol     — line plots of row-mean and col-mean profiles + std bands
+  map        — large divergent (image − mean) with row/col profile sidebars
+  psd        — log-magnitude 2-D FFT; periodic patterns as bright lines
+  autocorr   — 2-D autocorrelation heatmap (Wiener–Khinchin)
+  psd1d      — 1-D row + col PSDs with peak markers
+  hotpix     — ROI image with hot-pixel markers + sortable outlier list
+  compare    — per-channel / per-ROI bar chart comparison
+
+The web UI renders interactive native-vector charts directly from the
+FPN result JSON; these matplotlib builders back the offline PNG exports
+and tier-2 smoke coverage. The previous ``open_fpn_window`` Qt viewer
+was deleted in B-0016 alongside the PyQt app.
 """
 
 from __future__ import annotations
 
-from dataclasses import asdict
-from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import List
 
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
 from .fpn_analysis import FPNResult
-
-
-CHANNEL_COLORS = {
-    "R":   "#d62728",
-    "G":   "#2ca02c",
-    "B":   "#1f77b4",
-    "NIR": "#7f7f7f",
-    "Y":   "#000000",
-    "L":   "#000000",
-}
-
-
-def _ch(name: str) -> str:
-    return name.split("-")[-1] if "-" in name else name
-
-
-def _color(name: str) -> str:
-    return CHANNEL_COLORS.get(_ch(name), "#444444")
+from .plotting import CHANNEL_COLORS, _ch, _color, _style_axes  # noqa: F401
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +177,118 @@ def build_psd_fig(r: FPNResult, *, fig_face: str, text: str) -> Figure:
     return fig
 
 
+def build_autocorr_fig(r: FPNResult, *, fig_face: str, text: str) -> Figure:
+    """2-D autocorrelation heatmap (Wiener–Khinchin). Lag 0 is at the
+    center; symmetric about both axes. Regular peaks at non-zero lag
+    indicate periodic spatial structure (e.g. every N rows → horizontal
+    banding; every M cols → vertical banding; an (a, b) pair → tiled
+    fabric pattern). The center-cell ratio we clip against avoids the
+    DC spike washing out the rest of the heatmap."""
+    fig = Figure(figsize=(8, 7), facecolor=fig_face)
+    ax = fig.add_subplot(111)
+    ax.set_facecolor(fig_face)
+    ac = r.autocorr_2d
+    if ac.size == 0:
+        ax.text(0.5, 0.5, "no autocorrelation", ha="center", va="center",
+                color=text, transform=ax.transAxes)
+        return fig
+    # Clip the center ±1 cells so the surrounding structure is visible.
+    cy, cx = ac.shape[0] // 2, ac.shape[1] // 2
+    ac_disp = ac.copy()
+    # Center the dynamic range on the off-center structure:
+    off_center = np.delete(ac_disp.ravel(), cy * ac.shape[1] + cx)
+    s = float(np.percentile(np.abs(off_center), 99.5)) if off_center.size else 1.0
+    s = max(s, 1e-4)
+    im = ax.imshow(ac_disp, cmap="RdBu_r", vmin=-s, vmax=+s,
+                   origin="lower", extent=r.autocorr_extent,
+                   aspect="auto", interpolation="nearest")
+    ax.axhline(0, color=text, linewidth=0.5, alpha=0.4)
+    ax.axvline(0, color=text, linewidth=0.5, alpha=0.4)
+    ax.set_xlabel("Lag x (pixels)", color=text)
+    ax.set_ylabel("Lag y (pixels)", color=text)
+    ax.set_title(
+        f"FPN autocorrelation — {r.name}\n"
+        "(normalized; center = 1. Off-center peaks → periodic spatial structure.)",
+        color=text, fontsize=10)
+    _style_axes(ax, fig_face, text)
+    cb = fig.colorbar(im, ax=ax, shrink=0.85)
+    cb.set_label("normalized autocorr", color=text)
+    cb.ax.yaxis.set_tick_params(color=text)
+    plt.setp(cb.ax.yaxis.get_ticklabels(), color=text)
+    return fig
+
+
+def build_psd1d_fig(r: FPNResult, *, fig_face: str, text: str) -> Figure:
+    """Stacked 1-D PSDs of row-mean and col-mean series. Peaks away from
+    DC indicate periodic row/column banding — common causes include ADC
+    clocking, column-parallel readout phase mismatch, or 60 Hz AC pickup
+    (at long integration times)."""
+    fig = Figure(figsize=(11, 6.5), facecolor=fig_face)
+    gs = fig.add_gridspec(2, 1, hspace=0.40)
+    color = _color(r.name)
+
+    def _plot(ax, freq, psd, peak_f, peak_a, title, xlab):
+        if freq.size == 0:
+            ax.text(0.5, 0.5, "no data", ha="center", va="center",
+                    color=text, transform=ax.transAxes)
+            return
+        # Drop DC for display (the DC line is typically huge and drowns
+        # out the interesting peaks).
+        if freq.size > 1:
+            ax.semilogy(freq[1:], psd[1:] + 1e-9,
+                        color=color, linewidth=1.2)
+        ax.axvline(peak_f, color="#ffd54f", linewidth=1.0,
+                   linestyle="--",
+                   label=f"peak @ {peak_f:.4f} cy")
+        ax.set_xlabel(xlab, color=text)
+        ax.set_ylabel("PSD (log)", color=text)
+        ax.set_title(title, color=text, fontsize=10)
+        _style_axes(ax, fig_face, text)
+        ax.legend(facecolor=fig_face, edgecolor=text, labelcolor=text,
+                  fontsize=9, loc="upper right", framealpha=0.85)
+
+    ax_r = fig.add_subplot(gs[0])
+    _plot(ax_r, r.row_freq, r.row_psd, r.row_peak_freq, r.row_peak_amp,
+          f"Row-mean 1-D PSD  ({r.name})",
+          "Frequency  (cycles / row)")
+    ax_c = fig.add_subplot(gs[1])
+    _plot(ax_c, r.col_freq, r.col_psd, r.col_peak_freq, r.col_peak_amp,
+          f"Column-mean 1-D PSD  ({r.name})",
+          "Frequency  (cycles / column)")
+    fig.suptitle(f"Row / Column banding spectra — {r.name}",
+                 color=text, fontsize=12, y=0.995)
+    return fig
+
+
+def build_hotpix_fig(r: FPNResult, *, fig_face: str, text: str) -> Figure:
+    """ROI image underlay with hot (red) and cold (blue) pixel markers.
+    Uses the `top_hot` / `top_cold` lists from the result (up to 50 of
+    each) so the plot stays legible even when thousands of pixels flag."""
+    fig = Figure(figsize=(10, 7), facecolor=fig_face)
+    ax = fig.add_subplot(111)
+    a = r.raw_image
+    vmin = float(np.percentile(a, 1))
+    vmax = float(np.percentile(a, 99.5))
+    if vmax <= vmin:
+        vmax = vmin + 1
+    ax.imshow(a, cmap="gray", vmin=vmin, vmax=vmax,
+              interpolation="nearest")
+    for (yy, xx, val, z) in r.top_hot:
+        ax.plot(xx, yy, marker="o", markersize=7, markerfacecolor="none",
+                markeredgecolor="#f44336", markeredgewidth=1.3)
+    for (yy, xx, val, z) in r.top_cold:
+        ax.plot(xx, yy, marker="s", markersize=7, markerfacecolor="none",
+                markeredgecolor="#3b82f6", markeredgewidth=1.3)
+    ax.set_xticks([]); ax.set_yticks([])
+    ax.set_title(
+        f"Hot / cold pixels — {r.name}  "
+        f"(hot {r.hot_pixel_count}, cold {r.cold_pixel_count},  |z| > "
+        f"{r.settings.hot_sigma:.1f})",
+        color=text, fontsize=11)
+    _style_axes(ax, fig_face, text)
+    return fig
+
+
 def build_multi_channel_fig(results: List[FPNResult], *,
                             fig_face: str, text: str) -> Figure:
     """Side-by-side comparison: top row = FPN maps, bottom = bar chart."""
@@ -238,13 +335,6 @@ def build_multi_channel_fig(results: List[FPNResult], *,
 # ---------------------------------------------------------------------------
 # Sub-panel helpers
 # ---------------------------------------------------------------------------
-
-def _style_axes(ax, fig_face, text):
-    ax.tick_params(colors=text)
-    for sp in ax.spines.values():
-        sp.set_color(text)
-    ax.set_facecolor(fig_face)
-
 
 def _imshow_kept(ax, r: FPNResult, *, fig_face, text):
     a = r.image
@@ -309,16 +399,26 @@ def _stat_table(ax, r: FPNResult, *, text):
     rows = [
         ("Pixels (kept / total)",
          f"{r.n_kept:,} / {r.n_total:,}"),
-        ("Mean (μ)",      f"{r.mean:.3f} DN"),
-        ("Std (σ)  (DSNU)", f"{r.std:.3f} DN"),
-        ("PRNU = σ/μ",    f"{r.prnu_pct:.3f} %"),
-        ("Median",        f"{r.median:.3f} DN"),
-        ("Min / Max",     f"{r.minv:.0f} / {r.maxv:.0f} DN"),
-        ("p1 / p99",      f"{r.p1:.0f} / {r.p99:.0f} DN"),
-        ("Row-mean σ",    f"{r.row_noise_dn:.3f} DN"),
-        ("Col-mean σ",    f"{r.col_noise_dn:.3f} DN"),
-        ("Residual pixel σ",
+        ("Signal mean (μ)",  f"{r.mean_signal:.3f} DN"),
+        ("Residual mean",    f"{r.mean:.3f} DN"),
+        ("Std (σ) = DSNU",   f"{r.std:.3f} DN"),
+        ("PRNU = σ / μ",     f"{r.prnu_pct:.3f} %"),
+        ("Median",           f"{r.median:.3f} DN"),
+        ("Min / Max",        f"{r.minv:.1f} / {r.maxv:.1f} DN"),
+        ("p1 / p99",         f"{r.p1:.1f} / {r.p99:.1f} DN"),
+        ("Row-mean σ",       f"{r.row_noise_dn:.3f} DN"),
+        ("Col-mean σ",       f"{r.col_noise_dn:.3f} DN"),
+        ("σ after row strip", f"{r.dsnu_row_only_dn:.3f} DN"),
+        ("σ after col strip", f"{r.dsnu_col_only_dn:.3f} DN"),
+        ("σ after row+col",
          f"{r.residual_pixel_noise_dn:.3f} DN"),
+        ("Row 1-D peak freq",
+         f"{r.row_peak_freq:.4f} cy/row"),
+        ("Col 1-D peak freq",
+         f"{r.col_peak_freq:.4f} cy/col"),
+        ("Hot / cold pixels",
+         f"{r.hot_pixel_count} / {r.cold_pixel_count}"),
+        ("Drift plane",      r.drift_order),
     ]
     settings = r.settings
     rows.append(("ISP", _isp_summary(settings)))
@@ -346,143 +446,3 @@ def _isp_summary(s) -> str:
         parts.append(f"hot-pix > {s.hot_pixel_thr:.0f}σ")
     return ", ".join(parts) if parts else "none"
 
-
-# ---------------------------------------------------------------------------
-# Tk-style Qt window
-# ---------------------------------------------------------------------------
-
-def open_fpn_window(*, parent, results: List[FPNResult],
-                    fig_face: str, text: str) -> None:
-    from PySide6 import QtWidgets, QtCore
-    from matplotlib.backends.backend_qtagg import (
-        FigureCanvasQTAgg, NavigationToolbar2QT,
-    )
-
-    win = QtWidgets.QMainWindow(parent)
-    win.setWindowTitle(f"FPN analysis — {len(results)} channel(s)")
-    win.resize(1500, 920)
-    if parent is not None:
-        try:
-            win.setStyleSheet(parent.styleSheet() or
-                              QtWidgets.QApplication.instance().styleSheet())
-        except Exception:
-            pass
-
-    central = QtWidgets.QWidget()
-    win.setCentralWidget(central)
-    main_layout = QtWidgets.QVBoxLayout(central)
-    main_layout.setContentsMargins(6, 6, 6, 6); main_layout.setSpacing(6)
-    tabs = QtWidgets.QTabWidget()
-    main_layout.addWidget(tabs, stretch=1)
-
-    figures: List[Tuple[str, Figure]] = []
-
-    def _add_fig_tab(label: str, fig: Figure) -> None:
-        page = QtWidgets.QWidget()
-        pl = QtWidgets.QVBoxLayout(page)
-        pl.setContentsMargins(0, 0, 0, 0); pl.setSpacing(0)
-        cnv = FigureCanvasQTAgg(fig)
-        tb = NavigationToolbar2QT(cnv, page)
-        pl.addWidget(cnv, stretch=1)
-        pl.addWidget(tb)
-        tabs.addTab(page, label)
-        figures.append((label.replace(" ", "_").lower(), fig))
-
-    # Per-channel sub-tabs
-    for r in results:
-        sub_tabs = QtWidgets.QTabWidget()
-        page_outer = QtWidgets.QWidget()
-        pl = QtWidgets.QVBoxLayout(page_outer)
-        pl.setContentsMargins(0, 0, 0, 0); pl.setSpacing(0)
-        pl.addWidget(sub_tabs)
-        for label, builder in (("Overview",       build_overview_fig),
-                               ("Row & Col FPN",  build_rowcol_fig),
-                               ("2-D FPN map",    build_map_fig),
-                               ("Power spectrum", build_psd_fig)):
-            fig = builder(r, fig_face=fig_face, text=text)
-            inner = QtWidgets.QWidget()
-            il = QtWidgets.QVBoxLayout(inner)
-            il.setContentsMargins(0, 0, 0, 0); il.setSpacing(0)
-            cnv = FigureCanvasQTAgg(fig)
-            tb = NavigationToolbar2QT(cnv, inner)
-            il.addWidget(cnv, stretch=1)
-            il.addWidget(tb)
-            sub_tabs.addTab(inner, label)
-            figures.append(
-                (f"{r.name.replace('-', '_').lower()}_{label.replace(' ', '_').lower()}",
-                 fig))
-        tabs.addTab(page_outer, r.name)
-
-    # Multi-channel comparison tab (only if more than one channel)
-    if len(results) > 1:
-        cmp_fig = build_multi_channel_fig(results, fig_face=fig_face, text=text)
-        _add_fig_tab("Compare channels", cmp_fig)
-
-    # Bottom action row
-    btn_row = QtWidgets.QHBoxLayout()
-    btn_row.addStretch(1)
-    btn_csv = QtWidgets.QPushButton("Export numerical results CSV…")
-    btn_png = QtWidgets.QPushButton("Export all PNGs…")
-    btn_row.addWidget(btn_csv); btn_row.addWidget(btn_png)
-    main_layout.addLayout(btn_row)
-
-    def do_export_pngs():
-        out = QtWidgets.QFileDialog.getExistingDirectory(
-            win, "Export figures to…")
-        if not out:
-            return
-        out_p = Path(out); out_p.mkdir(parents=True, exist_ok=True)
-        n = 0
-        for label, fig in figures:
-            fig.savefig(out_p / f"fpn_{label}.png", dpi=220,
-                        bbox_inches="tight", facecolor=fig_face)
-            n += 1
-        QtWidgets.QMessageBox.information(win, "Export",
-                                          f"Saved {n} PNG(s).")
-
-    def do_export_csv():
-        path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            win, "Save FPN summary CSV", "fpn_summary.csv", "CSV (*.csv)")
-        if not path:
-            return
-        import csv
-        with open(path, "w", newline="", encoding="utf-8") as f:
-            w = csv.writer(f)
-            w.writerow(["channel", "n_kept", "n_total",
-                        "roi_y0", "roi_x0", "roi_y1", "roi_x1",
-                        "mean_dn", "std_dn_dsnu", "prnu_pct",
-                        "row_noise_dn", "col_noise_dn",
-                        "residual_pixel_noise_dn",
-                        "min_dn", "max_dn", "p1_dn", "p99_dn", "median_dn",
-                        "median_size", "gaussian_sigma", "bilateral",
-                        "hot_pixel_thr", "lo_pct", "hi_pct"])
-            for r in results:
-                s = r.settings
-                w.writerow([r.name, r.n_kept, r.n_total,
-                            r.roi[0], r.roi[1], r.roi[2], r.roi[3],
-                            f"{r.mean:.4f}", f"{r.dsnu_dn:.4f}",
-                            f"{r.prnu_pct:.4f}",
-                            f"{r.row_noise_dn:.4f}",
-                            f"{r.col_noise_dn:.4f}",
-                            f"{r.residual_pixel_noise_dn:.4f}",
-                            f"{r.minv:.2f}", f"{r.maxv:.2f}",
-                            f"{r.p1:.2f}", f"{r.p99:.2f}",
-                            f"{r.median:.2f}",
-                            s.median_size, f"{s.gaussian_sigma:.2f}",
-                            int(s.bilateral),
-                            f"{s.hot_pixel_thr:.2f}",
-                            f"{s.lo_pct:.2f}", f"{s.hi_pct:.2f}"])
-        QtWidgets.QMessageBox.information(
-            win, "Export", f"Wrote {len(results)} rows → {path}")
-
-    btn_csv.clicked.connect(do_export_csv)
-    btn_png.clicked.connect(do_export_pngs)
-
-    if parent is not None:
-        try:
-            if not hasattr(parent, "_analysis_windows"):
-                parent._analysis_windows = []
-            parent._analysis_windows.append(win)
-        except Exception:
-            pass
-    win.show()

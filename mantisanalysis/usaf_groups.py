@@ -14,11 +14,12 @@ either from min/max or from a robust percentile pair.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Dict, List, Sequence, Tuple
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
-from scipy.ndimage import map_coordinates
+from scipy.ndimage import gaussian_filter1d, map_coordinates
+from scipy.signal import find_peaks
 
 
 # Standard USAF spatial-frequency table.
@@ -54,6 +55,7 @@ class LineMeasurement:
     modulation_pct: float = 0.0      # always: P10/P90 Michelson
     modulation_minmax: float = 0.0   # always: peak-to-peak Michelson
     modulation_fft: float = 0.0      # always: FFT-fundamental Michelson
+    modulation_5pt: float = 0.0      # always: 3-bars-and-2-gaps five-point Michelson
     profile_min: float = 0.0
     profile_max: float = 0.0
     profile_p10: float = 0.0
@@ -63,6 +65,12 @@ class LineMeasurement:
     samples_per_cycle: float = 0.0   # n_samples / 2.5 (3-bar element)
     f_expected_cy_per_sample: float = 0.0
     f_peak_cy_per_sample: float = 0.0
+    # Five-point detection outputs. Sample indices into `profile`.
+    bar_indices: List[int] = field(default_factory=list)
+    gap_indices: List[int] = field(default_factory=list)
+    bar_values: List[float] = field(default_factory=list)
+    gap_values: List[float] = field(default_factory=list)
+    bars_bright: bool = True         # True if bars are brighter than gaps
 
     @property
     def lp_mm(self) -> float:
@@ -124,10 +132,20 @@ def extract_line_profile(image: np.ndarray,
 
 
 def michelson(values_low: float, values_high: float) -> float:
+    """Michelson contrast clamped to ``[0, 1]``.
+
+    The textbook formula ``(I_hi − I_lo) / (I_hi + I_lo)`` is in [0, 1] for
+    non-negative I_hi ≥ I_lo. We clamp defensively so that pathological
+    inputs (negative DN from sharpening over-shoot, P10 < 0, swapped
+    arguments) can never produce physically-impossible values like 1.2.
+    """
     s = values_high + values_low
     if s <= 0:
         return 0.0
-    return float((values_high - values_low) / s)
+    v = (values_high - values_low) / s
+    if v < 0:
+        v = -v
+    return float(min(1.0, max(0.0, v)))
 
 
 def measure_modulation(profile: np.ndarray,
@@ -200,19 +218,185 @@ def measure_modulation_fft(profile: np.ndarray,
     if dc_mag <= 0:
         return 0.0, f_expected, f_peak
     michelson_sq = float(np.pi / 2.0) * fund_amp / dc_mag
+    # Clamp to physically meaningful range. The (π/2) coefficient assumes
+    # an ideal square wave; real (especially sub-Nyquist or noise-spike)
+    # signals can produce > 1 which is meaningless for a Michelson reading.
+    michelson_sq = max(0.0, min(1.0, michelson_sq))
     return michelson_sq, f_expected, f_peak
+
+
+def detect_three_bar_points(
+    profile: np.ndarray, *,
+    smooth_sigma: float = 1.2,
+    min_dist_frac: float = 0.06,
+    min_prominence_frac: float = 0.03,
+) -> Tuple[List[int], List[int], bool]:
+    """Pick 3 bright + 2 dark sample indices from a USAF profile.
+
+    Hard invariants on the output (matters for UI clarity + correctness):
+      1. **Positional alternation**: the 5 sample indices, sorted by
+         position, follow the pattern bright-dark-bright-dark-bright.
+      2. **Magnitude order**: every dark sample value is ≤ both of its
+         adjacent bright sample values. We enforce this by
+         construction — if the prominence-based detection picks a "dark"
+         that ends up higher than a neighbouring "bright", we replace it
+         with the local minimum in the bracketed span (which is
+         guaranteed ≤ both endpoints).
+      3. **Degenerate cases allowed**: two output indices may collide
+         (e.g., on a near-constant profile a dark may sit at the same
+         sample as a bright); this is fine — the contrast formula
+         still evaluates and just reports near-zero for that segment.
+      4. **`bars_bright` is always True** — the 3-set is by definition
+         the locally-brighter one, so labels in the UI always show
+         bright dots above the curve and dark dots below it. For a
+         negative USAF target (dark bars on bright background) the 3
+         "bright" points would correspond to the inter-bar bright gaps;
+         that's intentional — the contrast math is polarity-symmetric.
+
+    Algorithm:
+      * Smooth the profile so single-pixel noise doesn't dominate
+        peak detection (especially near per-channel Nyquist).
+      * Run ``scipy.signal.find_peaks`` for peaks, with prominence
+        gated to a fraction of the dynamic range.
+      * Take the 3 most-prominent peaks (sort by position) as the
+        bright set. If we have fewer than 3 prominent peaks, fall
+        back to the 3 highest-value samples that are well-separated.
+      * For each bracketed segment between consecutive bright peaks,
+        pick the local minimum as the dark sample. This GUARANTEES
+        dark ≤ both adjacent brights.
+    """
+    p = np.asarray(profile, dtype=np.float64)
+    n = int(p.size)
+    if n < 5:
+        return ([0, n // 2, n - 1][:3],
+                [max(0, n // 4), min(n - 1, 3 * n // 4)][:2], True)
+
+    ps = gaussian_filter1d(p, sigma=max(0.4, float(smooth_sigma)))
+    dyn = float(ps.max() - ps.min()) or 1.0
+    min_dist = max(1, int(n * float(min_dist_frac)))
+    min_prom = float(min_prominence_frac) * dyn
+
+    peaks, pk_props = find_peaks(ps, distance=min_dist, prominence=min_prom)
+
+    # Pick 3 brightest peaks (by prominence, tie-break by raw value).
+    if len(peaks) >= 3:
+        prom = np.asarray(pk_props.get("prominences", np.zeros(len(peaks))))
+        # Score = prominence + small value-weight tiebreaker.
+        score = prom + 0.05 * (ps[peaks] - ps.min()) / dyn
+        top3 = peaks[np.argsort(-score)[:3]]
+        bright = sorted(int(x) for x in top3)
+    else:
+        # Fallback when find_peaks underdelivers: pick top-N samples
+        # from the smoothed profile, keeping them spread out.
+        bright = _spread_top_samples(ps, n_pick=3, min_sep=min_dist)
+
+    # Hard invariant: each dark = local min of (bright[i], bright[i+1]) span.
+    # `np.argmin` over the inclusive bracket is guaranteed ≤ both endpoints.
+    dark: List[int] = []
+    for a, b in zip(bright[:-1], bright[1:]):
+        if b <= a:  # degenerate (collapsed bright neighbours)
+            dark.append(a)
+            continue
+        rel = int(np.argmin(ps[a:b + 1]))
+        dark.append(a + rel)
+
+    # Final safety: enforce dark[i] ≤ bright[i] AND dark[i] ≤ bright[i+1].
+    # The argmin construction above already guarantees this for normal
+    # data, but a degenerate span (single sample) needs the clamp.
+    for i, d in enumerate(dark):
+        a, b = bright[i], bright[i + 1]
+        if ps[d] > ps[a]: d = a
+        if ps[d] > ps[b]: d = b
+        dark[i] = int(d)
+
+    while len(bright) < 3: bright.append(n - 1)
+    while len(dark) < 2:   dark.append(n // 2)
+
+    # `bars_bright = True` is guaranteed by construction (we labelled the
+    # locally-brightest 3 as bars).
+    return bright, dark, True
+
+
+def _spread_top_samples(ps: np.ndarray, *, n_pick: int, min_sep: int) -> List[int]:
+    """Pick `n_pick` indices, taking the highest-value samples while
+    enforcing a minimum separation. Used as a fallback when
+    `find_peaks` finds too few prominent peaks (very smooth or very
+    noisy profiles).
+    """
+    n = ps.size
+    order = np.argsort(-ps)
+    chosen: List[int] = []
+    for idx in order:
+        idx = int(idx)
+        if all(abs(idx - c) >= max(1, min_sep) for c in chosen):
+            chosen.append(idx)
+            if len(chosen) >= n_pick:
+                break
+    while len(chosen) < n_pick:
+        chosen.append(n - 1)
+    return sorted(chosen[:n_pick])
+
+
+def measure_modulation_5pt(
+    profile: np.ndarray, *,
+    bar_indices: Optional[Sequence[int]] = None,
+    gap_indices: Optional[Sequence[int]] = None,
+) -> Tuple[float, List[int], List[int], List[float], List[float], bool]:
+    """Five-point Michelson from the 3-bar / 2-gap set.
+
+    The user draws a line from the dark surround through 3 bars with
+    gaps in between and ends in dark again. The most robust contrast
+    estimator is
+
+        M = (I̅_bright − I̅_dark) / (I̅_bright + I̅_dark)
+
+    averaging each side over multiple detected extrema rather than the
+    single-sample min / max. Pass ``bar_indices`` + ``gap_indices`` to
+    override auto-detect (e.g., user dragged the points in the UI).
+
+    Returns ``(modulation, bar_indices, gap_indices, bar_values,
+    gap_values, bars_bright)``.
+    """
+    p = np.asarray(profile, dtype=np.float64)
+    n = int(p.size)
+    if n < 3:
+        return 0.0, [], [], [], [], True
+
+    if bar_indices is None or gap_indices is None:
+        bi, gi, bars_bright = detect_three_bar_points(p)
+    else:
+        bi = [int(np.clip(i, 0, n - 1)) for i in bar_indices]
+        gi = [int(np.clip(i, 0, n - 1)) for i in gap_indices]
+        bars_bright = float(np.mean([p[i] for i in bi])) \
+                    > float(np.mean([p[i] for i in gi])) if bi and gi else True
+
+    bar_vals = [float(p[i]) for i in bi]
+    gap_vals = [float(p[i]) for i in gi]
+    mean_bars = float(np.mean(bar_vals)) if bar_vals else 0.0
+    mean_gaps = float(np.mean(gap_vals)) if gap_vals else 0.0
+    I_hi, I_lo = max(mean_bars, mean_gaps), min(mean_bars, mean_gaps)
+    denom = I_hi + I_lo
+    m = float((I_hi - I_lo) / denom) if denom > 0 else 0.0
+    return m, bi, gi, bar_vals, gap_vals, bool(mean_bars > mean_gaps)
 
 
 def measure_line(image: np.ndarray, spec: LineSpec,
                  *, swath_width: float = 8.0,
                  method: str = "percentile",
-                 n_cycles_expected: float = 2.5) -> LineMeasurement:
+                 n_cycles_expected: float = 2.5,
+                 bar_indices: Optional[Sequence[int]] = None,
+                 gap_indices: Optional[Sequence[int]] = None,
+                 ) -> LineMeasurement:
     """Measure all flavors of Michelson contrast for one picked line.
 
     The ``method`` parameter selects which value goes into the
-    ``modulation`` field (the "primary" reading). Both `min/max` and
-    `FFT-fundamental` are always also computed so the GUI can show all
-    three side by side.
+    ``modulation`` field (the "primary" reading). `percentile`,
+    `min/max`, `FFT-fundamental`, and the 5-point `five_point` are
+    always also computed so the GUI can show all four side by side.
+
+    Pass ``bar_indices`` / ``gap_indices`` to override the 5-point
+    auto-detection (e.g., when the user has dragged the points in the
+    profile preview).
     """
     profile = extract_line_profile(image, spec.p0, spec.p1,
                                    swath_width=swath_width)
@@ -220,11 +404,15 @@ def measure_line(image: np.ndarray, spec: LineSpec,
     mod_mm,  lo_m, hi_m = measure_modulation(profile, method="minmax")
     mod_fft, f_exp, f_peak = measure_modulation_fft(
         profile, n_cycles_expected=n_cycles_expected)
+    mod_5pt, bi, gi, bar_vals, gap_vals, bars_bright = measure_modulation_5pt(
+        profile, bar_indices=bar_indices, gap_indices=gap_indices)
 
     if method == "fft":
         primary = mod_fft
     elif method == "minmax":
         primary = mod_mm
+    elif method in ("five_point", "5pt", "5point"):
+        primary = mod_5pt
     else:
         primary = mod_pct
 
@@ -239,6 +427,7 @@ def measure_line(image: np.ndarray, spec: LineSpec,
         modulation_pct=float(mod_pct),
         modulation_minmax=float(mod_mm),
         modulation_fft=float(mod_fft),
+        modulation_5pt=float(mod_5pt),
         profile_min=float(profile.min()),
         profile_max=float(profile.max()),
         profile_p10=float(lo_p), profile_p90=float(hi_p),
@@ -246,6 +435,9 @@ def measure_line(image: np.ndarray, spec: LineSpec,
         samples_per_cycle=spc,
         f_expected_cy_per_sample=float(f_exp),
         f_peak_cy_per_sample=float(f_peak),
+        bar_indices=list(bi), gap_indices=list(gi),
+        bar_values=bar_vals, gap_values=gap_vals,
+        bars_bright=bars_bright,
     )
 
 

@@ -1,33 +1,24 @@
-"""Depth-of-Field figures + tabbed Qt viewer.
+"""Depth-of-Field matplotlib figure builders.
 
-Tabs (per the user's "find proper way to present this data"):
+Each ``build_*_fig`` function returns a ``matplotlib.figure.Figure`` for
+offline PNG export or the HTTP figure adapter in
+``mantisanalysis.figures``:
 
-  1. Focus heatmap        — 2-D map of local focus metric over the
-                             whole image; the brightest blob is the
-                             in-focus region. Picked points + lines
-                             overlaid.
-  2. Line scan            — focus vs. position along each user-drawn
-                             line, with peak + DoF band annotated;
-                             multi-channel overlay when several
-                             channels selected.
-  3. Picked points        — bar chart + table of focus values at each
-                             labeled point; if the user supplied Z-
-                             calibration, scatter focus vs Z plus a
-                             Gaussian fit and the Z range above
-                             threshold.
-  4. Window method comp.  — for one selected line, plot the four focus
-                             metrics (laplacian / brenner / tenengrad /
-                             fft_hf) side-by-side; sanity check that
-                             the DoF estimate is metric-independent.
-  5. Channel comparison   — when multiple channels are picked, side-by-
-                             side line-scan curves with normalized
-                             focus, plus DoF widths in a bar chart.
+  build_heatmap_fig         — source image + 2-D focus heatmap
+  build_line_scan_fig       — focus vs. position along each picked line
+  build_points_fig          — bar chart / table of per-point focus
+  build_metric_compare_fig  — 4 focus metrics side-by-side on one line
+  build_channel_compare_fig — multi-channel line-scan + DoF-width bars
+  build_gaussian_fit_fig    — gaussian fit overlay with ±95% CI band
+  build_chromatic_shift_fig — cross-channel peak offsets
+  build_tilt_plane_fig      — bilinear-plane sensor-tilt diagnostic
+
+The previous ``open_dof_window`` Qt viewer was deleted in B-0016.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import List
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -35,9 +26,9 @@ from matplotlib.figure import Figure
 
 from .dof_analysis import (
     DoFChannelResult, DoFLineResult, DoFPoint, DoFPointResult,
-    FOCUS_METRICS, _scan_line, analyze_dof, measure_focus,
+    FOCUS_METRICS, _scan_line, analyze_dof, fit_gaussian, measure_focus,
 )
-from .fpn_render import _color, _ch, _style_axes
+from .plotting import _color, _ch, _style_axes
 
 
 # ---------------------------------------------------------------------------
@@ -422,165 +413,257 @@ def build_channel_compare_fig(results: List[DoFChannelResult], *,
 
 
 # ---------------------------------------------------------------------------
-# Qt window
+# dof-rewrite-v1 — Gaussian fit / chromatic shift / tilt plane builders
 # ---------------------------------------------------------------------------
 
-def open_dof_window(*, parent, results: List[DoFChannelResult],
-                    raw_images: Dict[str, np.ndarray],
-                    fig_face: str, text: str) -> None:
-    from PySide6 import QtWidgets
-    from matplotlib.backends.backend_qtagg import (
-        FigureCanvasQTAgg, NavigationToolbar2QT,
-    )
+def build_gaussian_fit_fig(r: DoFChannelResult, *,
+                           fig_face: str, text: str) -> Figure:
+    """One panel per user-drawn line: focus curve + Gaussian fit overlay.
 
-    win = QtWidgets.QMainWindow(parent)
-    win.setWindowTitle(f"Depth-of-Field — {len(results)} channel(s)")
-    win.resize(1500, 900)
-    if parent is not None:
-        try:
-            win.setStyleSheet(parent.styleSheet() or
-                              QtWidgets.QApplication.instance().styleSheet())
-        except Exception:
-            pass
+    Annotates μ (peak) + σ (CoC proxy) + FWHM (robust DoF) + R². When
+    the fit failed (flat / degenerate profile) the panel falls back to
+    the argmax + threshold band."""
+    fig = Figure(figsize=(11, 5.5), facecolor=fig_face)
+    if not r.lines:
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5, "Draw a line to see a Gaussian fit.",
+                ha="center", va="center", color=text)
+        return fig
+    n = len(r.lines)
+    cols = min(2, n)
+    rows = int(np.ceil(n / cols))
+    fig.set_size_inches(6.0 * cols, 3.6 * rows + 0.4, forward=False)
+    color = _color(r.name)
+    for i, ln in enumerate(r.lines):
+        ax = fig.add_subplot(rows, cols, i + 1)
+        ax.set_facecolor(fig_face)
+        xs = ln.positions
+        ax.fill_between(xs, 0, ln.focus_norm, color=color, alpha=0.15,
+                        linewidth=0)
+        ax.plot(xs, ln.focus_norm, color=color, linewidth=1.5,
+                label="measured")
+        fit = ln.gaussian
+        if fit.converged and fit.amp > 0:
+            # Normalize the fit amplitude against the measured peak so
+            # both curves share the 0..1 Y scale.
+            y_peak_actual = float(ln.focus.max()) or 1.0
+            ys_model = (fit.amp * np.exp(-((xs - fit.mu) ** 2)
+                                         / (2.0 * fit.sigma ** 2))
+                        + fit.baseline)
+            ax.plot(xs, ys_model / y_peak_actual, "--",
+                    color="#ffd54f", linewidth=1.3,
+                    label=f"Gaussian fit (R² = {fit.r_squared:.3f})")
+            fwhm_lo = fit.mu - fit.fwhm / 2
+            fwhm_hi = fit.mu + fit.fwhm / 2
+            ax.axvspan(fwhm_lo, fwhm_hi, color="#ffd54f", alpha=0.1, linewidth=0)
+            ax.axvline(fit.mu, color="#ffd54f", linewidth=0.9, alpha=0.85)
+            ax.set_title(
+                f"{r.name}  line {i + 1}  — Gaussian fit\n"
+                f"μ = {fit.mu:.2f} px,   σ = {fit.sigma:.2f} px,   "
+                f"FWHM = {fit.fwhm:.2f} px",
+                color=text, fontsize=10)
+        else:
+            ax.axvline(ln.peak_position_px, color="#ffd54f",
+                       linewidth=0.9, alpha=0.85)
+            ax.set_title(
+                f"{r.name}  line {i + 1}  — fit degenerate "
+                "(showing argmax fallback)",
+                color=text, fontsize=10)
+        ax.axhline(r.threshold, color=text, linestyle=":", linewidth=0.7)
+        ax.set_xlim(0, float(xs[-1]) if xs.size else 1.0)
+        ax.set_ylim(0, 1.10)
+        ax.set_xlabel("Position along line (px)", color=text)
+        ax.set_ylabel("Normalized focus", color=text)
+        ax.legend(facecolor=fig_face, edgecolor=text, labelcolor=text,
+                  fontsize=9, loc="upper right", framealpha=0.85)
+        _style_axes(ax, fig_face, text)
+    fig.suptitle(
+        f"Gaussian-fit DoF — {r.name}   (parametric peak + FWHM is more "
+        "noise-tolerant than argmax + threshold)",
+        color=text, fontsize=12, y=0.995)
+    fig.tight_layout(rect=[0, 0, 1, 0.94])
+    return fig
 
-    central = QtWidgets.QWidget()
-    win.setCentralWidget(central)
-    main_layout = QtWidgets.QVBoxLayout(central)
-    main_layout.setContentsMargins(6, 6, 6, 6); main_layout.setSpacing(6)
-    tabs = QtWidgets.QTabWidget()
-    main_layout.addWidget(tabs, stretch=1)
 
-    figures: List[Tuple[str, Figure]] = []
+def build_chromatic_shift_fig(results: List[DoFChannelResult], *,
+                              fig_face: str, text: str) -> Figure:
+    """Per-channel peak-position comparison for each line. Used to
+    diagnose chromatic aberration — ideally the four channels have
+    near-identical peak positions; divergence = longitudinal CA."""
+    fig = Figure(figsize=(11, 5.5), facecolor=fig_face)
+    # Build the matrix: rows = lines (max across channels), cols = channel,
+    # value = peak position in px (or unit if calibrated).
+    max_lines = max((len(r.lines) for r in results), default=0)
+    if max_lines == 0:
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5, "Draw a line on the picker to compare channels.",
+                ha="center", va="center", color=text)
+        return fig
+    ax = fig.add_subplot(111)
+    ax.set_facecolor(fig_face)
+    # Scatter: x = line index, y = peak position (μ if Gaussian converged,
+    # else argmax). Error bars from the bootstrap CI where available.
+    x_positions = np.arange(max_lines, dtype=np.float64)
+    offset_step = 0.10
+    use_unit = any(r.is_calibrated and r.lines and r.lines[0].positions_unit is not None
+                   for r in results)
+    unit_name = None
+    if use_unit:
+        for r in results:
+            if r.is_calibrated and r.lines and r.lines[0].unit_name:
+                unit_name = r.lines[0].unit_name
+                break
+    for ci, r in enumerate(results):
+        xs = []
+        ys = []
+        err_lo = []
+        err_hi = []
+        col = _color(r.name)
+        for i in range(max_lines):
+            if i >= len(r.lines):
+                continue
+            ln = r.lines[i]
+            peak_px = (ln.gaussian.mu if ln.gaussian.converged
+                       else ln.peak_position_px)
+            if use_unit and ln.px_per_unit:
+                peak = peak_px / ln.px_per_unit
+            else:
+                peak = peak_px
+            xs.append(i + (ci - (len(results) - 1) / 2) * offset_step)
+            ys.append(peak)
+            # Use the bootstrap CI if available.
+            ci95 = ln.peak_ci95_px
+            if ci95 is not None:
+                lo, hi = ci95
+                if use_unit and ln.px_per_unit:
+                    lo /= ln.px_per_unit; hi /= ln.px_per_unit
+                err_lo.append(peak - lo)
+                err_hi.append(hi - peak)
+            else:
+                err_lo.append(0.0); err_hi.append(0.0)
+        if xs:
+            ax.errorbar(xs, ys, yerr=[err_lo, err_hi],
+                        fmt="o", color=col, capsize=3, linewidth=1.4,
+                        markersize=7, markeredgecolor="white",
+                        markeredgewidth=0.6, label=r.name)
+    # Quantify the chromatic span: max peak - min peak per line (in px/unit).
+    span_lines: List[float] = []
+    for i in range(max_lines):
+        peaks = []
+        for r in results:
+            if i < len(r.lines):
+                ln = r.lines[i]
+                p = (ln.gaussian.mu if ln.gaussian.converged
+                     else ln.peak_position_px)
+                if use_unit and ln.px_per_unit:
+                    p /= ln.px_per_unit
+                peaks.append(p)
+        if peaks:
+            span_lines.append(max(peaks) - min(peaks))
+    if span_lines:
+        span_txt = " · ".join(f"L{i + 1}: {s:.2g}" for i, s in enumerate(span_lines))
+    else:
+        span_txt = "—"
+    ax.set_xticks(list(range(max_lines)))
+    ax.set_xticklabels([f"L{i + 1}" for i in range(max_lines)])
+    ax.set_xlabel("Line #", color=text)
+    ax.set_ylabel(f"Peak position ({unit_name})" if use_unit
+                  else "Peak position (px)", color=text)
+    ax.set_title(f"Chromatic focus shift — peak position by channel  "
+                 f"(range per line: {span_txt})",
+                 color=text, fontsize=11)
+    ax.legend(facecolor=fig_face, edgecolor=text, labelcolor=text,
+              fontsize=9, loc="upper right", framealpha=0.85)
+    _style_axes(ax, fig_face, text)
+    fig.suptitle("Chromatic shift (error bars = 95% bootstrap CI when available)",
+                 color=text, fontsize=12, y=0.995)
+    return fig
 
-    def add_figure(label: str, fig: Figure):
-        page = QtWidgets.QWidget()
-        pl = QtWidgets.QVBoxLayout(page)
-        pl.setContentsMargins(0, 0, 0, 0); pl.setSpacing(0)
-        cnv = FigureCanvasQTAgg(fig)
-        tb = NavigationToolbar2QT(cnv, page)
-        pl.addWidget(cnv, stretch=1)
-        pl.addWidget(tb)
-        tabs.addTab(page, label)
-        figures.append((label.replace(" ", "_").lower(), fig))
 
-    # Per-channel sub-tabs
-    for r in results:
-        sub_tabs = QtWidgets.QTabWidget()
-        page_outer = QtWidgets.QWidget()
-        pl = QtWidgets.QVBoxLayout(page_outer)
-        pl.setContentsMargins(0, 0, 0, 0); pl.setSpacing(0)
-        pl.addWidget(sub_tabs)
-        for label, fig in (("Focus heatmap",
-                            build_heatmap_fig(r, fig_face=fig_face,
-                                              text=text)),
-                           ("Line scan",
-                            build_line_scan_fig(r, fig_face=fig_face,
-                                                text=text)),
-                           ("Picked points",
-                            build_points_fig(r, fig_face=fig_face,
-                                             text=text)),
-                           ("Metric compare",
-                            build_metric_compare_fig(r, raw_images.get(r.name, r.image),
-                                                     fig_face=fig_face, text=text))):
-            inner = QtWidgets.QWidget()
-            il = QtWidgets.QVBoxLayout(inner)
-            il.setContentsMargins(0, 0, 0, 0); il.setSpacing(0)
-            cnv = FigureCanvasQTAgg(fig)
-            tb = NavigationToolbar2QT(cnv, inner)
-            il.addWidget(cnv, stretch=1)
-            il.addWidget(tb)
-            sub_tabs.addTab(inner, label)
-            figures.append(
-                (f"{r.name.replace('-', '_').lower()}_{label.replace(' ', '_').lower()}",
-                 fig))
-        tabs.addTab(page_outer, r.name)
+def build_tilt_plane_fig(r: DoFChannelResult, *,
+                         fig_face: str, text: str) -> Figure:
+    """Visualize the bilinear tilt-plane fit on the channel image.
 
-    # Channel comparison
-    if len(results) > 1:
-        cmp_fig = build_channel_compare_fig(results, fig_face=fig_face,
-                                            text=text)
-        add_figure("Compare channels", cmp_fig)
+    Top: original image with picked points annotated.
+    Bottom: evaluated plane heatmap + residuals at each point.
+    """
+    fig = Figure(figsize=(11, 6.5), facecolor=fig_face)
+    if r.tilt_plane is None or len(r.points) < 3:
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5,
+                "Pick ≥3 points (with focus values) to fit a tilt plane.",
+                ha="center", va="center", color=text)
+        return fig
+    plane = r.tilt_plane
+    a, b, c = plane["a"], plane["b"], plane["c"]
+    gs = fig.add_gridspec(1, 2, width_ratios=[1.0, 1.0], wspace=0.22)
 
-    # Action row
-    btn_row = QtWidgets.QHBoxLayout()
-    btn_row.addStretch(1)
-    btn_csv = QtWidgets.QPushButton("Export numerical results CSV…")
-    btn_png = QtWidgets.QPushButton("Export all PNGs…")
-    btn_row.addWidget(btn_csv); btn_row.addWidget(btn_png)
-    main_layout.addLayout(btn_row)
+    # Left panel: image + picked points + residuals as colored dots.
+    ax_img = fig.add_subplot(gs[0, 0])
+    im = r.image
+    vmin = float(np.percentile(im, 1))
+    vmax = float(np.percentile(im, 99.5))
+    if vmax <= vmin:
+        vmax = vmin + 1
+    ax_img.imshow(im, cmap="gray", vmin=vmin, vmax=vmax, interpolation="nearest")
+    residuals = plane.get("residuals", [])
+    for i, p in enumerate(r.points):
+        resid = residuals[i] if i < len(residuals) else 0.0
+        color = "#22c55e" if resid >= 0 else "#ef4444"
+        size = 8 + abs(resid) * 10
+        ax_img.plot(p.point.x, p.point.y, "o", color=color,
+                    markersize=min(size, 22),
+                    markeredgecolor="white", markeredgewidth=1.0)
+        ax_img.text(p.point.x + 6, p.point.y - 6,
+                    f"{p.point.label or ('#' + str(i + 1))}: {resid:+.3f}",
+                    color="white", fontsize=8,
+                    bbox=dict(facecolor="black", alpha=0.6,
+                              edgecolor="none", boxstyle="round,pad=0.2"))
+    ax_img.set_xticks([]); ax_img.set_yticks([])
+    ax_img.set_title(f"{r.name}  picks + residuals  (green = above plane, red = below)",
+                     color=text, fontsize=11)
+    _style_axes(ax_img, fig_face, text)
 
-    def do_export_pngs():
-        out = QtWidgets.QFileDialog.getExistingDirectory(
-            win, "Export figures to…")
-        if not out:
-            return
-        out_p = Path(out); out_p.mkdir(parents=True, exist_ok=True)
-        n = 0
-        for label, fig in figures:
-            fig.savefig(out_p / f"dof_{label}.png", dpi=220,
-                        bbox_inches="tight", facecolor=fig_face)
-            n += 1
-        QtWidgets.QMessageBox.information(win, "Export",
-                                          f"Saved {n} PNG(s).")
+    # Right panel: evaluated plane over the image bounding box.
+    ax_p = fig.add_subplot(gs[0, 1])
+    h, w = im.shape[:2]
+    # Downsample grid to keep the render quick even on 4k images.
+    step = max(1, min(h, w) // 120)
+    yy, xx = np.mgrid[0:h:step, 0:w:step].astype(np.float64)
+    plane_vals = a + b * xx + c * yy
+    pvmin, pvmax = float(plane_vals.min()), float(plane_vals.max())
+    if pvmax == pvmin:
+        pvmax = pvmin + 1e-6
+    im2 = ax_p.imshow(plane_vals, cmap="RdBu_r",
+                      vmin=pvmin, vmax=pvmax,
+                      extent=[0, w, h, 0], origin="upper",
+                      aspect="auto", interpolation="bilinear")
+    cb = fig.colorbar(im2, ax=ax_p, shrink=0.85)
+    cb.set_label("Fit focus_norm", color=text)
+    cb.ax.yaxis.set_tick_params(color=text)
+    plt.setp(cb.ax.yaxis.get_ticklabels(), color=text)
+    for p in r.points:
+        ax_p.plot(p.point.x, p.point.y, "o", color="white",
+                  markersize=5, markeredgecolor="black", markeredgewidth=1.0)
+    # Arrow pointing uphill — length scaled so it's visible.
+    cx, cy = w / 2, h / 2
+    slope = plane.get("slope_mag_per_px", 0.0)
+    if slope > 1e-9:
+        # Normalize (b, c) direction and draw from center.
+        nx = b / slope
+        ny = c / slope
+        arrow_len = min(w, h) * 0.20
+        ax_p.annotate("", xy=(cx + nx * arrow_len, cy + ny * arrow_len),
+                      xytext=(cx, cy),
+                      arrowprops=dict(arrowstyle="->", color="black",
+                                      linewidth=1.6))
+    ax_p.set_xticks([]); ax_p.set_yticks([])
+    ax_p.set_title(
+        f"Bilinear tilt plane  R² = {plane.get('r_squared', 0):.3f}   "
+        f"slope = {slope:.2e}/px   dir = {plane.get('tilt_direction_deg', 0):.1f}°",
+        color=text, fontsize=10)
+    _style_axes(ax_p, fig_face, text)
+    fig.suptitle(f"Field-curvature / sensor-tilt diagnostic — {r.name}",
+                 color=text, fontsize=12, y=0.995)
+    return fig
 
-    def do_export_csv():
-        path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            win, "Save DoF CSV", "dof_results.csv", "CSV (*.csv)")
-        if not path:
-            return
-        import csv
-        with open(path, "w", newline="", encoding="utf-8") as f:
-            w = csv.writer(f)
-            w.writerow(["block", "channel", "metric", "half_window",
-                        "label_or_index", "x", "y", "z_um",
-                        "focus", "focus_norm",
-                        "line_idx", "position_px", "peak_position_px",
-                        "dof_low_px", "dof_high_px", "dof_width_px",
-                        "unit",
-                        "position_unit", "peak_position_unit",
-                        "dof_low_unit", "dof_high_unit",
-                        "dof_width_unit"])
-            for r in results:
-                for i, p in enumerate(r.points):
-                    w.writerow(["point", r.name, r.metric, r.half_window,
-                                p.point.label or f"#{i+1}",
-                                f"{p.point.x:.2f}", f"{p.point.y:.2f}",
-                                "" if p.point.z_um is None else f"{p.point.z_um:.4f}",
-                                f"{p.focus:.6e}", f"{p.focus_norm:.6f}",
-                                "", "", "", "", "", "",
-                                "", "", "", "", "", ""])
-                for li, ln in enumerate(r.lines):
-                    has_u = ln.unit_name is not None
-                    for j in range(len(ln.positions)):
-                        pos_u = (f"{ln.positions_unit[j]:.4f}"
-                                 if has_u and ln.positions_unit is not None
-                                 else "")
-                        w.writerow(["line", r.name, r.metric, r.half_window,
-                                    "", "", "", "",
-                                    f"{ln.focus[j]:.6e}",
-                                    f"{ln.focus_norm[j]:.6f}",
-                                    li, f"{ln.positions[j]:.3f}",
-                                    f"{ln.peak_position_px:.3f}",
-                                    "" if ln.dof_low_px is None else f"{ln.dof_low_px:.3f}",
-                                    "" if ln.dof_high_px is None else f"{ln.dof_high_px:.3f}",
-                                    "" if ln.dof_width_px is None else f"{ln.dof_width_px:.3f}",
-                                    ln.unit_name or "",
-                                    pos_u,
-                                    "" if ln.peak_position_unit is None else f"{ln.peak_position_unit:.4f}",
-                                    "" if ln.dof_low_unit is None else f"{ln.dof_low_unit:.4f}",
-                                    "" if ln.dof_high_unit is None else f"{ln.dof_high_unit:.4f}",
-                                    "" if ln.dof_width_unit is None else f"{ln.dof_width_unit:.4f}"])
-        QtWidgets.QMessageBox.information(win, "Export",
-                                          f"Wrote rows → {path}")
-
-    btn_csv.clicked.connect(do_export_csv)
-    btn_png.clicked.connect(do_export_pngs)
-
-    if parent is not None:
-        try:
-            if not hasattr(parent, "_analysis_windows"):
-                parent._analysis_windows = []
-            parent._analysis_windows.append(win)
-        except Exception:
-            pass
-    win.show()

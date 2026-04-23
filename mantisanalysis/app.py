@@ -1,50 +1,90 @@
-"""MantisAnalysis app entry-point.
+"""Launcher — starts the local FastAPI server and opens the browser.
 
-This module exists to give pyproject.toml a stable import path for the
-console / GUI script. The actual ~1900-line GUI implementation still
-lives in ``scripts/pick_lines_gui.py`` (kept there to minimize churn —
-moving the file is a separate restructuring initiative tracked in
-``.agent/runs/``).
-
-The shim adds the project's ``scripts/`` directory to ``sys.path`` so
-the historical script can be imported as a module, then exports its
-``main`` function.
-
-Use either:
-
-    python -m mantisanalysis [path-to-h5-or-image]
-    mantisanalysis [path-to-h5-or-image]            # via [project.scripts]
-    python scripts/pick_lines_gui.py [...]          # legacy direct entry
+Exposed as the `mantisanalysis` console script via pyproject.toml. For
+library use, import `mantisanalysis.server.app` directly and mount it
+with your own ASGI runner.
 """
-
 from __future__ import annotations
 
+import argparse
+import logging
 import sys
-from pathlib import Path
+import threading
+import time
+import webbrowser
+from typing import Optional
 
 
-def _bootstrap_legacy_entry() -> "object":
-    """Import scripts/pick_lines_gui.py as a module, regardless of cwd."""
-    pkg_root = Path(__file__).resolve().parent.parent
-    scripts_dir = pkg_root / "scripts"
-    if str(scripts_dir) not in sys.path:
-        sys.path.insert(0, str(scripts_dir))
-    import pick_lines_gui  # noqa: E402 — sys.path modified above
-    return pick_lines_gui
+log = logging.getLogger("mantisanalysis")
 
 
-def main(argv: "list[str] | None" = None) -> int:
-    """Programmatic entry — call with an explicit argv list. Returns Qt exit code."""
-    if argv is None:
-        argv = sys.argv
-    mod = _bootstrap_legacy_entry()
-    return int(mod.main(argv))
+def _open_browser_when_ready(url: str, host: str, port: int,
+                             timeout_s: float = 8.0) -> None:
+    """Poll the health endpoint, then open the default browser."""
+    import socket
+
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=0.25):
+                break
+        except OSError:
+            time.sleep(0.1)
+    webbrowser.open(url, new=1)
+
+
+def main(argv: Optional[list] = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="mantisanalysis",
+        description="Launch the MantisAnalysis web GUI (local server + browser).",
+    )
+    parser.add_argument("path", nargs="?", default=None,
+                        help="optional image / H5 file to auto-load at startup")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--no-browser", action="store_true",
+                        help="do not auto-open the browser")
+    parser.add_argument("--reload", action="store_true",
+                        help="uvicorn auto-reload on source change (dev only)")
+    args = parser.parse_args(argv)
+
+    # Pre-seed a source from a given path so the UI shows it on first load.
+    if args.path:
+        from pathlib import Path
+
+        from .session import STORE
+        p = Path(args.path).expanduser()
+        if p.exists():
+            try:
+                STORE.load_from_path(p)
+            except Exception as exc:
+                print(f"warning: failed to pre-load {p}: {exc}", file=sys.stderr)
+        else:
+            print(f"warning: {p} not found; skipping pre-load", file=sys.stderr)
+
+    url = f"http://{args.host}:{args.port}/"
+    print(f"MantisAnalysis → {url}")
+    if not args.no_browser:
+        threading.Thread(
+            target=_open_browser_when_ready,
+            args=(url, args.host, args.port), daemon=True,
+        ).start()
+
+    import uvicorn
+
+    # Importing the app lazily means `python -m mantisanalysis --help` stays fast.
+    uvicorn.run(
+        "mantisanalysis.server:app",
+        host=args.host, port=args.port,
+        reload=bool(args.reload),
+        log_level="info",
+    )
+    return 0
 
 
 def main_argv() -> int:
-    """No-arg entry used by pyproject [project.scripts]."""
-    return main(sys.argv)
+    return main(None)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv))
+    sys.exit(main())
