@@ -1812,47 +1812,52 @@ const gridStyleFor = (layout, n, minCardPx = 300, gap, cardMaxWidth = 0) => {
 // Sections fold into an "Aa" pill when the open flag is false so the
 // modal retains vertical space for charts.
 // ---------------------------------------------------------------------------
+// Slider + readout — hoisted to module level so each render of the
+// enclosing PlotStylePanel doesn't remount it. Remounting was wiping
+// the internal `draft` state on every keystroke + losing pointer
+// capture on the <input type="range">, which is why the sliders
+// appeared un-draggable and the text inputs lost their cursor almost
+// immediately. Keeping it as a stable component fixes both.
+const PlotStyleNum = ({ label, value, min, max, step = 1, onChange, width = 110 }) => {
+  const t = useTheme();
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => { setDraft(String(value)); }, [value]);
+  const commit = () => {
+    const v = parseFloat(draft);
+    if (Number.isFinite(v)) onChange(Math.max(min, Math.min(max, v)));
+    else setDraft(String(value));
+  };
+  return (
+    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6,
+                     fontSize: 10.5, color: t.textMuted }}>
+      <span style={{ whiteSpace: 'nowrap' }}>{label}</span>
+      <input type="range" min={min} max={max} step={step} value={value}
+             onChange={(e) => onChange(parseFloat(e.target.value))}
+             style={{ width, accentColor: t.accent, cursor: 'pointer' }} />
+      <input type="text" value={draft}
+             onFocus={(e) => e.target.select()}
+             onChange={(e) => setDraft(e.target.value)}
+             onBlur={commit}
+             onKeyDown={(e) => {
+               if (e.key === 'Enter') { commit(); e.target.blur(); }
+               else if (e.key === 'Escape') { setDraft(String(value)); e.target.blur(); }
+             }}
+             style={{ width: 44, padding: '2px 4px', fontSize: 10.5,
+                      fontFamily: 'ui-monospace,Menlo,monospace',
+                      textAlign: 'right',
+                      background: t.inputBg, color: t.text,
+                      border: `1px solid ${t.border}`, borderRadius: 3 }} />
+    </label>
+  );
+};
+
 const PlotStylePanel = ({ open, onToggle }) => {
   const t = useTheme();
   const { style, setStyle, resetStyle } = usePlotStyle();
 
-  // Slider + readout — sliders don't steal focus on click and don't need
-  // select-all to edit. The numeric read-out is also an input so
-  // precision tweaks are still possible: click the number, type, Enter.
-  // The input only commits on blur / Enter so each keystroke doesn't
-  // reflow the world.
-  const Num = ({ label, value, min, max, step = 1, onChange, width = 110 }) => {
-    const [draft, setDraft] = useState(String(value));
-    useEffect(() => { setDraft(String(value)); }, [value]);
-    const commit = () => {
-      const v = parseFloat(draft);
-      if (Number.isFinite(v)) onChange(Math.max(min, Math.min(max, v)));
-      else setDraft(String(value));
-    };
-    return (
-      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6,
-                       fontSize: 10.5, color: t.textMuted }}>
-        <span style={{ whiteSpace: 'nowrap' }}>{label}</span>
-        <input type="range" min={min} max={max} step={step} value={value}
-               onChange={(e) => onChange(parseFloat(e.target.value))}
-               style={{ width, accentColor: t.accent,
-                        cursor: 'pointer' }} />
-        <input type="text" value={draft}
-               onFocus={(e) => e.target.select()}
-               onChange={(e) => setDraft(e.target.value)}
-               onBlur={commit}
-               onKeyDown={(e) => {
-                 if (e.key === 'Enter') { commit(); e.target.blur(); }
-                 else if (e.key === 'Escape') { setDraft(String(value)); e.target.blur(); }
-               }}
-               style={{ width: 44, padding: '2px 4px', fontSize: 10.5,
-                        fontFamily: 'ui-monospace,Menlo,monospace',
-                        textAlign: 'right',
-                        background: t.inputBg, color: t.text,
-                        border: `1px solid ${t.border}`, borderRadius: 3 }} />
-      </label>
-    );
-  };
+  // Alias kept short so the JSX below doesn't need a rewrite — references
+  // the hoisted component.
+  const Num = PlotStyleNum;
 
   const pillBtn = (label, onClick, active) => (
     <button onClick={onClick} key={label}

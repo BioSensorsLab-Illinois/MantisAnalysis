@@ -83,6 +83,20 @@ const PlotlyChart = ({ data, layout, config, style }) => {
 const channelColor = (ch) =>
   CHANNEL_COLORS[parseChannel(ch.includes('-') ? ch : `HG-${ch}`).band] || '#888';
 
+// Stable per-band index so non-channel palettes map each channel to a
+// distinct cyclic-palette entry. Keyed by the band suffix of the channel
+// (HG-R → 'R', LG-NIR → 'NIR', etc.).
+const _BAND_IDX = { R: 0, G: 1, B: 2, NIR: 3, Y: 4, L: 5 };
+// `paletteColor(style, ch)` returns the canonical per-channel color when
+// `style.palette === 'channel'`, or the matching entry of the named
+// palette (viridis / magma / mono-dark / mono-light) otherwise. Lets the
+// Palette selector in PlotStylePanel actually recolor every chart.
+const paletteColor = (style, ch) => {
+  const tail = (ch && typeof ch === 'string') ? ch.split('-').pop() : '';
+  const idx = _BAND_IDX[tail] ?? 0;
+  return plotPaletteColor(style, channelColor, ch, idx);
+};
+
 const lpmmFor = (g, e) => Math.pow(2, g + (e - 1) / 6);
 
 // Sample a matplotlib-style colormap as an array of CSS colors. We do this in
@@ -674,7 +688,7 @@ const ProfileGalleryTab = ({ channels, specs, keptIdx, measurements, threshold }
 const ProfileCard = ({ ch, spec, m, threshold }) => {
   const t = useTheme();
   const { style } = usePlotStyle();
-  const color = channelColor(ch);
+  const color = paletteColor(style, ch);
   const W = 200, H = 70;
   if (!m) {
     return (
@@ -973,7 +987,7 @@ const GroupMiniChart = ({ group, channels, specs, keptIdx, measurements, thresho
         .filter(v => v != null);
       return { e, m: vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null };
     });
-    return { ch, color: channelColor(ch), pts };
+    return { ch, color: paletteColor(style, ch), pts };
   });
   const yTicks = [0, 0.25, 0.5, 0.75, 1];
   return (
@@ -1048,7 +1062,7 @@ const FFTMTFOverlay = ({ channels, specs, keptIdx, measurements, threshold, colt
         .sort((a, b) => a.lp_mm - b.lp_mm);
       if (!pts.length) continue;
       const factor = coltman ? Math.PI / 4 : 1;
-      const color = channelColor(ch);
+      const color = paletteColor(style, ch);
       data.push({
         type: 'scatter', mode: 'lines+markers',
         x: pts.map(p => p.lp_mm), y: pts.map(p => p.modulation_5pt * factor),
@@ -1120,7 +1134,7 @@ const FFTSpectraGrid = ({ channels, specs, keptIdx, measurements }) => {
                 const m = measurements[ch]?.[i]; if (!m?.profile?.length) return null;
                 const { f, m: ma } = fftMag(m.profile);
                 if (!f.length) return null;
-                const color = channelColor(ch);
+                const color = paletteColor(style, ch);
                 const pts = f.map((fx, k) => `${xToPx(fx)},${yToPx(ma[k])}`).join(' ');
                 return <polyline key={ch} points={pts} fill="none" stroke={color} strokeWidth={scaled(style.lineWidth, style)} vectorEffect="non-scaling-stroke" />;
               })}
@@ -1787,7 +1801,7 @@ const FPNProfilesTab = ({ channels, measurements, rois, visibleRoiIdx, roiLabel 
 const RowColCard = ({ ch, label, m }) => {
   const t = useTheme();
   const { style } = usePlotStyle();
-  const color = channelColor(ch);
+  const color = paletteColor(style, ch);
   const W = 320, H = 95, PAD_L = 30, PAD_R = 6, PAD_T = 6, PAD_B = 16;
   const plot = (label, values, stds) => {
     const vs = (values || []).map(v => v == null ? NaN : v);
@@ -2232,7 +2246,7 @@ const MetricBars = ({ metric, channels, measurements, visibleRoiIdx, roiLabel })
           <g key={i} transform={`translate(${PAD_L + gi * groupW}, 0)`}>
             {channels.map((ch, ci) => {
               const v = rows[gi][ci];
-              const color = channelColor(ch);
+              const color = paletteColor(style, ch);
               const x = 2 + ci * barW;
               const y = yToPx(v);
               return (
@@ -2251,10 +2265,10 @@ const MetricBars = ({ metric, channels, measurements, visibleRoiIdx, roiLabel })
       </svg>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
         {channels.map(ch => (
-          <span key={ch} style={{ fontSize: 10, color: channelColor(ch),
+          <span key={ch} style={{ fontSize: 10, color: paletteColor(style, ch),
                                   fontFamily: 'ui-monospace,Menlo,monospace',
                                   display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: channelColor(ch) }} />
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: paletteColor(style, ch) }} />
             {ch}
           </span>
         ))}
@@ -2907,7 +2921,7 @@ const LineOverlayChart = ({ idx, channels, results, label, unitPref = 'auto',
         <line x1={PAD_L} y1={yOf(threshold)} x2={W - PAD_R} y2={yOf(threshold)}
               stroke={t.warn} strokeWidth={scaled(style.axisStrokeWidth, style)} strokeDasharray="4 3" />
         {series.map(({ ch, lr }) => {
-          const color = channelColor(ch);
+          const color = paletteColor(style, ch);
           const xs = xsOf({ lr });
           const toAxisX = toAxisFor(lr);
           const pts = xs.map((x, i) => `${xOf(x)},${yOf(lr.focus_norm[i])}`).join(' ');
@@ -2964,13 +2978,13 @@ const LineOverlayChart = ({ idx, channels, results, label, unitPref = 'auto',
           return (
             <span key={ch} style={{ fontSize: scaled(style.legendSize, style),
                                      fontWeight: style.legendWeight,
-                                     color: channelColor(ch),
+                                     color: paletteColor(style, ch),
                                      fontFamily: 'ui-monospace,Menlo,monospace',
                                      display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <span style={{ width: Math.max(6, scaled(style.legendSize, style) * 0.8),
                               height: Math.max(6, scaled(style.legendSize, style) * 0.8),
                               borderRadius: '50%',
-                              background: channelColor(ch) }} />
+                              background: paletteColor(style, ch) }} />
               {ch}: peak {dofFmt(lr, dofScaled(peakPx, tiltFactor), unitPref, 1)}
               {lr.dof_width_px != null && `, DoF ${dofFmt(lr, dofScaled(lr.dof_width_px, tiltFactor), unitPref, 1)}`}
             </span>
@@ -3037,7 +3051,7 @@ const MetricOverlayChart = ({ ch, lr, label, unitPref = 'auto', tiltFactor = 1 }
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
         <span style={{ width: Math.max(6, scaled(style.titleSize, style) * 0.7),
                         height: Math.max(6, scaled(style.titleSize, style) * 0.7),
-                        borderRadius: '50%', background: channelColor(ch) }} />
+                        borderRadius: '50%', background: paletteColor(style, ch) }} />
         <span style={{ fontSize: scaled(style.titleSize, style),
                        fontWeight: style.titleWeight,
                        fontStyle: style.titleItalic ? 'italic' : 'normal',
@@ -3190,7 +3204,7 @@ const ChromaticShiftChart = ({ channels, results, visibleLineIdx, lineLabel,
             const peakPx = ln.gaussian?.converged ? ln.gaussian.mu : ln.peak_position_px;
             if (peakPx == null) return null;
             const peak = asAxis(ln, peakPx);
-            const color = channelColor(ch);
+            const color = paletteColor(style, ch);
             const xOffset = (ci - (channels.length - 1) / 2) * 6;
             const ci95 = ln.peak_ci95_px;
             return (
@@ -3224,12 +3238,12 @@ const ChromaticShiftChart = ({ channels, results, visibleLineIdx, lineLabel,
         {channels.map(ch => (
           <span key={ch} style={{ fontSize: scaled(style.legendSize, style),
                                    fontWeight: style.legendWeight,
-                                   color: channelColor(ch),
+                                   color: paletteColor(style, ch),
                                    fontFamily: 'ui-monospace,Menlo,monospace',
                                    display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             <span style={{ width: Math.max(6, scaled(style.legendSize, style) * 0.8),
                             height: Math.max(6, scaled(style.legendSize, style) * 0.8),
-                            borderRadius: '50%', background: channelColor(ch) }} />
+                            borderRadius: '50%', background: paletteColor(style, ch) }} />
             {ch}
           </span>
         ))}
@@ -3252,9 +3266,10 @@ const ChromaticShiftChart = ({ channels, results, visibleLineIdx, lineLabel,
 // Single export path — used by per-card PNG buttons and the modal's
 // top-bar PNG button. dom-to-image-more supports a native `scale`
 // option, so we drop the old transform-scale hack that was shifting
-// SVG <text> on export. `copyDefaultStyles` keeps the embedded styles
-// faithful to what the user sees on-screen. Honors
-// plotStyle.exportScale / exportFormat / exportBackground.
+// SVG <text> on export. Honors plotStyle.exportScale / exportFormat /
+// exportBackground. `copyDefaultStyles: false` avoids the deep
+// getComputedStyle walk that trips over the Google-Fonts cross-origin
+// stylesheet and can stall the export forever.
 const mantisExport = async (node, filename, plotStyle, themeFallbackBg) => {
   if (!node) throw new Error('no node to export');
   const dti = window.domtoimage;
@@ -3273,21 +3288,26 @@ const mantisExport = async (node, filename, plotStyle, themeFallbackBg) => {
   void node.offsetHeight;
   const opts = {
     scale,
-    // Pass width/height at NATURAL size; dom-to-image-more multiplies
-    // internally by `scale` for the output buffer — no transform hack.
     width: node.scrollWidth,
     height: node.scrollHeight,
-    copyDefaultStyles: true,
+    copyDefaultStyles: false,
+    cacheBust: true,
   };
   if (bg !== 'transparent') opts.bgcolor = bg;
+  // 15-second watchdog so a hung stylesheet walk can't freeze the UI.
+  const withTimeout = (promise, ms) => Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`export timed out after ${ms/1000}s`)), ms)),
+  ]);
   let blob;
   try {
     if (format === 'svg') {
-      const dataUrl = await dti.toSvg(node, opts);
+      const dataUrl = await withTimeout(dti.toSvg(node, opts), 15000);
       const svgText = decodeURIComponent(dataUrl.replace(/^data:image\/svg\+xml;charset=utf-8,/, ''));
       blob = new Blob([svgText], { type: 'image/svg+xml' });
     } else {
-      blob = await dti.toBlob(node, opts);
+      blob = await withTimeout(dti.toBlob(node, opts), 15000);
     }
   } finally {
     hidden.forEach((n, i) => { n.style.display = prevDisp[i] || ''; });
@@ -3321,7 +3341,7 @@ const ChartCard = ({ ch, sub, children, footer, exportName }) => {
                     marginBottom: 6, flexWrap: 'wrap' }}>
         {ch && <>
           <span style={{ width: scaled(9, style), height: scaled(9, style),
-                         borderRadius: '50%', background: channelColor(ch), flexShrink: 0 }} />
+                         borderRadius: '50%', background: paletteColor(style, ch), flexShrink: 0 }} />
           <span style={{ fontFamily: style.fontFamily,
                          fontSize: scaled(style.titleSize, style),
                          fontWeight: style.titleWeight,
@@ -3394,7 +3414,7 @@ const GaussianFitChart = ({ ch, ln, label, unitPref = 'auto', tiltFactor = 1 }) 
   const t = useTheme();
   const { style } = usePlotStyle();
   const W = 460, H = 260, PAD_L = 50, PAD_R = 14, PAD_T = 20, PAD_B = 44;
-  const color = channelColor(ch);
+  const color = paletteColor(style, ch);
   const g = ln.gaussian || {};
   const converged = !!g.converged;
   const xsPx = ln.positions_px;
@@ -3700,8 +3720,8 @@ const DoFPointsTab = ({ channels, results, pointLabel, unitPref = 'auto', tiltFa
         return (
           <ChartCard key={ch} ch={ch}
                      sub={`${pts.length} points${tilt ? ` · tilt ${tilt.tilt_direction_deg?.toFixed?.(1) ?? '—'}°, R²=${tilt.r_squared?.toFixed?.(3) ?? '—'}` : ''}`}>
-            <PointsBarChart points={pts} pointLabel={pointLabel} color={channelColor(ch)} />
-            {tilt && <TiltPlaneSVG r={r} color={channelColor(ch)} />}
+            <PointsBarChart points={pts} pointLabel={pointLabel} color={paletteColor(style, ch)} />
+            {tilt && <TiltPlaneSVG r={r} color={paletteColor(style, ch)} />}
           </ChartCard>
         );
       })}
