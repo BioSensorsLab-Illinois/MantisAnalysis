@@ -2886,15 +2886,8 @@ const LineOverlayChart = ({ idx, channels, results, label, unitPref = 'auto',
   const yTicks = [0, 0.25, 0.5, 0.75, 1];
   const threshold = results[channels[0]]?.threshold ?? 0.5;
 
-  const chrome = cardChromeFor(style, t);
   return (
-    <div style={{ ...chrome, display: 'flex', flexDirection: 'column',
-                   boxShadow: style.cardBorder ? `0 1px 2px ${t.shadow || 'rgba(0,0,0,0.04)'}` : 'none' }}>
-      <div style={{ fontSize: scaled(style.titleSize, style),
-                    fontWeight: style.titleWeight,
-                    fontStyle: style.titleItalic ? 'italic' : 'normal',
-                    color: t.text, marginBottom: 6,
-                    fontFamily: style.fontFamily }}>{label}</div>
+    <ChartCard sub={label} exportName={`mantis-dof-line-${label}`}>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%"
            preserveAspectRatio="xMidYMid meet"
            style={{ background: 'transparent', borderRadius: 4, display: 'block' }}>
@@ -2991,7 +2984,7 @@ const LineOverlayChart = ({ idx, channels, results, label, unitPref = 'auto',
           );
         })}
       </div>
-    </div>
+    </ChartCard>
   );
 };
 
@@ -3045,18 +3038,9 @@ const MetricOverlayChart = ({ ch, lr, label, unitPref = 'auto', tiltFactor = 1 }
   const xMax = xs[xs.length - 1];
   const xOf = (x) => PAD_L + (x / (xMax || 1)) * (W - PAD_L - PAD_R);
   const yOf = (y) => PAD_T + (1 - Math.max(0, Math.min(1, y))) * (H - PAD_T - PAD_B);
-  const chrome = cardChromeFor(style, t);
   return (
-    <div style={{ ...chrome, boxShadow: style.cardBorder ? `0 1px 2px ${t.shadow || 'rgba(0,0,0,0.04)'}` : 'none' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-        <span style={{ width: Math.max(6, scaled(style.titleSize, style) * 0.7),
-                        height: Math.max(6, scaled(style.titleSize, style) * 0.7),
-                        borderRadius: '50%', background: paletteColor(style, ch) }} />
-        <span style={{ fontSize: scaled(style.titleSize, style),
-                       fontWeight: style.titleWeight,
-                       fontStyle: style.titleItalic ? 'italic' : 'normal',
-                       color: t.text, fontFamily: style.fontFamily }}>{ch} · {label}</span>
-      </div>
+    <ChartCard ch={ch} sub={`· ${label}`}
+               exportName={`mantis-dof-metric-${ch}-${label}`}>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%"
            preserveAspectRatio="xMidYMid meet"
            style={{ background: 'transparent', borderRadius: 4, display: 'block' }}>
@@ -3103,7 +3087,7 @@ const MetricOverlayChart = ({ ch, lr, label, unitPref = 'auto', tiltFactor = 1 }
                     color: t.textFaint, fontFamily: style.fontFamily }}>
         position along line ({unitName})
       </div>
-    </div>
+    </ChartCard>
   );
 };
 
@@ -3173,16 +3157,9 @@ const ChromaticShiftChart = ({ channels, results, visibleLineIdx, lineLabel,
   const yMin = Math.min(...allPeaks) * 0.9;
   const yMax = Math.max(...allPeaks) * 1.1;
   const yOf = (y) => PAD_T + (1 - (y - yMin) / (yMax - yMin || 1)) * (H - PAD_T - PAD_B);
-  const chrome = cardChromeFor(style, t);
   return (
-    <div style={{ ...chrome, boxShadow: style.cardBorder ? `0 1px 2px ${t.shadow || 'rgba(0,0,0,0.04)'}` : 'none' }}>
-      <div style={{ fontSize: scaled(style.titleSize, style),
-                    fontWeight: style.titleWeight,
-                    fontStyle: style.titleItalic ? 'italic' : 'normal',
-                    color: t.text, marginBottom: 6,
-                    fontFamily: style.fontFamily }}>
-        Peak position per channel ({unitName})
-      </div>
+    <ChartCard sub={`Peak position per channel (${unitName})`}
+               exportName="mantis-dof-chromatic">
       <svg viewBox={`0 0 ${W} ${H}`} width="100%"
            preserveAspectRatio="xMidYMid meet"
            style={{ background: 'transparent', borderRadius: 4, display: 'block' }}>
@@ -3248,7 +3225,7 @@ const ChromaticShiftChart = ({ channels, results, visibleLineIdx, lineLabel,
           </span>
         ))}
       </div>
-    </div>
+    </ChartCard>
   );
 };
 
