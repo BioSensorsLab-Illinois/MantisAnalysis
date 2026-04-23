@@ -133,11 +133,9 @@ const DEFAULT_PLOT_STYLE = {
   tickSize: 10,        tickWeight: 400,
   legendSize: 11,      legendWeight: 400,
   annotationSize: 9.5,
-  // Two independent scale knobs (keep them separate so the user can
-  // either make text/lines beefier inside the same chart (elementScale)
-  // OR blow up the whole chart uniformly (chartScale). They stack.)
-  elementScale: 1.0,   // multiplies fontSize / lineWidth / markerSize in-place
-  chartScale: 1.0,     // multiplies each chart's CSS width / height
+  // Multiplies font / line width / marker size in place. Chart container
+  // dimensions are governed independently by `cardMaxWidth` + `aspect`.
+  elementScale: 1.0,
   // Lines / markers
   lineWidth: 1.6,
   markerSize: 7,
@@ -311,20 +309,6 @@ const LegendLabel = ({ x, y, children, color, textAnchor = 'start' }) => {
       {children}
     </text>
   );
-};
-
-// useChartSize — scale chart dimensions by `chartScale`. Returns an
-// object usable for the SVG `width` / `height` CSS properties. The
-// caller keeps its viewBox the same so tick positions + label maths
-// stay exactly as before; only the pixel-size changes.
-const useChartSize = (baseW, baseH) => {
-  const { style } = usePlotStyle();
-  const s = Number.isFinite(style?.chartScale) && style.chartScale > 0 ? style.chartScale : 1.0;
-  return {
-    w: baseW * s,
-    h: baseH * s,
-    svgStyle: { width: baseW * s, height: baseH * s, display: 'block' },
-  };
 };
 
 // Shared inline HTML legend pill — mirrors LegendLabel's typography for
@@ -2032,10 +2016,6 @@ const PlotStylePanel = ({ open, onToggle }) => {
               <Num label="Elements ×" value={style.elementScale} min={0.5} max={3.0} step={0.05}
                    onChange={(v) => setStyle({ elementScale: v })} width={60} />
             </Tip>
-            <Tip title="Scale the chart container itself — width × height × scale. Text scales proportionally (browser's native SVG scale behavior).">
-              <Num label="Chart ×"    value={style.chartScale}   min={0.5} max={2.5} step={0.05}
-                   onChange={(v) => setStyle({ chartScale: v })} width={60} />
-            </Tip>
           </div>
         </div>
 
@@ -2799,7 +2779,7 @@ Object.assign(window, {
   PlotStyleCtx, usePlotStyle, usePlotStyleState,
   DEFAULT_PLOT_STYLE, PLOT_STYLE_PRESETS, PLOT_FONT_FAMILIES, PLOT_PALETTES,
   PlotTitle, AxisLabel, AxisTick, LegendLabel, GridLine,
-  scaled, useChartSize, legendCssFor, plotPaletteColor, cardChromeFor,
+  scaled, legendCssFor, plotPaletteColor, cardChromeFor,
   PlotStylePanel,
   CanvasColorbar,
   // Heatmap primitives (plot-style-completion-v1)
