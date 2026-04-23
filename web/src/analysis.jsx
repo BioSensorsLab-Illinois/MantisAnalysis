@@ -3262,6 +3262,25 @@ const mantisExport = async (node, filename, plotStyle, themeFallbackBg) => {
   const hidden = [...node.querySelectorAll('[data-no-export]')];
   const prevDisp = hidden.map(n => n.style.display);
   hidden.forEach(n => { n.style.display = 'none'; });
+  // Freeze inner <svg> pixel sizes before serialization. Charts render with
+  // `width="100%"` at browse time, but dom-to-image rasterizes via a data-
+  // URL SVG image where percentage widths collapse to the default 300×150,
+  // shifting polyline / circle / text into different pixel positions
+  // depending on which child measures first. Lock all child SVGs to their
+  // on-screen pixel size so polyline + dots + axes stay aligned.
+  const svgs = [...node.querySelectorAll('svg')];
+  const origSvgAttrs = svgs.map(s => {
+    const r = s.getBoundingClientRect();
+    const prev = { w: s.getAttribute('width'), h: s.getAttribute('height'),
+                    pa: s.getAttribute('preserveAspectRatio') };
+    if (r.width && r.height) {
+      s.setAttribute('width', String(Math.round(r.width)));
+      s.setAttribute('height', String(Math.round(r.height)));
+      // Force exact viewBox→canvas mapping so there's no letterbox drift.
+      s.setAttribute('preserveAspectRatio', 'none');
+    }
+    return { svg: s, prev };
+  });
   void node.offsetHeight;
   const opts = {
     scale,
@@ -3288,6 +3307,13 @@ const mantisExport = async (node, filename, plotStyle, themeFallbackBg) => {
     }
   } finally {
     hidden.forEach((n, i) => { n.style.display = prevDisp[i] || ''; });
+    // Restore original SVG attributes so on-screen layout snaps back.
+    origSvgAttrs.forEach(({ svg, prev }) => {
+      if (prev.w == null) svg.removeAttribute('width'); else svg.setAttribute('width', prev.w);
+      if (prev.h == null) svg.removeAttribute('height'); else svg.setAttribute('height', prev.h);
+      if (prev.pa == null) svg.removeAttribute('preserveAspectRatio');
+      else svg.setAttribute('preserveAspectRatio', prev.pa);
+    });
   }
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
