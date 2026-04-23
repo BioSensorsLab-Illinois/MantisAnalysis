@@ -571,7 +571,7 @@ const MiniMTFChart = ({ channel, specs, keptIdx, measurements, threshold, detect
   const yTicks = [0, 0.25, 0.5, 0.75, 1];
 
   return (
-    <div style={{ background: t.panel, border: `1px solid ${t.border}`, borderRadius: 8, padding: 12 }}>
+    <div style={{ ...cardChromeFor(style, t) }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
         <span style={{ width: 10, height: 10, borderRadius: '50%', background: color }} />
         <span style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: 'ui-monospace,Menlo,monospace' }}>{channel}</span>
@@ -900,7 +900,7 @@ const HeatmapPanel = ({ channel, cells, cmap, threshold }) => {
   const groups = [0, 1, 2, 3, 4, 5];
   const elements = [1, 2, 3, 4, 5, 6];
   return (
-    <div style={{ background: t.panel, border: `1px solid ${t.border}`, borderRadius: 8, padding: 12 }}>
+    <div style={{ ...cardChromeFor(style, t) }}>
       <div style={{ fontSize: 12, fontWeight: 600, color: t.text, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'ui-monospace,Menlo,monospace' }}>
         <span style={{ width: 9, height: 9, borderRadius: '50%', background: channelColor(channel) }} />{channel}
       </div>
@@ -991,7 +991,7 @@ const GroupMiniChart = ({ group, channels, specs, keptIdx, measurements, thresho
   });
   const yTicks = [0, 0.25, 0.5, 0.75, 1];
   return (
-    <div style={{ background: t.panel, border: `1px solid ${t.border}`, borderRadius: 8, padding: 10 }}>
+    <div style={{ ...cardChromeFor(style, t) }}>
       <div style={{ fontSize: 11.5, color: t.text, fontFamily: 'ui-monospace,Menlo,monospace', marginBottom: 4, fontWeight: 600 }}>Group {group}</div>
       <div style={{ fontSize: 9.5, color: t.textFaint, marginBottom: 6 }}>{lpmmFor(group, 1).toFixed(2)} – {lpmmFor(group, 6).toFixed(2)} lp/mm</div>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%">
@@ -1120,7 +1120,7 @@ const FFTSpectraGrid = ({ channels, specs, keptIdx, measurements }) => {
         const m0 = channels.map(c => measurements[c]?.[i]).find(Boolean);
         const fExp = m0?.f_expected_cy_per_sample || 0;
         return (
-          <div key={i} style={{ background: t.panel, border: `1px solid ${t.border}`, borderRadius: 8, padding: 10 }}>
+          <div key={i} style={{ ...cardChromeFor(style, t) }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: t.text, fontFamily: 'ui-monospace,Menlo,monospace', marginBottom: 4 }}>G{spec.group}E{spec.element}{spec.direction}</div>
             <div style={{ fontSize: 10, color: t.textFaint, marginBottom: 6, fontFamily: 'ui-monospace,Menlo,monospace' }}>f_expected = {fExp.toFixed(4)} cy/sample</div>
             <svg viewBox={`0 0 ${W} ${H}`} width="100%">
@@ -1719,7 +1719,7 @@ const FPNHistChart = ({ channel, roiName, measurement, unit, fullDR }) => {
   const std  = measurement.residual_pixel_noise_dn;
 
   return (
-    <div style={{ background: t.panel, border: `1px solid ${t.border}`, borderRadius: 8, padding: 12 }}>
+    <div style={{ ...cardChromeFor(style, t) }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
         <span style={{ width: 10, height: 10, borderRadius: '50%', background: color }} />
         <span style={{ fontSize: 12, fontWeight: 600, color: t.text,
@@ -2229,7 +2229,7 @@ const MetricBars = ({ metric, channels, measurements, visibleRoiIdx, roiLabel })
   const yToPx = (v) => PAD_T + (1 - v / yMax) * (H - PAD_T - PAD_B);
   const yTicks = 5;
   return (
-    <div style={{ background: t.panel, border: `1px solid ${t.border}`, borderRadius: 8, padding: 10 }}>
+    <div style={{ ...cardChromeFor(style, t) }}>
       <div style={{ fontSize: 12, fontWeight: 600, color: t.text, marginBottom: 4,
                     fontFamily: 'ui-monospace,Menlo,monospace' }}>{metric.label}</div>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%"
