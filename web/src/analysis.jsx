@@ -618,8 +618,8 @@ const MiniMTFChart = ({ channel, specs, keptIdx, measurements, threshold, detect
           const y = yToPx(yv);
           return (
             <g key={`y${yv}`}>
-              <line x1={PAD_L} y1={y} x2={W - PAD_R} y2={y} stroke={t.border} strokeWidth={style.gridWidth} />
-              <text x={PAD_L - 5} y={y + 3} fontSize={scaled(9.5, style)} fill={t.textMuted} textAnchor="end" >{yv.toFixed(2)}</text>
+              <line x1={PAD_L} y1={y} x2={W - PAD_R} y2={y} stroke={t.border} strokeWidth={scaled(style.gridWidth, style)} />
+              <text x={PAD_L - 5} y={y + 3} fontSize={scaled(style.tickSize, style)} fill={t.textMuted} textAnchor="end" >{yv.toFixed(2)}</text>
             </g>
           );
         })}
@@ -628,18 +628,18 @@ const MiniMTFChart = ({ channel, specs, keptIdx, measurements, threshold, detect
           const x = xToPx(xv);
           return (
             <g key={`x${xv}`}>
-              <line x1={x} y1={PAD_T} x2={x} y2={H - PAD_B} stroke={t.border} strokeWidth={style.gridWidth} />
-              <text x={x} y={H - PAD_B + 13} fontSize={scaled(9.5, style)} fill={t.textMuted} textAnchor="middle" >{xv}</text>
+              <line x1={x} y1={PAD_T} x2={x} y2={H - PAD_B} stroke={t.border} strokeWidth={scaled(style.gridWidth, style)} />
+              <text x={x} y={H - PAD_B + 13} fontSize={scaled(style.tickSize, style)} fill={t.textMuted} textAnchor="middle" >{xv}</text>
             </g>
           );
         })}
         {/* Threshold dashed line */}
-        <line x1={PAD_L} y1={yToPx(threshold)} x2={W - PAD_R} y2={yToPx(threshold)} stroke={t.warn} strokeWidth={style.axisStrokeWidth} strokeDasharray="4 3" />
-        <text x={W - PAD_R - 4} y={yToPx(threshold) - 4} fontSize={scaled(9.5, style)} fill={t.warn} textAnchor="end" >t={(threshold * 100).toFixed(0)}%</text>
+        <line x1={PAD_L} y1={yToPx(threshold)} x2={W - PAD_R} y2={yToPx(threshold)} stroke={t.warn} strokeWidth={scaled(style.axisStrokeWidth, style)} strokeDasharray="4 3" />
+        <text x={W - PAD_R - 4} y={yToPx(threshold) - 4} fontSize={scaled(style.tickSize, style)} fill={t.warn} textAnchor="end" >t={(threshold * 100).toFixed(0)}%</text>
         {/* Detection-limit vertical */}
         {detectionLimit != null && detectionLimit >= xRange[0] && detectionLimit <= xRange[1] && (
           <g>
-            <line x1={xToPx(detectionLimit)} y1={PAD_T} x2={xToPx(detectionLimit)} y2={H - PAD_B} stroke={color} strokeWidth={style.lineWidth} strokeDasharray="3 3" opacity={0.7} />
+            <line x1={xToPx(detectionLimit)} y1={PAD_T} x2={xToPx(detectionLimit)} y2={H - PAD_B} stroke={color} strokeWidth={scaled(style.lineWidth, style)} strokeDasharray="3 3" opacity={0.7} />
           </g>
         )}
         {/* Curves — stroke and marker per direction. */}
@@ -648,7 +648,7 @@ const MiniMTFChart = ({ channel, specs, keptIdx, measurements, threshold, detect
             {drawStyle.line && (
               <polyline
                 points={polylinePts(pts)}
-                fill="none" stroke={color} strokeWidth={style.lineWidth}
+                fill="none" stroke={color} strokeWidth={scaled(style.lineWidth, style)}
                 strokeDasharray={dir === 'H' ? dashPatternH : dashPatternV}
               />
             )}
@@ -659,8 +659,8 @@ const MiniMTFChart = ({ channel, specs, keptIdx, measurements, threshold, detect
           </g>
         ))}
         {/* Axis labels */}
-        <text x={PAD_L + (W - PAD_L - PAD_R) / 2} y={H - 4} fontSize={scaled(10, style)} fill={t.textMuted} textAnchor="middle">spatial frequency (lp/mm, log)</text>
-        <text x={11} y={PAD_T + (H - PAD_T - PAD_B) / 2} fontSize={scaled(10, style)} fill={t.textMuted} textAnchor="middle" transform={`rotate(-90 11 ${PAD_T + (H - PAD_T - PAD_B) / 2})`}>Michelson (5-pt)</text>
+        <text x={PAD_L + (W - PAD_L - PAD_R) / 2} y={H - 4} fontSize={scaled(style.axisLabelSize, style)} fill={t.textMuted} textAnchor="middle">spatial frequency (lp/mm, log)</text>
+        <text x={11} y={PAD_T + (H - PAD_T - PAD_B) / 2} fontSize={scaled(style.axisLabelSize, style)} fill={t.textMuted} textAnchor="middle" transform={`rotate(-90 11 ${PAD_T + (H - PAD_T - PAD_B) / 2})`}>Michelson (5-pt)</text>
         {/* Legend — hide direction chips when their series has no data;
             visible chips reflect the actual stroke + marker chosen in the
             toolbar so the legend stays in sync with the rendered curves. */}
@@ -678,10 +678,10 @@ const MiniMTFChart = ({ channel, specs, keptIdx, measurements, threshold, detect
                 return (
                   <g key={it.dir} transform={`translate(${x0}, 0)`}>
                     {drawStyle.line && (
-                      <line x1={0} y1={5} x2={14} y2={5} stroke={color} strokeWidth={style.lineWidth} strokeDasharray={it.dash} />
+                      <line x1={0} y1={5} x2={14} y2={5} stroke={color} strokeWidth={scaled(style.lineWidth, style)} strokeDasharray={it.dash} />
                     )}
                     {drawStyle.marker &&<MarkerShape shape={it.shape} x={7} y={5} color={color} m={{ spec: {}, lp_mm: 0, modulation_5pt: 0 }} size={6} />}
-                    <text x={18} y={8} fontSize={scaled(9.5, style)} fill={t.textMuted} >{it.dir}</text>
+                    <text x={18} y={8} fontSize={scaled(style.tickSize, style)} fill={t.textMuted} >{it.dir}</text>
                   </g>
                 );
               })}
@@ -751,12 +751,12 @@ const ProfileCard = ({ ch, spec, m, threshold }) => {
         </span>
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" style={{ background: t.panelAlt, borderRadius: 3 }}>
-        <polyline points={pts} fill="none" stroke={color} strokeWidth={style.lineWidth} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+        <polyline points={pts} fill="none" stroke={color} strokeWidth={scaled(style.lineWidth, style)} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
         {marks.map(({ j, kind }, k) => {
           const x = (j / (N - 1 || 1)) * W;
           return <line key={k} x1={x} y1={0} x2={x} y2={H}
                        stroke={kind === 'bar' ? '#ffd54f' : '#4a9eff'}
-                       strokeWidth={style.axisStrokeWidth} strokeDasharray="2 2" opacity={0.55} />;
+                       strokeWidth={scaled(style.axisStrokeWidth, style)} strokeDasharray="2 2" opacity={0.55} />;
         })}
       </svg>
       <div style={{ fontSize: 10, color: t.textMuted, marginTop: 3, fontFamily: 'ui-monospace,Menlo,monospace', display: 'flex', justifyContent: 'space-between' }}>
@@ -1030,18 +1030,18 @@ const GroupMiniChart = ({ group, channels, specs, keptIdx, measurements, thresho
         {yTicks.map(yv => {
           const y = yToPx(yv);
           return <g key={yv}>
-            <line x1={PAD_L} y1={y} x2={W - PAD_R} y2={y} stroke={t.border} strokeWidth={style.gridWidth} />
-            <text x={PAD_L - 5} y={y + 3} fontSize={scaled(8.5, style)} fill={t.textMuted} textAnchor="end" >{yv}</text>
+            <line x1={PAD_L} y1={y} x2={W - PAD_R} y2={y} stroke={t.border} strokeWidth={scaled(style.gridWidth, style)} />
+            <text x={PAD_L - 5} y={y + 3} fontSize={scaled(style.tickSize, style)} fill={t.textMuted} textAnchor="end" >{yv}</text>
           </g>;
         })}
-        {elements.map(e => <text key={e} x={xToPx(e)} y={H - PAD_B + 12} fontSize={scaled(8.5, style)} fill={t.textMuted} textAnchor="middle" >E{e}</text>)}
-        <line x1={PAD_L} y1={yToPx(threshold)} x2={W - PAD_R} y2={yToPx(threshold)} stroke={t.warn} strokeWidth={style.axisStrokeWidth} strokeDasharray="3 2" />
+        {elements.map(e => <text key={e} x={xToPx(e)} y={H - PAD_B + 12} fontSize={scaled(style.tickSize, style)} fill={t.textMuted} textAnchor="middle" >E{e}</text>)}
+        <line x1={PAD_L} y1={yToPx(threshold)} x2={W - PAD_R} y2={yToPx(threshold)} stroke={t.warn} strokeWidth={scaled(style.axisStrokeWidth, style)} strokeDasharray="3 2" />
         {series.map(({ ch, color, pts }) => {
           const def = pts.filter(p => p.m != null);
           if (!def.length) return null;
           return <g key={ch}>
-            <polyline points={def.map(p => `${xToPx(p.e)},${yToPx(p.m)}`).join(' ')} fill="none" stroke={color} strokeWidth={style.lineWidth} />
-            {def.map((p, i) => <circle key={i} cx={xToPx(p.e)} cy={yToPx(p.m)} r={2.5} fill={color} stroke="#fff" strokeWidth={style.markerStrokeWidth}><title>{`${ch} · G${group}E${p.e} · M=${p.m.toFixed(3)}`}</title></circle>)}
+            <polyline points={def.map(p => `${xToPx(p.e)},${yToPx(p.m)}`).join(' ')} fill="none" stroke={color} strokeWidth={scaled(style.lineWidth, style)} />
+            {def.map((p, i) => <circle key={i} cx={xToPx(p.e)} cy={yToPx(p.m)} r={2.5} fill={color} stroke="#fff" strokeWidth={scaled(style.markerStrokeWidth, style)}><title>{`${ch} · G${group}E${p.e} · M=${p.m.toFixed(3)}`}</title></circle>)}
           </g>;
         })}
       </svg>
@@ -1157,20 +1157,20 @@ const FFTSpectraGrid = ({ channels, specs, keptIdx, measurements }) => {
             <div style={{ fontSize: 10, color: t.textFaint, marginBottom: 6, fontFamily: 'ui-monospace,Menlo,monospace' }}>f_expected = {fExp.toFixed(4)} cy/sample</div>
             <svg viewBox={`0 0 ${W} ${H}`} width="100%">
               {[0, 0.25, 0.5, 0.75, 1].map(yv => <g key={yv}>
-                <line x1={PAD_L} y1={yToPx(yv)} x2={W - PAD_R} y2={yToPx(yv)} stroke={t.border} strokeWidth={style.gridWidth} />
-                <text x={PAD_L - 5} y={yToPx(yv) + 3} fontSize={scaled(8.5, style)} fill={t.textMuted} textAnchor="end" >{yv}</text>
+                <line x1={PAD_L} y1={yToPx(yv)} x2={W - PAD_R} y2={yToPx(yv)} stroke={t.border} strokeWidth={scaled(style.gridWidth, style)} />
+                <text x={PAD_L - 5} y={yToPx(yv) + 3} fontSize={scaled(style.tickSize, style)} fill={t.textMuted} textAnchor="end" >{yv}</text>
               </g>)}
-              {[0, 0.1, 0.2, 0.3, 0.4, 0.5].map(xv => <text key={xv} x={xToPx(xv)} y={H - PAD_B + 12} fontSize={scaled(8.5, style)} fill={t.textMuted} textAnchor="middle" >{xv}</text>)}
-              {fExp > 0 && <line x1={xToPx(fExp)} y1={PAD_T} x2={xToPx(fExp)} y2={H - PAD_B} stroke={t.textMuted} strokeWidth={style.axisStrokeWidth} strokeDasharray="3 2" />}
+              {[0, 0.1, 0.2, 0.3, 0.4, 0.5].map(xv => <text key={xv} x={xToPx(xv)} y={H - PAD_B + 12} fontSize={scaled(style.tickSize, style)} fill={t.textMuted} textAnchor="middle" >{xv}</text>)}
+              {fExp > 0 && <line x1={xToPx(fExp)} y1={PAD_T} x2={xToPx(fExp)} y2={H - PAD_B} stroke={t.textMuted} strokeWidth={scaled(style.axisStrokeWidth, style)} strokeDasharray="3 2" />}
               {channels.map(ch => {
                 const m = measurements[ch]?.[i]; if (!m?.profile?.length) return null;
                 const { f, m: ma } = fftMag(m.profile);
                 if (!f.length) return null;
                 const color = channelColor(ch);
                 const pts = f.map((fx, k) => `${xToPx(fx)},${yToPx(ma[k])}`).join(' ');
-                return <polyline key={ch} points={pts} fill="none" stroke={color} strokeWidth={style.lineWidth} vectorEffect="non-scaling-stroke" />;
+                return <polyline key={ch} points={pts} fill="none" stroke={color} strokeWidth={scaled(style.lineWidth, style)} vectorEffect="non-scaling-stroke" />;
               })}
-              <text x={(PAD_L + W - PAD_R) / 2} y={H - 4} fontSize={scaled(9.5, style)} fill={t.textMuted} textAnchor="middle">freq (cy/sample)</text>
+              <text x={(PAD_L + W - PAD_R) / 2} y={H - 4} fontSize={scaled(style.tickSize, style)} fill={t.textMuted} textAnchor="middle">freq (cy/sample)</text>
             </svg>
           </div>
         );
@@ -1454,16 +1454,16 @@ const FPNAnalysisModal = ({ run, onClose, onToast }) => {
                                                   rois={allRois} visibleRoiIdx={visibleRoiIdx} roiLabel={roiLabel} />}
           {tab === 'psd1d' && <FPNPSD1DTab channels={visibleChannels} measurements={measurements}
                                             visibleRoiIdx={visibleRoiIdx} roiLabel={roiLabel} />}
-          {tab === 'map' && <FPNFigureGrid channels={visibleChannels} figures={figures}
+          {tab === 'map' && <FPNFigureGrid channels={visibleChannels} measurements={measurements}
                                             visibleRoiIdx={visibleRoiIdx} roiLabel={roiLabel}
-                                            figKey="map" caption="Divergent (image − μ) — blue = below, red = above" />}
-          {tab === 'psd' && <FPNFigureGrid channels={visibleChannels} figures={figures}
+                                            figKey="map" caption="Blue = below, red = above. Scale centered on zero." />}
+          {tab === 'psd' && <FPNFigureGrid channels={visibleChannels} measurements={measurements}
                                             visibleRoiIdx={visibleRoiIdx} roiLabel={roiLabel}
-                                            figKey="psd" caption="Log-magnitude 2-D FFT — bright lines = banding, points = periodic structure" />}
-          {tab === 'autocorr' && <FPNFigureGrid channels={visibleChannels} figures={figures}
+                                            figKey="psd" caption="Bright lines = banding, bright points = periodic structure." />}
+          {tab === 'autocorr' && <FPNFigureGrid channels={visibleChannels} measurements={measurements}
                                                  visibleRoiIdx={visibleRoiIdx} roiLabel={roiLabel}
-                                                 figKey="autocorr" caption="Normalized autocorrelation — center = 1, off-center peaks = periodic spatial structure" />}
-          {tab === 'hotpix' && <FPNHotPixTab channels={visibleChannels} measurements={measurements} figures={figures}
+                                                 figKey="autocorr" caption="Center spike = signal power, off-center peaks = periodic spatial structure." />}
+          {tab === 'hotpix' && <FPNHotPixTab channels={visibleChannels} measurements={measurements}
                                               visibleRoiIdx={visibleRoiIdx} roiLabel={roiLabel} />}
           {tab === 'compare' && <FPNCompareTab channels={visibleChannels} measurements={measurements}
                                                 rois={allRois} visibleRoiIdx={visibleRoiIdx} roiLabel={roiLabel} />}
@@ -1797,7 +1797,7 @@ const FPNHistChart = ({ channel, roiName, measurement, unit, fullDR }) => {
         {/* Y grid (3 lines) */}
         {[0, 0.5, 1].map(f => {
           const y = PAD_T + (1 - f) * (H - PAD_T - PAD_B);
-          return <line key={f} x1={PAD_L} y1={y} x2={W - PAD_R} y2={y} stroke={t.border} strokeWidth={style.gridWidth} />;
+          return <line key={f} x1={PAD_L} y1={y} x2={W - PAD_R} y2={y} stroke={t.border} strokeWidth={scaled(style.gridWidth, style)} />;
         })}
         {/* Bars */}
         {counts.map((c, i) => {
@@ -1811,21 +1811,21 @@ const FPNHistChart = ({ channel, roiName, measurement, unit, fullDR }) => {
         {/* Mean line */}
         {mean != null && mean >= lo && mean <= hi && (
           <line x1={xToPx(mean)} y1={PAD_T} x2={xToPx(mean)} y2={H - PAD_B}
-                stroke={t.text} strokeWidth={style.axisStrokeWidth} strokeDasharray="4 3" />
+                stroke={t.text} strokeWidth={scaled(style.axisStrokeWidth, style)} strokeDasharray="4 3" />
         )}
         {/* X tick labels */}
         {xTicks.map((v, i) => (
-          <text key={i} x={xToPx(v)} y={H - PAD_B + 14} fontSize={scaled(9, style)}
+          <text key={i} x={xToPx(v)} y={H - PAD_B + 14} fontSize={scaled(style.tickSize, style)}
                 fill={t.textMuted} textAnchor={i === 0 ? 'start' : i === xTicks.length - 1 ? 'end' : 'middle'}
                 >{xfmt(v)}</text>
         ))}
         {/* Y axis label */}
-        <text x={PAD_L - 6} y={PAD_T + 4} fontSize={scaled(9, style)} fill={t.textFaint}
+        <text x={PAD_L - 6} y={PAD_T + 4} fontSize={scaled(style.tickSize, style)} fill={t.textFaint}
               textAnchor="end" >{maxCount}</text>
-        <text x={PAD_L - 6} y={H - PAD_B} fontSize={scaled(9, style)} fill={t.textFaint}
+        <text x={PAD_L - 6} y={H - PAD_B} fontSize={scaled(style.tickSize, style)} fill={t.textFaint}
               textAnchor="end" >0</text>
         {/* X axis label */}
-        <text x={PAD_L + (W - PAD_L - PAD_R) / 2} y={H - 4} fontSize={scaled(9.5, style)}
+        <text x={PAD_L + (W - PAD_L - PAD_R) / 2} y={H - 4} fontSize={scaled(style.tickSize, style)}
               fill={t.textMuted} textAnchor="middle">
           pixel value ({unit === 'pctDR' ? `% of ${fullDR}` : 'DN'})
         </text>
@@ -1897,9 +1897,9 @@ const RowColCard = ({ ch, label, m }) => {
       <g>
         {bandPts.length > 2 && <polygon points={bandPts.join(' ')} fill={color} fillOpacity={0.13} stroke="none" />}
         <line x1={PAD_L} y1={yOf(m.mean_signal)} x2={W - PAD_R} y2={yOf(m.mean_signal)}
-              stroke={t.textFaint} strokeWidth={style.axisStrokeWidth} strokeDasharray="3 3" />
-        <polyline points={pts} fill="none" stroke={color} strokeWidth={style.lineWidth} />
-        <text x={PAD_L + 3} y={PAD_T + 9} fontSize={scaled(9, style)} fill={t.textMuted}
+              stroke={t.textFaint} strokeWidth={scaled(style.axisStrokeWidth, style)} strokeDasharray="3 3" />
+        <polyline points={pts} fill="none" stroke={color} strokeWidth={scaled(style.lineWidth, style)} />
+        <text x={PAD_L + 3} y={PAD_T + 9} fontSize={scaled(style.tickSize, style)} fill={t.textMuted}
               >{label}</text>
       </g>
     );
@@ -2000,8 +2000,8 @@ const PSD1DChart = ({ axis, channels, roiIdx, measurements }) => {
         {[0, 0.1, 0.2, 0.3, 0.4, 0.5].map(fv => (
           <g key={fv}>
             <line x1={xToPx(fv)} y1={PAD_T} x2={xToPx(fv)} y2={H - PAD_B}
-                  stroke={t.border} strokeWidth={style.gridWidth} />
-            <text x={xToPx(fv)} y={H - PAD_B + 12} fontSize={scaled(8.5, style)}
+                  stroke={t.border} strokeWidth={scaled(style.gridWidth, style)} />
+            <text x={xToPx(fv)} y={H - PAD_B + 12} fontSize={scaled(style.tickSize, style)}
                   fill={t.textMuted} textAnchor="middle"
                   >{fv}</text>
           </g>
@@ -2011,12 +2011,12 @@ const PSD1DChart = ({ axis, channels, roiIdx, measurements }) => {
           const pts = s.f.map((fx, i) => `${xToPx(fx).toFixed(2)},${yToPx(s.p[i]).toFixed(2)}`).join(' ');
           return (
             <g key={s.ch}>
-              <polyline points={pts} fill="none" stroke={color} strokeWidth={style.lineWidth}
+              <polyline points={pts} fill="none" stroke={color} strokeWidth={scaled(style.lineWidth, style)}
                         vectorEffect="non-scaling-stroke" opacity={0.9} />
               {s.peak > 0 && (
                 <g>
                   <line x1={xToPx(s.peak)} y1={PAD_T} x2={xToPx(s.peak)} y2={H - PAD_B}
-                        stroke={color} strokeWidth={style.axisStrokeWidth} strokeDasharray="3 2" opacity={0.7} />
+                        stroke={color} strokeWidth={scaled(style.axisStrokeWidth, style)} strokeDasharray="3 2" opacity={0.7} />
                 </g>
               )}
             </g>
@@ -2036,80 +2036,169 @@ const PSD1DChart = ({ axis, channels, roiIdx, measurements }) => {
 };
 
 // ---------------------------------------------------------------------------
-// FPN figure grid — server-rendered PNGs for 2-D panels (map / psd / autocorr)
+// FPN native heatmap tabs (plot-style-completion-v1) — map / psd / autocorr
+// render the server-shipped 2-D grids on a <canvas> in real time. The
+// `figKey` prop is kept so the existing tab dispatch lines up, but every
+// tab is now fully native (no server PNG).
 // ---------------------------------------------------------------------------
-const FPNFigureGrid = ({ channels, figures, visibleRoiIdx, roiLabel, figKey, caption }) => {
+const FPN_TAB_SPEC = {
+  map:     { gridKey: 'fpn_map_grid',  cmap: 'rdbu',  divergent: true,  label: 'FPN map (image − μ)' },
+  psd:     { gridKey: 'psd_log_grid',  cmap: 'magma', divergent: false, label: 'log-magnitude 2-D FFT' },
+  autocorr:{ gridKey: 'autocorr_grid', cmap: 'rdbu',  divergent: true,  label: 'normalized 2-D autocorrelation' },
+};
+
+const FPNFigureGrid = ({ channels, measurements, visibleRoiIdx, roiLabel, figKey, caption }) => {
   const t = useTheme();
   const { style } = usePlotStyle();
+  const spec = FPN_TAB_SPEC[figKey] || FPN_TAB_SPEC.map;
+  const [cmap, setCmap] = useStateA(spec.cmap);
   const cards = [];
   for (const i of visibleRoiIdx) for (const ch of channels) {
-    const b64 = figures?.[ch]?.[String(i)]?.[figKey];
-    if (!b64) continue;
-    cards.push({ ch, i, b64, label: roiLabel(i) });
+    const m = measurements[ch]?.[i];
+    const gridRaw = m?.[spec.gridKey];
+    if (!gridRaw) continue;
+    cards.push({ ch, i, m, gridRaw, label: roiLabel(i) });
   }
   if (!cards.length) {
     return <div style={{ color: t.textFaint, textAlign: 'center', paddingTop: 40 }}>
-      No figures for this tab.
+      No {spec.label} data for the current selection.
     </div>;
   }
+  const cmapOptions = spec.divergent
+    ? [{ value: 'rdbu', label: 'RdBu' }, { value: 'turbo', label: 'Turbo' },
+       { value: 'viridis', label: 'Viridis' }, { value: 'gray', label: 'Gray' }]
+    : [{ value: 'magma', label: 'Magma' }, { value: 'viridis', label: 'Viridis' },
+       { value: 'inferno', label: 'Inferno' }, { value: 'plasma', label: 'Plasma' },
+       { value: 'cividis', label: 'Cividis' }, { value: 'gray', label: 'Gray' }];
   return (
-    <GridTabFrame caption={caption} n={cards.length} minCardPx={420}
-                  storageKey={`analysis/fpn/${figKey}Layout`}>
-      {cards.map(({ ch, i, b64, label }) => (
-        <div key={`${ch}_${i}`} style={{ background: t.panel, border: `1px solid ${t.border}`,
-                                          borderRadius: 8, padding: 8 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: t.text, marginBottom: 4,
-                        fontFamily: 'ui-monospace,Menlo,monospace', display: 'flex', gap: 6, alignItems: 'center' }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: channelColor(ch) }} />
-            {ch} · {label}
-          </div>
-          <img src={`data:image/png;base64,${b64}`} alt=""
-               style={{ width: '100%', borderRadius: 4, background: '#fff', display: 'block' }} />
-        </div>
-      ))}
-    </GridTabFrame>
+    <div>
+      <div data-no-export
+           style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10,
+                    fontFamily: style.fontFamily, color: t.textMuted,
+                    fontSize: scaled(style.legendSize, style), flexWrap: 'wrap' }}>
+        <span style={{ fontWeight: 600 }}>Colormap</span>
+        <Segmented value={cmap} onChange={setCmap} options={cmapOptions} />
+        {caption && <span style={{ marginLeft: 8 }}>{caption}</span>}
+      </div>
+      <div style={{ display: 'grid',
+                    gridTemplateColumns: `repeat(auto-fit, minmax(420px, 1fr))`,
+                    gap: style.gridGap }}>
+        {cards.map(({ ch, i, m, gridRaw, label }) => (
+          <FPNHeatmapCard key={`${ch}_${i}`} ch={ch} label={label}
+                           m={m} gridRaw={gridRaw} spec={spec} cmap={cmap} />
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// Module-level DN formatter (raw — no %DR branch; the FPN summary tab
+// has its own `fmtDN` that knows about the unit toggle).
+const fmtDN0 = (v, d = 3) => (v == null || !Number.isFinite(v)) ? '—' : v.toFixed(d);
+
+const FPNHeatmapCard = ({ ch, label, m, gridRaw, spec, cmap }) => {
+  const t = useTheme();
+  const { style } = usePlotStyle();
+  const grid = useMemoA(() => decodeFloat32Grid(gridRaw), [gridRaw]);
+  if (!grid) return null;
+  const vmin = grid.stats.p1 ?? grid.stats.min;
+  const vmax = grid.stats.p99 ?? grid.stats.max;
+  const sub = spec.divergent
+    ? `${spec.label} · σ = ${fmtDN0(m?.std ?? 0)}`
+    : `${spec.label} · ${grid.w}×${grid.h} cells`;
+  return (
+    <ChartCard ch={ch} sub={`· ${label} — ${sub}`}
+               footer={<HeatmapColorBar cmap={cmap} vmin={vmin} vmax={vmax}
+                                         divergent={spec.divergent}
+                                         label={spec.divergent ? 'DN − μ' : 'log(1+|F|)'} />}>
+      <HeatmapCanvas grid={grid} cmap={cmap}
+                     divergent={spec.divergent}
+                     vmin={vmin} vmax={vmax}
+                     width={460} height={340} aspectLock={true} />
+    </ChartCard>
   );
 };
 
 // ---------------------------------------------------------------------------
-// FPN hot / cold pixels — render the server-generated hotpix PNG + the
-// top-50 list from measurements as a compact HTML table
+// FPN hot / cold pixels — native: ROI image on canvas + SVG markers at the
+// outlier coordinates + a compact HTML top-N table.
 // ---------------------------------------------------------------------------
-const FPNHotPixTab = ({ channels, measurements, figures, visibleRoiIdx, roiLabel }) => {
+const FPNHotPixTab = ({ channels, measurements, visibleRoiIdx, roiLabel }) => {
   const t = useTheme();
   const { style } = usePlotStyle();
   const cards = [];
   for (const i of visibleRoiIdx) for (const ch of channels) {
-    const b64 = figures?.[ch]?.[String(i)]?.hotpix;
     const m = measurements[ch]?.[i];
-    if (!b64 && !m) continue;
-    cards.push({ ch, i, b64, m, label: roiLabel(i) });
+    if (!m) continue;
+    cards.push({ ch, i, m, label: roiLabel(i) });
   }
   if (!cards.length) {
     return <div style={{ color: t.textFaint, textAlign: 'center', paddingTop: 40 }}>No data.</div>;
   }
   return (
-    <GridTabFrame n={cards.length} minCardPx={460}
-                  storageKey="analysis/fpn/hotpixLayout">
-      {cards.map(({ ch, i, b64, m, label }) => (
-        <div key={`${ch}_${i}`} style={{ background: t.panel, border: `1px solid ${t.border}`,
-                                          borderRadius: 8, padding: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-            <span style={{ width: 9, height: 9, borderRadius: '50%', background: channelColor(ch) }} />
-            <span style={{ fontSize: 12, fontWeight: 600, color: t.text,
-                           fontFamily: 'ui-monospace,Menlo,monospace' }}>{ch} · {label}</span>
-            <span style={{ marginLeft: 'auto', fontSize: 10.5, color: m?.hot_pixel_count > 0 ? t.warn : t.textMuted }}>
-              hot {m?.hot_pixel_count ?? 0} · cold {m?.cold_pixel_count ?? 0}
-            </span>
-          </div>
-          {b64 && (
-            <img src={`data:image/png;base64,${b64}`} alt=""
-                 style={{ width: '100%', borderRadius: 4, background: '#fff', display: 'block', marginBottom: 6 }} />
-          )}
-          <HotColdList m={m} />
-        </div>
+    <div style={{ display: 'grid',
+                  gridTemplateColumns: `repeat(auto-fit, minmax(460px, 1fr))`,
+                  gap: style.gridGap }}>
+      {cards.map(({ ch, i, m, label }) => (
+        <HotPixCard key={`${ch}_${i}`} ch={ch} label={label} m={m} />
       ))}
-    </GridTabFrame>
+    </div>
+  );
+};
+
+const HotPixCard = ({ ch, label, m }) => {
+  const t = useTheme();
+  const { style } = usePlotStyle();
+  const grid = useMemoA(() => decodeFloat32Grid(m?.image_grid), [m]);
+  const hot = m?.top_hot || [];
+  const cold = m?.top_cold || [];
+  // The server may have strided the image down; we need to map original-ROI
+  // pixel coords to the canvas (grid) coords using the same stride.
+  const imgStrideY = m?.image_grid?.stride?.[0] || 1;
+  const imgStrideX = m?.image_grid?.stride?.[1] || 1;
+  return (
+    <ChartCard ch={ch} sub={`· ${label}`}
+               footer={<HotColdList m={m} />}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6,
+                    fontFamily: 'ui-monospace,Menlo,monospace',
+                    fontSize: scaled(style.legendSize, style),
+                    fontWeight: style.legendWeight,
+                    color: m.hot_pixel_count > 0 ? t.warn : t.textMuted }}>
+        <span>hot {m?.hot_pixel_count ?? 0}</span>
+        <span>cold {m?.cold_pixel_count ?? 0}</span>
+        <span style={{ color: t.textMuted }}>|z| &gt; {(m?.settings?.hot_sigma ?? 4).toFixed(1)}</span>
+      </div>
+      <HeatmapCanvas grid={grid} cmap="gray"
+                     width={460} height={Math.round(460 * ((grid?.h || 1) / (grid?.w || 1)))}
+                     aspectLock={true}>
+        {({ w: cssW, h: cssH, gridW, gridH }) => {
+          if (!gridW || !gridH) return null;
+          const xOf = (px) => (px / imgStrideX / gridW) * cssW;
+          const yOf = (py) => (py / imgStrideY / gridH) * cssH;
+          return (
+            <g>
+              {hot.map((p, idx) => (
+                <circle key={`h${idx}`} cx={xOf(p.x)} cy={yOf(p.y)}
+                        r={Math.max(2, style.markerSize / 2)}
+                        fill="none" stroke="#ef4444"
+                        strokeWidth={style.markerStrokeWidth + 1} opacity={0.9}>
+                  <title>{`hot #${idx+1} y=${p.y} x=${p.x} · ${fmtDN0(p.value)} · z=+${p.z.toFixed(2)}`}</title>
+                </circle>
+              ))}
+              {cold.map((p, idx) => (
+                <rect key={`c${idx}`} x={xOf(p.x) - style.markerSize / 2}
+                      y={yOf(p.y) - style.markerSize / 2}
+                      width={style.markerSize} height={style.markerSize}
+                      fill="none" stroke="#3b82f6"
+                      strokeWidth={style.markerStrokeWidth + 1} opacity={0.9}>
+                  <title>{`cold #${idx+1} y=${p.y} x=${p.x} · ${fmtDN0(p.value)} · z=${p.z.toFixed(2)}`}</title>
+                </rect>
+              ))}
+            </g>
+          );
+        }}
+      </HeatmapCanvas>
+    </ChartCard>
   );
 };
 
@@ -2135,7 +2224,7 @@ const HotColdList = ({ m }) => {
           <div key={i} style={{ display: 'flex', gap: 8 }}>
             <span style={{ width: 28 }}>#{i + 1}</span>
             <span style={{ width: 72 }}>y={p.y} x={p.x}</span>
-            <span style={{ width: 64 }}>{fmtDN(p.value)}</span>
+            <span style={{ width: 64 }}>{fmtDN0(p.value)}</span>
             <span style={{ color }}>z={p.z >= 0 ? '+' : ''}{p.z.toFixed(2)}</span>
           </div>
         ))}
@@ -2212,8 +2301,8 @@ const MetricBars = ({ metric, channels, measurements, visibleRoiIdx, roiLabel })
         {Array.from({ length: yTicks + 1 }, (_, k) => yMax * k / yTicks).map((yv, k) => (
           <g key={k}>
             <line x1={PAD_L} y1={yToPx(yv)} x2={W - PAD_R} y2={yToPx(yv)}
-                  stroke={t.border} strokeWidth={style.gridWidth} />
-            <text x={PAD_L - 5} y={yToPx(yv) + 3} fontSize={scaled(8.5, style)} fill={t.textMuted}
+                  stroke={t.border} strokeWidth={scaled(style.gridWidth, style)} />
+            <text x={PAD_L - 5} y={yToPx(yv) + 3} fontSize={scaled(style.tickSize, style)} fill={t.textMuted}
                   textAnchor="end" >{yv.toFixed(2)}</text>
           </g>
         ))}
@@ -2233,7 +2322,7 @@ const MetricBars = ({ metric, channels, measurements, visibleRoiIdx, roiLabel })
                 </g>
               );
             })}
-            <text x={groupW / 2} y={H - PAD_B + 14} fontSize={scaled(9.5, style)} fill={t.textMuted}
+            <text x={groupW / 2} y={H - PAD_B + 14} fontSize={scaled(style.tickSize, style)} fill={t.textMuted}
                   textAnchor="middle" >{roiLabel(i)}</text>
           </g>
         ))}
@@ -2570,9 +2659,10 @@ const DoFAnalysisModal = ({ run, onClose, onToast }) => {
                                              visibleLineIdx={visibleLineIdx}
                                              lineLabel={lineLabel} unitPref={unitPref}
                                              tiltFactor={tiltFactor} />}
-          {tab === 'gaussian' && <DoFFigureGrid channels={visibleChannels} figures={figures}
-                                                  figKey="gaussian"
-                                                  caption="Server-rendered Gaussian fit overlays (parametric peak + FWHM)." />}
+          {tab === 'gaussian' && <DoFGaussianTab channels={visibleChannels} results={results}
+                                                    visibleLineIdx={visibleLineIdx}
+                                                    lineLabel={lineLabel}
+                                                    unitPref={unitPref} tiltFactor={tiltFactor} />}
           {tab === 'metric' && <DoFMetricCompareTab channels={visibleChannels} results={results}
                                                       visibleLineIdx={visibleLineIdx}
                                                       lineLabel={lineLabel} unitPref={unitPref}
@@ -2580,13 +2670,12 @@ const DoFAnalysisModal = ({ run, onClose, onToast }) => {
           {tab === 'chromatic' && <DoFChromaticTab channels={visibleChannels} results={results}
                                                      visibleLineIdx={visibleLineIdx}
                                                      lineLabel={lineLabel}
-                                                     chromaticPng={chromaticPng}
                                                      unitPref={unitPref} tiltFactor={tiltFactor} />}
-          {tab === 'heatmap' && <DoFFigureGrid channels={visibleChannels} figures={figures}
-                                                 figKey="heatmap"
-                                                 caption="Per-channel focus heatmap over the whole image. Brightest region = best focus." />}
+          {tab === 'heatmap' && <DoFHeatmapTab channels={visibleChannels} results={results}
+                                                 lineLabel={lineLabel} pointLabel={pointLabel} />}
           {tab === 'points' && <DoFPointsTab channels={visibleChannels} results={results}
-                                               figures={figures} pointLabel={pointLabel} />}
+                                               pointLabel={pointLabel}
+                                               unitPref={unitPref} tiltFactor={tiltFactor} />}
         </div>
       </div>
     </div>
@@ -2850,33 +2939,40 @@ const LineOverlayChart = ({ idx, channels, results, label, unitPref = 'auto',
   const yTicks = [0, 0.25, 0.5, 0.75, 1];
   const threshold = results[channels[0]]?.threshold ?? 0.5;
 
+  const chrome = cardChromeFor(style, t);
   return (
-    <div style={{ background: t.panel, border: `1px solid ${t.border}`,
-                  borderRadius: 8, padding: 12 }}>
-      <div style={{ fontSize: 12.5, fontWeight: 600, color: t.text, marginBottom: 6,
-                    fontFamily: 'ui-monospace,Menlo,monospace' }}>{label}</div>
+    <div style={{ ...chrome, display: 'flex', flexDirection: 'column',
+                   boxShadow: style.cardBorder ? `0 1px 2px ${t.shadow || 'rgba(0,0,0,0.04)'}` : 'none' }}>
+      <div style={{ fontSize: scaled(style.titleSize, style),
+                    fontWeight: style.titleWeight,
+                    fontStyle: style.titleItalic ? 'italic' : 'normal',
+                    color: t.text, marginBottom: 6,
+                    fontFamily: style.fontFamily }}>{label}</div>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%"
-           style={{ background: t.panelAlt, borderRadius: 4 }}>
-        {yTicks.map(y => (
+           preserveAspectRatio="xMidYMid meet"
+           style={{ background: t.panelAlt, borderRadius: 4, display: 'block' }}>
+        {style.showGrid && yTicks.map(y => (
           <g key={y}>
             <line x1={PAD_L} y1={yOf(y)} x2={W - PAD_R} y2={yOf(y)}
-                  stroke={t.border} strokeWidth={style.gridWidth} />
-            <text x={PAD_L - 4} y={yOf(y) + 3} fontSize={scaled(9.5, style)}
+                  stroke={t.border} strokeWidth={scaled(style.gridWidth, style)}
+                  opacity={style.gridOpacity} />
+            <text x={PAD_L - 4} y={yOf(y) + 3} fontSize={scaled(style.tickSize, style)}
                   fill={t.textMuted} textAnchor="end"
-                  >{y.toFixed(2)}</text>
+                  fontFamily={style.fontFamily}>{y.toFixed(2)}</text>
           </g>
         ))}
-        {xTicks.map(x => (
+        {style.showGrid && xTicks.map(x => (
           <g key={x}>
             <line x1={xOf(x)} y1={PAD_T} x2={xOf(x)} y2={H - PAD_B}
-                  stroke={t.border} strokeWidth={style.gridWidth} />
-            <text x={xOf(x)} y={H - PAD_B + 13} fontSize={scaled(9.5, style)}
+                  stroke={t.border} strokeWidth={scaled(style.gridWidth, style)}
+                  opacity={style.gridOpacity} />
+            <text x={xOf(x)} y={H - PAD_B + 13} fontSize={scaled(style.tickSize, style)}
                   fill={t.textMuted} textAnchor="middle"
-                  >{x}</text>
+                  fontFamily={style.fontFamily}>{x}</text>
           </g>
         ))}
         <line x1={PAD_L} y1={yOf(threshold)} x2={W - PAD_R} y2={yOf(threshold)}
-              stroke={t.warn} strokeWidth={style.axisStrokeWidth} strokeDasharray="4 3" />
+              stroke={t.warn} strokeWidth={scaled(style.axisStrokeWidth, style)} strokeDasharray="4 3" />
         {series.map(({ ch, lr }) => {
           const color = channelColor(ch);
           const xs = xsOf({ lr });
@@ -2900,29 +2996,29 @@ const LineOverlayChart = ({ idx, channels, results, label, unitPref = 'auto',
                       height={H - PAD_T - PAD_B}
                       fill={color} opacity={0.06} />
               )}
-              <polyline points={pts} fill="none" stroke={color} strokeWidth={style.lineWidth} />
+              <polyline points={pts} fill="none" stroke={color} strokeWidth={scaled(style.lineWidth, style)} />
               {gpts && <polyline points={gpts} fill="none" stroke={color}
-                                   strokeWidth={style.lineWidth} strokeDasharray="5 3" opacity={0.7} />}
+                                   strokeWidth={scaled(style.lineWidth, style)} strokeDasharray="5 3" opacity={0.7} />}
               {peakX != null && (
                 <g>
                   <line x1={xOf(toAxisX(peakX))} y1={yOf(1)} x2={xOf(toAxisX(peakX))} y2={yOf(0)}
-                        stroke={color} strokeWidth={style.axisStrokeWidth} opacity={0.5}
+                        stroke={color} strokeWidth={scaled(style.axisStrokeWidth, style)} opacity={0.5}
                         strokeDasharray="3 3" />
                   <circle cx={xOf(toAxisX(peakX))} cy={yOf(1.02)} r={2.5}
-                          fill={color} stroke="#fff" strokeWidth={style.markerStrokeWidth} />
+                          fill={color} stroke="#fff" strokeWidth={scaled(style.markerStrokeWidth, style)} />
                 </g>
               )}
               {lr.peak_ci95_px && (
                 <line x1={xOf(toAxisX(lr.peak_ci95_px[0]))} y1={yOf(0.02)}
                       x2={xOf(toAxisX(lr.peak_ci95_px[1]))} y2={yOf(0.02)}
-                      stroke={color} strokeWidth={style.lineWidth} opacity={0.7} />
+                      stroke={color} strokeWidth={scaled(style.lineWidth, style)} opacity={0.7} />
               )}
             </g>
           );
         })}
-        <text x={PAD_L + (W - PAD_L - PAD_R) / 2} y={H - 4} fontSize={scaled(10, style)}
+        <text x={PAD_L + (W - PAD_L - PAD_R) / 2} y={H - 4} fontSize={scaled(style.axisLabelSize, style)}
               fill={t.textMuted} textAnchor="middle">position along line ({unitName})</text>
-        <text x={11} y={PAD_T + (H - PAD_T - PAD_B) / 2} fontSize={scaled(10, style)}
+        <text x={11} y={PAD_T + (H - PAD_T - PAD_B) / 2} fontSize={scaled(style.axisLabelSize, style)}
               fill={t.textMuted} textAnchor="middle"
               transform={`rotate(-90 11 ${PAD_T + (H - PAD_T - PAD_B) / 2})`}>
           normalized focus
@@ -2933,10 +3029,15 @@ const LineOverlayChart = ({ idx, channels, results, label, unitPref = 'auto',
           const g = lr.gaussian;
           const peakPx = g?.converged ? g.mu : lr.peak_position_px;
           return (
-            <span key={ch} style={{ fontSize: 10, color: channelColor(ch),
+            <span key={ch} style={{ fontSize: scaled(style.legendSize, style),
+                                     fontWeight: style.legendWeight,
+                                     color: channelColor(ch),
                                      fontFamily: 'ui-monospace,Menlo,monospace',
                                      display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ width: 9, height: 9, borderRadius: '50%', background: channelColor(ch) }} />
+              <span style={{ width: Math.max(6, scaled(style.legendSize, style) * 0.8),
+                              height: Math.max(6, scaled(style.legendSize, style) * 0.8),
+                              borderRadius: '50%',
+                              background: channelColor(ch) }} />
               {ch}: peak {dofFmt(lr, dofScaled(peakPx, tiltFactor), unitPref, 1)}
               {lr.dof_width_px != null && `, DoF ${dofFmt(lr, dofScaled(lr.dof_width_px, tiltFactor), unitPref, 1)}`}
             </span>
@@ -2997,19 +3098,25 @@ const MetricOverlayChart = ({ ch, lr, label, unitPref = 'auto', tiltFactor = 1 }
   const xMax = xs[xs.length - 1];
   const xOf = (x) => PAD_L + (x / (xMax || 1)) * (W - PAD_L - PAD_R);
   const yOf = (y) => PAD_T + (1 - Math.max(0, Math.min(1, y))) * (H - PAD_T - PAD_B);
+  const chrome = cardChromeFor(style, t);
   return (
-    <div style={{ background: t.panel, border: `1px solid ${t.border}`,
-                  borderRadius: 8, padding: 10 }}>
+    <div style={{ ...chrome, boxShadow: style.cardBorder ? `0 1px 2px ${t.shadow || 'rgba(0,0,0,0.04)'}` : 'none' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-        <span style={{ width: 9, height: 9, borderRadius: '50%', background: channelColor(ch) }} />
-        <span style={{ fontSize: 12, fontWeight: 600, color: t.text,
-                       fontFamily: 'ui-monospace,Menlo,monospace' }}>{ch} · {label}</span>
+        <span style={{ width: Math.max(6, scaled(style.titleSize, style) * 0.7),
+                        height: Math.max(6, scaled(style.titleSize, style) * 0.7),
+                        borderRadius: '50%', background: channelColor(ch) }} />
+        <span style={{ fontSize: scaled(style.titleSize, style),
+                       fontWeight: style.titleWeight,
+                       fontStyle: style.titleItalic ? 'italic' : 'normal',
+                       color: t.text, fontFamily: style.fontFamily }}>{ch} · {label}</span>
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%"
-           style={{ background: t.panelAlt, borderRadius: 4 }}>
-        {[0, 0.5, 1].map(y => (
+           preserveAspectRatio="xMidYMid meet"
+           style={{ background: t.panelAlt, borderRadius: 4, display: 'block' }}>
+        {style.showGrid && [0, 0.5, 1].map(y => (
           <line key={y} x1={PAD_L} y1={yOf(y)} x2={W - PAD_R} y2={yOf(y)}
-                stroke={t.border} strokeWidth={style.gridWidth} />
+                stroke={t.border} strokeWidth={scaled(style.gridWidth, style)}
+                opacity={style.gridOpacity} />
         ))}
         {['laplacian', 'brenner', 'tenengrad', 'fft_hf'].map(m => {
           const msw = lr.metric_sweep?.[m];
@@ -3020,11 +3127,11 @@ const MetricOverlayChart = ({ ch, lr, label, unitPref = 'auto', tiltFactor = 1 }
           return (
             <g key={m}>
               <polyline points={pts} fill="none" stroke={METRIC_COLORS[m]}
-                        strokeWidth={style.lineWidth} opacity={0.9} />
+                        strokeWidth={scaled(style.lineWidth, style)} opacity={0.9} />
               {peakAxis != null && (
                 <line x1={xOf(peakAxis)} y1={PAD_T}
                       x2={xOf(peakAxis)} y2={H - PAD_B}
-                      stroke={METRIC_COLORS[m]} strokeWidth={style.axisStrokeWidth}
+                      stroke={METRIC_COLORS[m]} strokeWidth={scaled(style.axisStrokeWidth, style)}
                       strokeDasharray="3 2" opacity={0.6} />
               )}
             </g>
@@ -3035,14 +3142,18 @@ const MetricOverlayChart = ({ ch, lr, label, unitPref = 'auto', tiltFactor = 1 }
         {['laplacian', 'brenner', 'tenengrad', 'fft_hf'].map(m => {
           const msw = lr.metric_sweep?.[m];
           if (!msw) return null;
-          return <span key={m} style={{ fontSize: 9.5, color: METRIC_COLORS[m],
+          return <span key={m} style={{ fontSize: scaled(style.legendSize, style),
+                                          fontWeight: style.legendWeight,
+                                          color: METRIC_COLORS[m],
                                           fontFamily: 'ui-monospace,Menlo,monospace' }}>
             ● {m} peak {dofFmt(lr, dofScaled(msw.peak_position_px, tiltFactor), unitPref, 1)}
           </span>;
         })}
       </div>
-      <div style={{ marginTop: 4, fontSize: 9.5, color: t.textFaint,
-                    fontFamily: 'ui-monospace,Menlo,monospace' }}>
+      <div style={{ marginTop: 4,
+                    fontSize: scaled(style.legendSize, style),
+                    fontWeight: style.legendWeight,
+                    color: t.textFaint, fontFamily: style.fontFamily }}>
         position along line ({unitName})
       </div>
     </div>
@@ -3052,7 +3163,7 @@ const MetricOverlayChart = ({ ch, lr, label, unitPref = 'auto', tiltFactor = 1 }
 // ---------------------------------------------------------------------------
 // DoF Chromatic shift — native visualization + server PNG reference
 // ---------------------------------------------------------------------------
-const DoFChromaticTab = ({ channels, results, visibleLineIdx, lineLabel, chromaticPng,
+const DoFChromaticTab = ({ channels, results, visibleLineIdx, lineLabel,
                             unitPref = 'auto', tiltFactor = 1 }) => {
   const t = useTheme();
   const { style } = usePlotStyle();
@@ -3063,26 +3174,18 @@ const DoFChromaticTab = ({ channels, results, visibleLineIdx, lineLabel, chromat
   }
   return (
     <div>
-      <div style={{ fontSize: 11, color: t.textMuted, marginBottom: 10,
-                    fontFamily: 'ui-monospace,Menlo,monospace' }}>
-        Peak position per channel per line. Error bars = 95% bootstrap CI. Spread = chromatic aberration.
+      <div style={{ fontSize: scaled(style.legendSize, style), color: t.textMuted,
+                    fontWeight: style.legendWeight, marginBottom: 10,
+                    fontFamily: style.fontFamily }}>
+        Peak position per channel per line. Error bars = 95% bootstrap CI.
+        Spread across channels = chromatic focus shift.
       </div>
       <div style={{ display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 14 }}>
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))',
+                    gap: style.gridGap }}>
         <ChromaticShiftChart channels={channels} results={results}
                               visibleLineIdx={visibleLineIdx} lineLabel={lineLabel}
                               unitPref={unitPref} tiltFactor={tiltFactor} />
-        {chromaticPng && (
-          <div style={{ background: t.panel, border: `1px solid ${t.border}`,
-                        borderRadius: 8, padding: 10 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: t.text, marginBottom: 6,
-                          fontFamily: 'ui-monospace,Menlo,monospace' }}>
-              Server-rendered chromatic plot
-            </div>
-            <img src={`data:image/png;base64,${chromaticPng}`} alt=""
-                 style={{ width: '100%', borderRadius: 4, background: '#fff', display: 'block' }} />
-          </div>
-        )}
       </div>
     </div>
   );
@@ -3120,22 +3223,27 @@ const ChromaticShiftChart = ({ channels, results, visibleLineIdx, lineLabel,
   const yMin = Math.min(...allPeaks) * 0.9;
   const yMax = Math.max(...allPeaks) * 1.1;
   const yOf = (y) => PAD_T + (1 - (y - yMin) / (yMax - yMin || 1)) * (H - PAD_T - PAD_B);
+  const chrome = cardChromeFor(style, t);
   return (
-    <div style={{ background: t.panel, border: `1px solid ${t.border}`,
-                  borderRadius: 8, padding: 12 }}>
-      <div style={{ fontSize: 12.5, fontWeight: 600, color: t.text, marginBottom: 6,
-                    fontFamily: 'ui-monospace,Menlo,monospace' }}>
+    <div style={{ ...chrome, boxShadow: style.cardBorder ? `0 1px 2px ${t.shadow || 'rgba(0,0,0,0.04)'}` : 'none' }}>
+      <div style={{ fontSize: scaled(style.titleSize, style),
+                    fontWeight: style.titleWeight,
+                    fontStyle: style.titleItalic ? 'italic' : 'normal',
+                    color: t.text, marginBottom: 6,
+                    fontFamily: style.fontFamily }}>
         Peak position per channel ({unitName})
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%"
-           style={{ background: t.panelAlt, borderRadius: 4 }}>
-        {[yMin, (yMin + yMax) / 2, yMax].map(y => (
+           preserveAspectRatio="xMidYMid meet"
+           style={{ background: t.panelAlt, borderRadius: 4, display: 'block' }}>
+        {style.showGrid && [yMin, (yMin + yMax) / 2, yMax].map(y => (
           <g key={y}>
             <line x1={PAD_L} y1={yOf(y)} x2={W - PAD_R} y2={yOf(y)}
-                  stroke={t.border} strokeWidth={style.gridWidth} />
-            <text x={PAD_L - 4} y={yOf(y) + 3} fontSize={scaled(9, style)}
+                  stroke={t.border} strokeWidth={scaled(style.gridWidth, style)}
+                  opacity={style.gridOpacity} />
+            <text x={PAD_L - 4} y={yOf(y) + 3} fontSize={scaled(style.tickSize, style)}
                   fill={t.textMuted} textAnchor="end"
-                  >{y.toFixed(unitName === 'μm' ? 1 : 3)}</text>
+                  fontFamily={style.fontFamily}>{y.toFixed(unitName === 'μm' ? 1 : 3)}</text>
           </g>
         ))}
         {visibleLineIdx.map((idx, i) => {
@@ -3154,10 +3262,11 @@ const ChromaticShiftChart = ({ channels, results, visibleLineIdx, lineLabel,
                 {ci95 && (
                   <line x1={x + xOffset} y1={yOf(asAxis(ln, ci95[0]))}
                         x2={x + xOffset} y2={yOf(asAxis(ln, ci95[1]))}
-                        stroke={color} strokeWidth={style.lineWidth} opacity={0.7} />
+                        stroke={color} strokeWidth={scaled(style.lineWidth, style)} opacity={0.7} />
                 )}
-                <circle cx={x + xOffset} cy={yOf(peak)} r={4.5} fill={color}
-                        stroke="#fff" strokeWidth={style.markerStrokeWidth}>
+                <circle cx={x + xOffset} cy={yOf(peak)}
+                        r={scaled(style.markerSize / 2, style)} fill={color}
+                        stroke="#fff" strokeWidth={scaled(style.markerStrokeWidth, style)}>
                   <title>{`${ch} · ${lineLabel(idx)}: peak ${dofFmt(ln, dofScaled(peakPx, tiltFactor), unitPref, 3)}`}</title>
                 </circle>
               </g>
@@ -3165,11 +3274,11 @@ const ChromaticShiftChart = ({ channels, results, visibleLineIdx, lineLabel,
           });
         })}
         {visibleLineIdx.map((idx, i) => (
-          <text key={idx} x={xOf(i)} y={H - PAD_B + 16} fontSize={scaled(10, style)}
+          <text key={idx} x={xOf(i)} y={H - PAD_B + 16} fontSize={scaled(style.axisLabelSize, style)}
                 fill={t.textMuted} textAnchor="middle"
                 >{lineLabel(idx)}</text>
         ))}
-        <text x={11} y={PAD_T + (H - PAD_T - PAD_B) / 2} fontSize={scaled(10, style)}
+        <text x={11} y={PAD_T + (H - PAD_T - PAD_B) / 2} fontSize={scaled(style.axisLabelSize, style)}
               fill={t.textMuted} textAnchor="middle"
               transform={`rotate(-90 11 ${PAD_T + (H - PAD_T - PAD_B) / 2})`}>
           peak position ({unitName})
@@ -3177,10 +3286,14 @@ const ChromaticShiftChart = ({ channels, results, visibleLineIdx, lineLabel,
       </svg>
       <div style={{ display: 'flex', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
         {channels.map(ch => (
-          <span key={ch} style={{ fontSize: 10, color: channelColor(ch),
+          <span key={ch} style={{ fontSize: scaled(style.legendSize, style),
+                                   fontWeight: style.legendWeight,
+                                   color: channelColor(ch),
                                    fontFamily: 'ui-monospace,Menlo,monospace',
                                    display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ width: 9, height: 9, borderRadius: '50%', background: channelColor(ch) }} />
+            <span style={{ width: Math.max(6, scaled(style.legendSize, style) * 0.8),
+                            height: Math.max(6, scaled(style.legendSize, style) * 0.8),
+                            borderRadius: '50%', background: channelColor(ch) }} />
             {ch}
           </span>
         ))}
@@ -3192,83 +3305,397 @@ const ChromaticShiftChart = ({ channels, results, visibleLineIdx, lineLabel,
 // ---------------------------------------------------------------------------
 // Generic DoF figure grid (heatmaps / Gaussian fits / etc.)
 // ---------------------------------------------------------------------------
-const DoFFigureGrid = ({ channels, figures, figKey, caption }) => {
+// ===========================================================================
+// Native DoF tabs (plot-style-completion-v1) — no server-rendered images.
+// All three of these replace the old DoFFigureGrid / DoFPointsTab PNG paths.
+// Every inline SVG + canvas reads from plotStyle for typography, line width,
+// grid, markers, card chrome, and palette.
+// ===========================================================================
+
+// Shared card chrome + title for all DoF/FPN native tab cards.
+const ChartCard = ({ ch, sub, children, footer }) => {
+  const t = useTheme();
+  const { style } = usePlotStyle();
+  const chrome = cardChromeFor(style, t);
+  return (
+    <div style={{ ...chrome, display: 'flex', flexDirection: 'column',
+                  boxShadow: style.cardBorder ? `0 1px 2px ${t.shadow || 'rgba(0,0,0,0.04)'}` : 'none' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8,
+                    marginBottom: 6, flexWrap: 'wrap' }}>
+        {ch && <>
+          <span style={{ width: scaled(9, style), height: scaled(9, style),
+                         borderRadius: '50%', background: channelColor(ch), flexShrink: 0 }} />
+          <span style={{ fontFamily: style.fontFamily,
+                         fontSize: scaled(style.titleSize, style),
+                         fontWeight: style.titleWeight,
+                         fontStyle: style.titleItalic ? 'italic' : 'normal',
+                         color: t.text }}>{ch}</span>
+        </>}
+        {sub && <span style={{ fontFamily: style.fontFamily,
+                               fontSize: scaled(style.legendSize, style),
+                               fontWeight: style.legendWeight,
+                               color: t.textMuted }}>{sub}</span>}
+      </div>
+      {children}
+      {footer && <div style={{ marginTop: 6,
+                                fontFamily: style.fontFamily,
+                                fontSize: scaled(style.legendSize, style),
+                                fontWeight: style.legendWeight,
+                                color: t.textMuted, lineHeight: 1.5 }}>
+        {footer}
+      </div>}
+    </div>
+  );
+};
+
+// Native SVG Gaussian fit chart. For each (channel × line) we have the raw
+// focus samples (`ln.focus_norm`), the fit parameters (`ln.gaussian`), and
+// the bootstrap CI (`ln.peak_ci95_px` + `ln.dof_width_ci95_px`). We sample
+// the fit curve client-side at 120 evenly-spaced positions along the line.
+const DoFGaussianTab = ({ channels, results, visibleLineIdx, lineLabel,
+                          unitPref = 'auto', tiltFactor = 1 }) => {
   const t = useTheme();
   const { style } = usePlotStyle();
   const cards = [];
   for (const ch of channels) {
-    const b64 = figures?.[ch]?.[figKey];
-    if (!b64) continue;
-    cards.push({ ch, b64 });
+    for (const i of visibleLineIdx) {
+      const ln = results[ch]?.lines?.[i];
+      if (!ln || !ln.positions_px?.length) continue;
+      cards.push({ ch, i, ln });
+    }
   }
   if (!cards.length) {
     return <div style={{ color: t.textFaint, textAlign: 'center', paddingTop: 40 }}>
-      No figures for this tab.
+      No lines with sampled focus data.
     </div>;
   }
   return (
-    <GridTabFrame caption={caption} n={cards.length} minCardPx={440}
-                  storageKey={`analysis/dof/${figKey}Layout`}>
-      {cards.map(({ ch, b64 }) => (
-        <div key={ch} style={{ background: t.panel, border: `1px solid ${t.border}`,
-                                borderRadius: 8, padding: 8 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: t.text, marginBottom: 4,
-                        fontFamily: 'ui-monospace,Menlo,monospace',
-                        display: 'flex', gap: 6, alignItems: 'center' }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: channelColor(ch) }} />
-            {ch}
-          </div>
-          <img src={`data:image/png;base64,${b64}`} alt=""
-               style={{ width: '100%', borderRadius: 4, background: '#fff', display: 'block' }} />
-        </div>
+    <GridTabFrame
+      caption="Gaussian fit overlay per (channel × line). Solid = normalized focus; dashed = parametric Gaussian fit; shaded band = ±95% bootstrap CI on the peak."
+      n={cards.length} minCardPx={440}
+      storageKey="analysis/dof/gaussianLayout">
+      {cards.map(({ ch, i, ln }) => (
+        <GaussianFitChart key={`${ch}_${i}`} ch={ch} ln={ln}
+                           label={lineLabel(i)}
+                           unitPref={unitPref} tiltFactor={tiltFactor} />
       ))}
     </GridTabFrame>
   );
 };
 
-// ---------------------------------------------------------------------------
-// DoF Points tab — focus bar chart + tilt-plane PNG per channel
-// ---------------------------------------------------------------------------
-const DoFPointsTab = ({ channels, results, figures, pointLabel }) => {
+const GaussianFitChart = ({ ch, ln, label, unitPref = 'auto', tiltFactor = 1 }) => {
+  const t = useTheme();
+  const { style } = usePlotStyle();
+  const W = 460, H = 260, PAD_L = 50, PAD_R = 14, PAD_T = 20, PAD_B = 44;
+  const color = channelColor(ch);
+  const g = ln.gaussian || {};
+  const converged = !!g.converged;
+  const xsPx = ln.positions_px;
+  const xsAxis = xsPx.map(px => dofToDisplay(ln, dofScaled(px, tiltFactor), unitPref) ?? px);
+  const unitName = dofDisplayUnit(ln, unitPref);
+
+  const xMin = 0;
+  const xMax = Math.max(...xsAxis);
+  const xOf = (x) => PAD_L + ((x - xMin) / (xMax - xMin || 1)) * (W - PAD_L - PAD_R);
+  const yOf = (y) => PAD_T + (1 - Math.max(0, Math.min(1, y))) * (H - PAD_T - PAD_B);
+
+  // Sample the parametric fit curve at N positions for a smooth overlay.
+  const fitSamples = converged
+    ? Array.from({ length: 120 }, (_, k) => {
+        const frac = k / 119;
+        const px = xsPx[0] + frac * (xsPx[xsPx.length - 1] - xsPx[0]);
+        const raw = g.amp * Math.exp(-((px - g.mu) ** 2) / (2 * g.sigma ** 2)) + g.baseline;
+        const peakRaw = Math.max(...ln.focus);
+        return { ax: dofToDisplay(ln, dofScaled(px, tiltFactor), unitPref) ?? px, y: raw / peakRaw };
+      })
+    : null;
+
+  const peakAxis = converged ? dofToDisplay(ln, dofScaled(g.mu, tiltFactor), unitPref) : null;
+  const ci = ln.peak_ci95_px ? [
+    dofToDisplay(ln, dofScaled(ln.peak_ci95_px[0], tiltFactor), unitPref),
+    dofToDisplay(ln, dofScaled(ln.peak_ci95_px[1], tiltFactor), unitPref),
+  ] : null;
+
+  const yTicks = [0, 0.25, 0.5, 0.75, 1];
+  const xTicks = [0, xMax * 0.25, xMax * 0.5, xMax * 0.75, xMax];
+
+  const fmt = (v) => Number.isFinite(v)
+    ? (unitName === 'px' ? v.toFixed(1) : v.toFixed(unitName === 'μm' ? 1 : 3))
+    : '—';
+
+  return (
+    <ChartCard ch={ch}
+               sub={<>· {label}{unitName !== 'px' && ` · ${unitName}`}{tiltFactor !== 1 && ` · θ=${((Math.acos(1/tiltFactor)*180/Math.PI)||0).toFixed(0)}°`}</>}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%"
+           preserveAspectRatio="xMidYMid meet"
+           style={{ background: t.panelAlt, borderRadius: 4, display: 'block' }}>
+        {style.showGrid && yTicks.map(y => (
+          <line key={`gy${y}`} x1={PAD_L} y1={yOf(y)} x2={W - PAD_R} y2={yOf(y)}
+                stroke={t.border} strokeWidth={scaled(style.gridWidth, style)}
+                opacity={style.gridOpacity} />
+        ))}
+        {style.showGrid && xTicks.map(x => (
+          <line key={`gx${x}`} x1={xOf(x)} y1={PAD_T} x2={xOf(x)} y2={H - PAD_B}
+                stroke={t.border} strokeWidth={scaled(style.gridWidth, style)}
+                opacity={style.gridOpacity} />
+        ))}
+        {/* Axes */}
+        <line x1={PAD_L} y1={H - PAD_B} x2={W - PAD_R} y2={H - PAD_B}
+              stroke={t.textMuted} strokeWidth={scaled(style.axisStrokeWidth, style)} />
+        <line x1={PAD_L} y1={PAD_T} x2={PAD_L} y2={H - PAD_B}
+              stroke={t.textMuted} strokeWidth={scaled(style.axisStrokeWidth, style)} />
+        {/* CI band on peak */}
+        {ci && ci[0] != null && ci[1] != null && (
+          <rect x={xOf(ci[0])} y={PAD_T}
+                width={Math.max(1, xOf(ci[1]) - xOf(ci[0]))}
+                height={H - PAD_T - PAD_B}
+                fill={color} opacity={0.12} />
+        )}
+        {/* DoF band */}
+        {ln.dof_low_px != null && ln.dof_high_px != null && (
+          <rect x={xOf(dofToDisplay(ln, dofScaled(ln.dof_low_px, tiltFactor), unitPref))}
+                y={PAD_T}
+                width={Math.max(1,
+                  xOf(dofToDisplay(ln, dofScaled(ln.dof_high_px, tiltFactor), unitPref)) -
+                  xOf(dofToDisplay(ln, dofScaled(ln.dof_low_px, tiltFactor), unitPref)))}
+                height={H - PAD_T - PAD_B}
+                fill="#1a7f37" opacity={0.10} />
+        )}
+        {/* Samples */}
+        <polyline points={xsAxis.map((x, k) => `${xOf(x)},${yOf(ln.focus_norm[k])}`).join(' ')}
+                  fill="none" stroke={color}
+                  strokeWidth={scaled(style.lineWidth, style)}
+                  opacity={0.95}
+                  vectorEffect="non-scaling-stroke" />
+        {xsAxis.map((x, k) => (
+          <circle key={k} cx={xOf(x)} cy={yOf(ln.focus_norm[k])}
+                  r={style.markerSize / 2.4} fill={color}
+                  stroke="#fff" strokeWidth={scaled(style.markerStrokeWidth, style)} />
+        ))}
+        {/* Fit curve */}
+        {fitSamples && (
+          <polyline points={fitSamples.map(s => `${xOf(s.ax)},${yOf(s.y)}`).join(' ')}
+                    fill="none" stroke={color}
+                    strokeWidth={scaled(style.lineWidth, style)}
+                    strokeDasharray="6 4" opacity={0.75}
+                    vectorEffect="non-scaling-stroke" />
+        )}
+        {/* Peak marker */}
+        {peakAxis != null && (
+          <g>
+            <line x1={xOf(peakAxis)} y1={PAD_T} x2={xOf(peakAxis)} y2={H - PAD_B}
+                  stroke={color} strokeWidth={scaled(style.axisStrokeWidth, style)}
+                  strokeDasharray="3 3" opacity={0.7} />
+            <circle cx={xOf(peakAxis)} cy={yOf(1)} r={style.markerSize / 1.5}
+                    fill={color} stroke="#fff" strokeWidth={scaled(style.markerStrokeWidth, style)} />
+          </g>
+        )}
+        {/* Tick labels */}
+        {yTicks.map(y => (
+          <text key={`ty${y}`} x={PAD_L - 6} y={yOf(y) + scaled(style.tickSize, style) * 0.35}
+                fontSize={scaled(style.tickSize, style)} fill={t.textMuted}
+                fontFamily={style.fontFamily} textAnchor="end">
+            {y.toFixed(2)}
+          </text>
+        ))}
+        {xTicks.map(x => (
+          <text key={`tx${x.toFixed(1)}`} x={xOf(x)} y={H - PAD_B + scaled(style.tickSize, style) * 1.4}
+                fontSize={scaled(style.tickSize, style)} fill={t.textMuted}
+                fontFamily={style.fontFamily} textAnchor="middle">
+            {fmt(x)}
+          </text>
+        ))}
+        {/* Axis labels */}
+        <text x={PAD_L + (W - PAD_L - PAD_R) / 2}
+              y={H - 4}
+              fontSize={scaled(style.axisLabelSize, style)}
+              fontWeight={style.axisLabelWeight}
+              fill={t.textMuted}
+              fontFamily={style.fontFamily} textAnchor="middle">
+          position along line ({unitName})
+        </text>
+        <text x={12} y={PAD_T + (H - PAD_T - PAD_B) / 2}
+              fontSize={scaled(style.axisLabelSize, style)}
+              fontWeight={style.axisLabelWeight}
+              fill={t.textMuted}
+              fontFamily={style.fontFamily}
+              textAnchor="middle"
+              transform={`rotate(-90 12 ${PAD_T + (H - PAD_T - PAD_B) / 2})`}>
+          normalized focus
+        </text>
+      </svg>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 8,
+                    fontFamily: 'ui-monospace,Menlo,monospace',
+                    fontSize: scaled(style.legendSize, style),
+                    fontWeight: style.legendWeight, color: t.textMuted }}>
+        {converged ? <>
+          <span>μ <b style={{ color: t.text }}>{dofFmt(ln, dofScaled(g.mu, tiltFactor), unitPref, 2)}</b></span>
+          <span>σ <b style={{ color: t.text }}>{dofFmt(ln, dofScaled(g.sigma, tiltFactor), unitPref, 2)}</b></span>
+          <span>FWHM <b style={{ color: t.text }}>{dofFmt(ln, dofScaled(g.fwhm, tiltFactor), unitPref, 2)}</b></span>
+          <span>R² <b style={{ color: g.r_squared >= 0.9 ? t.success
+                                    : g.r_squared >= 0.7 ? t.warn : t.danger }}>
+            {g.r_squared?.toFixed?.(3) ?? '—'}
+          </b></span>
+          {ln.dof_width_px != null && <span>DoF <b style={{ color: t.text }}>
+            {dofFmt(ln, dofScaled(ln.dof_width_px, tiltFactor), unitPref, 2)}
+          </b></span>}
+        </> : <span>fit did not converge</span>}
+      </div>
+    </ChartCard>
+  );
+};
+
+// Native focus heatmap — canvas + SVG overlay for picks.
+const DoFHeatmapTab = ({ channels, results, lineLabel, pointLabel }) => {
+  const t = useTheme();
+  const { style } = usePlotStyle();
+  const [cmap, setCmap] = useStateA('viridis');
+  const cards = channels.filter(ch => results[ch]?.heatmap_grid);
+  if (!cards.length) {
+    return <div style={{ color: t.textFaint, textAlign: 'center', paddingTop: 40 }}>
+      No focus heatmap data. Re-run analysis — the compute must have been fast enough to skip the heatmap pass.
+    </div>;
+  }
+  return (
+    <div>
+      <div data-no-export
+           style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10,
+                    fontFamily: style.fontFamily,
+                    fontSize: scaled(style.legendSize, style), color: t.textMuted }}>
+        <span style={{ fontWeight: 600 }}>Colormap</span>
+        <Segmented value={cmap} onChange={setCmap} options={[
+          { value: 'viridis', label: 'Viridis' }, { value: 'magma', label: 'Magma' },
+          { value: 'inferno', label: 'Inferno' }, { value: 'plasma', label: 'Plasma' },
+          { value: 'turbo', label: 'Turbo' }, { value: 'cividis', label: 'Cividis' },
+          { value: 'gray', label: 'Gray' },
+        ]} />
+      </div>
+      <GridTabFrame
+        caption="Per-channel focus heatmap over the whole image. Brightest region = best focus. Picked points + lines overlay in white."
+        n={cards.length} minCardPx={460}
+        storageKey="analysis/dof/heatmapLayout">
+        {cards.map(ch => (
+          <DoFHeatmapCard key={ch} ch={ch} r={results[ch]} cmap={cmap}
+                           lineLabel={lineLabel} pointLabel={pointLabel} />
+        ))}
+      </GridTabFrame>
+    </div>
+  );
+};
+
+const DoFHeatmapCard = ({ ch, r, cmap, lineLabel, pointLabel }) => {
+  const t = useTheme();
+  const { style } = usePlotStyle();
+  const grid = useMemoA(() => decodeFloat32Grid(r.heatmap_grid), [r.heatmap_grid]);
+  if (!grid) return null;
+  const step = r.heatmap_step || 48;
+  const imgH = r.image_grid?.dims?.[0] ? r.image_grid.dims[0] * (r.image_grid.stride?.[0] || 1) : grid.h * step;
+  const imgW = r.image_grid?.dims?.[1] ? r.image_grid.dims[1] * (r.image_grid.stride?.[1] || 1) : grid.w * step;
+  // Map image-space px → canvas-space px (canvas is drawn at grid resolution
+  // then CSS-scaled; overlays use viewBox aligned to the heatmap grid).
+  const toCv = (imgPx, imgSize, gridSize) => (imgPx / imgSize) * gridSize;
+  return (
+    <ChartCard ch={ch}
+               sub={`${r.metric} · half-win=${r.half_window}px · threshold=${(r.threshold*100).toFixed(0)}%`}
+               footer={<>best-focus cell marked ×; {(r.points || []).length} pts · {(r.lines || []).length} lines overlaid</>}>
+      <HeatmapCanvas grid={grid} cmap={cmap}
+                     width={480} height={Math.round(480 * (grid.h / grid.w))}
+                     aspectLock={true}>
+        {({ w: cssW, h: cssH, gridW, gridH }) => {
+          if (!gridW || !gridH) return null;
+          // Mark global max
+          let pk = 0, pv = -Infinity;
+          for (let i = 0; i < grid.data.length; i++) {
+            if (grid.data[i] > pv) { pv = grid.data[i]; pk = i; }
+          }
+          const py = Math.floor(pk / gridW);
+          const px = pk - py * gridW;
+          const xOf = (ix) => (ix / gridW) * cssW;
+          const yOf = (iy) => (iy / gridH) * cssH;
+          return (
+            <g>
+              {(r.lines || []).map((ln, i) => {
+                const x0 = toCv(ln.p0[0], imgW, gridW);
+                const y0 = toCv(ln.p0[1], imgH, gridH);
+                const x1 = toCv(ln.p1[0], imgW, gridW);
+                const y1 = toCv(ln.p1[1], imgH, gridH);
+                return (
+                  <g key={i}>
+                    <line x1={xOf(x0)} y1={yOf(y0)} x2={xOf(x1)} y2={yOf(y1)}
+                          stroke="#ffd54f" strokeWidth={scaled(style.lineWidth, style)}
+                          opacity={0.92} />
+                    <circle cx={xOf(x0)} cy={yOf(y0)} r={style.markerSize / 2} fill="#ffd54f"
+                            stroke="#fff" strokeWidth={scaled(style.markerStrokeWidth, style)} />
+                    <circle cx={xOf(x1)} cy={yOf(y1)} r={style.markerSize / 2} fill="#ffd54f"
+                            stroke="#fff" strokeWidth={scaled(style.markerStrokeWidth, style)} />
+                  </g>
+                );
+              })}
+              {(r.points || []).map((pt, i) => {
+                const xi = toCv(pt.x, imgW, gridW);
+                const yi = toCv(pt.y, imgH, gridH);
+                return (
+                  <g key={i}>
+                    <circle cx={xOf(xi)} cy={yOf(yi)} r={style.markerSize / 1.5}
+                            fill="#1f77b4" stroke="#fff" strokeWidth={scaled(style.markerStrokeWidth, style)} />
+                    {pt.label && (
+                      <text x={xOf(xi) + 6} y={yOf(yi) - 4}
+                            fontSize={scaled(style.legendSize, style)}
+                            fontFamily={style.fontFamily} fill="#fff"
+                            stroke="#000" strokeWidth={0.4} paintOrder="stroke">
+                        {pt.label}
+                      </text>
+                    )}
+                  </g>
+                );
+              })}
+              {/* Peak marker */}
+              <g transform={`translate(${xOf(px + 0.5)}, ${yOf(py + 0.5)})`}>
+                <line x1={-8} y1={-8} x2={8} y2={8}
+                      stroke="#fff" strokeWidth={style.axisStrokeWidth * 2} />
+                <line x1={-8} y1={8} x2={8} y2={-8}
+                      stroke="#fff" strokeWidth={style.axisStrokeWidth * 2} />
+              </g>
+            </g>
+          );
+        }}
+      </HeatmapCanvas>
+      <div style={{ marginTop: 6 }}>
+        <HeatmapColorBar cmap={cmap}
+                          vmin={grid.stats.p1 ?? grid.stats.min}
+                          vmax={grid.stats.p99 ?? grid.stats.max}
+                          label={`focus (${r.metric})`} />
+      </div>
+    </ChartCard>
+  );
+};
+
+// Points + tilt diagnostic tab. Bar chart of focus per point, plus a native
+// SVG tilt-plane visualization using the server's `tilt_plane` coefficients.
+const DoFPointsTab = ({ channels, results, pointLabel, unitPref = 'auto', tiltFactor = 1 }) => {
   const t = useTheme();
   const { style } = usePlotStyle();
   const hasPoints = channels.some(ch => (results[ch]?.points || []).length > 0);
   if (!hasPoints) {
     return <div style={{ color: t.textFaint, textAlign: 'center', paddingTop: 40 }}>
-      No picked points.
+      No picked points. Drop ≥1 point on the DoF picker, then re-run.
     </div>;
   }
   return (
-    <GridTabFrame n={channels.length} minCardPx={460}
-                  storageKey="analysis/dof/pointsLayout">
+    <GridTabFrame
+      caption="Per-channel focus at each picked point (normalized) + bilinear tilt-plane diagnostic where available."
+      n={channels.length} minCardPx={480}
+      storageKey="analysis/dof/pointsLayout">
       {channels.map(ch => {
         const r = results[ch];
         const pts = r?.points || [];
         const tilt = r?.tilt_plane;
-        const tiltB64 = figures?.[ch]?.tilt;
         return (
-          <div key={ch} style={{ background: t.panel, border: `1px solid ${t.border}`,
-                                  borderRadius: 8, padding: 10 }}>
-            <div style={{ fontSize: 12.5, fontWeight: 600, color: t.text, marginBottom: 6,
-                          fontFamily: 'ui-monospace,Menlo,monospace',
-                          display: 'flex', gap: 6, alignItems: 'center' }}>
-              <span style={{ width: 9, height: 9, borderRadius: '50%', background: channelColor(ch) }} />
-              {ch}
-            </div>
+          <ChartCard key={ch} ch={ch}
+                     sub={`${pts.length} points${tilt ? ` · tilt ${tilt.tilt_direction_deg?.toFixed?.(1) ?? '—'}°, R²=${tilt.r_squared?.toFixed?.(3) ?? '—'}` : ''}`}>
             <PointsBarChart points={pts} pointLabel={pointLabel} color={channelColor(ch)} />
-            {tilt && (
-              <div style={{ marginTop: 6, fontSize: 10.5, color: t.textMuted,
-                            fontFamily: 'ui-monospace,Menlo,monospace', lineHeight: 1.5 }}>
-                tilt slope: {tilt.slope_mag_per_px.toExponential(2)}/px ·
-                dir {tilt.tilt_direction_deg.toFixed(1)}° · R²={tilt.r_squared.toFixed(3)}
-              </div>
-            )}
-            {tiltB64 && (
-              <img src={`data:image/png;base64,${tiltB64}`} alt=""
-                   style={{ width: '100%', borderRadius: 4, background: '#fff',
-                            display: 'block', marginTop: 6 }} />
-            )}
-          </div>
+            {tilt && <TiltPlaneSVG r={r} color={channelColor(ch)} />}
+          </ChartCard>
         );
       })}
     </GridTabFrame>
@@ -3279,45 +3706,124 @@ const PointsBarChart = ({ points, pointLabel, color }) => {
   const t = useTheme();
   const { style } = usePlotStyle();
   if (!points?.length) {
-    return <div style={{ fontSize: 10.5, color: t.textFaint, padding: 6 }}>
-      (no points)
-    </div>;
+    return <div style={{ fontSize: scaled(style.legendSize, style), color: t.textFaint,
+                           padding: 6, fontFamily: style.fontFamily }}>(no points)</div>;
   }
-  const W = 440, H = 160, PAD_L = 40, PAD_R = 10, PAD_T = 10, PAD_B = 44;
-  const barW = Math.max(6, (W - PAD_L - PAD_R) / Math.max(1, points.length) - 4);
+  const W = 460, H = 180, PAD_L = 44, PAD_R = 12, PAD_T = 12, PAD_B = 48;
+  const slot = (W - PAD_L - PAD_R) / Math.max(1, points.length);
+  const barW = Math.max(8, slot - 6);
+  const yOf = (f) => PAD_T + (1 - Math.max(0, Math.min(1, f))) * (H - PAD_T - PAD_B);
+  const yTicks = [0, 0.25, 0.5, 0.75, 1];
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%"
-         style={{ background: t.panelAlt, borderRadius: 4 }}>
-      {[0, 0.25, 0.5, 0.75, 1].map(y => (
-        <g key={y}>
-          <line x1={PAD_L} y1={PAD_T + (1 - y) * (H - PAD_T - PAD_B)}
-                x2={W - PAD_R} y2={PAD_T + (1 - y) * (H - PAD_T - PAD_B)}
-                stroke={t.border} strokeWidth={style.gridWidth} />
-          <text x={PAD_L - 4} y={PAD_T + (1 - y) * (H - PAD_T - PAD_B) + 3} fontSize={scaled(9, style)}
-                fill={t.textMuted} textAnchor="end"
-                >{y.toFixed(2)}</text>
-        </g>
+         preserveAspectRatio="xMidYMid meet"
+         style={{ background: t.panelAlt, borderRadius: 4, display: 'block' }}>
+      {style.showGrid && yTicks.map(y => (
+        <line key={y} x1={PAD_L} y1={yOf(y)} x2={W - PAD_R} y2={yOf(y)}
+              stroke={t.border} strokeWidth={scaled(style.gridWidth, style)}
+              opacity={style.gridOpacity} />
+      ))}
+      <line x1={PAD_L} y1={H - PAD_B} x2={W - PAD_R} y2={H - PAD_B}
+            stroke={t.textMuted} strokeWidth={scaled(style.axisStrokeWidth, style)} />
+      <line x1={PAD_L} y1={PAD_T} x2={PAD_L} y2={H - PAD_B}
+            stroke={t.textMuted} strokeWidth={scaled(style.axisStrokeWidth, style)} />
+      {yTicks.map(y => (
+        <text key={`l${y}`} x={PAD_L - 5} y={yOf(y) + scaled(style.tickSize, style) * 0.35}
+              fontSize={scaled(style.tickSize, style)} fill={t.textMuted}
+              fontFamily={style.fontFamily} textAnchor="end">
+          {y.toFixed(2)}
+        </text>
       ))}
       {points.map((pt, i) => {
-        const x = PAD_L + i * ((W - PAD_L - PAD_R) / Math.max(1, points.length)) + 2;
-        const h = pt.focus_norm * (H - PAD_T - PAD_B);
-        const y = PAD_T + (H - PAD_T - PAD_B) - h;
+        const x = PAD_L + i * slot + (slot - barW) / 2;
+        const y = yOf(pt.focus_norm);
         return (
           <g key={i}>
-            <rect x={x} y={y} width={barW} height={h} fill={color} opacity={0.85}>
+            <rect x={x} y={y} width={barW} height={(H - PAD_B) - y}
+                  fill={color} opacity={0.85} rx={2}>
               <title>{`${pointLabel(i)}: ${(pt.focus_norm * 100).toFixed(1)}%`}</title>
             </rect>
-            <text x={x + barW / 2} y={H - PAD_B + 14} fontSize={scaled(9.5, style)}
-                  fill={t.textMuted} textAnchor="middle"
-                  >{pointLabel(i)}</text>
-            <text x={x + barW / 2} y={y - 3} fontSize={scaled(8.5, style)}
-                  fill={t.textMuted} textAnchor="middle"
-                  >
+            <text x={x + barW / 2} y={H - PAD_B + scaled(style.tickSize, style) * 1.5}
+                  fontSize={scaled(style.tickSize, style)} fill={t.textMuted}
+                  fontFamily={style.fontFamily} textAnchor="middle">
+              {pointLabel(i)}
+            </text>
+            <text x={x + barW / 2} y={y - 4}
+                  fontSize={scaled(style.annotationSize, style)} fill={t.textMuted}
+                  fontFamily="ui-monospace,Menlo,monospace" textAnchor="middle">
               {(pt.focus_norm * 100).toFixed(0)}%
             </text>
           </g>
         );
       })}
+      <text x={PAD_L + (W - PAD_L - PAD_R) / 2} y={H - 6}
+            fontSize={scaled(style.axisLabelSize, style)} fontWeight={style.axisLabelWeight}
+            fill={t.textMuted} fontFamily={style.fontFamily} textAnchor="middle">
+        point
+      </text>
+      <text x={12} y={PAD_T + (H - PAD_T - PAD_B) / 2}
+            fontSize={scaled(style.axisLabelSize, style)} fontWeight={style.axisLabelWeight}
+            fill={t.textMuted} fontFamily={style.fontFamily} textAnchor="middle"
+            transform={`rotate(-90 12 ${PAD_T + (H - PAD_T - PAD_B) / 2})`}>
+        normalized focus
+      </text>
+    </svg>
+  );
+};
+
+// Native tilt-plane diagnostic. Draws the picked points as scatter markers
+// on the (x, y) image plane, shaded by their predicted plane value, plus
+// an arrow indicating the gradient direction.
+const TiltPlaneSVG = ({ r, color }) => {
+  const t = useTheme();
+  const { style } = usePlotStyle();
+  const tilt = r?.tilt_plane;
+  const pts = r?.points || [];
+  if (!tilt || pts.length < 3) return null;
+  const W = 460, H = 240, PAD = 20;
+  const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+  const xmin = Math.min(...xs), xmax = Math.max(...xs);
+  const ymin = Math.min(...ys), ymax = Math.max(...ys);
+  const xOf = (x) => PAD + ((x - xmin) / (xmax - xmin || 1)) * (W - 2 * PAD);
+  const yOf = (y) => PAD + ((y - ymin) / (ymax - ymin || 1)) * (H - 2 * PAD);
+  const cx = (xOf(xmin) + xOf(xmax)) / 2;
+  const cy = (yOf(ymin) + yOf(ymax)) / 2;
+  const dirRad = ((tilt.tilt_direction_deg || 0) * Math.PI) / 180;
+  const L = Math.min(W, H) / 3;
+  const ax = cx + Math.cos(dirRad) * L;
+  const ay = cy + Math.sin(dirRad) * L;
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%"
+         style={{ background: t.panelAlt, borderRadius: 4, marginTop: 8, display: 'block' }}>
+      <rect x={PAD - 2} y={PAD - 2} width={W - 2*PAD + 4} height={H - 2*PAD + 4}
+            fill="none" stroke={t.border} strokeWidth={scaled(style.axisStrokeWidth, style)} />
+      {pts.map((p, i) => (
+        <circle key={i} cx={xOf(p.x)} cy={yOf(p.y)} r={style.markerSize}
+                fill={color} stroke="#fff" strokeWidth={scaled(style.markerStrokeWidth, style)}
+                opacity={0.85}>
+          <title>{`${p.label || '#' + (i + 1)} (${p.x.toFixed(0)}, ${p.y.toFixed(0)}): focus ${p.focus_norm.toFixed(3)}`}</title>
+        </circle>
+      ))}
+      {/* Gradient arrow */}
+      <defs>
+        <marker id={`arr-${r.name}`} markerWidth="8" markerHeight="8" refX="6" refY="4"
+                orient="auto">
+          <path d="M0,0 L8,4 L0,8 z" fill={t.text} />
+        </marker>
+      </defs>
+      <line x1={cx} y1={cy} x2={ax} y2={ay}
+            stroke={t.text} strokeWidth={scaled(style.lineWidth, style)}
+            markerEnd={`url(#arr-${r.name})`} />
+      <text x={ax + 6} y={ay - 2}
+            fontSize={scaled(style.annotationSize, style)} fill={t.text}
+            fontFamily="ui-monospace,Menlo,monospace">
+        {(tilt.slope_mag_per_px ?? 0).toExponential(2)}/px
+      </text>
+      <text x={PAD} y={H - PAD / 2 + 4}
+            fontSize={scaled(style.annotationSize, style)} fill={t.textMuted}
+            fontFamily={style.fontFamily}>
+        tilt plane fit — arrow = steepest focus change direction
+      </text>
     </svg>
   );
 };

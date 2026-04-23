@@ -372,6 +372,216 @@ const cardChromeFor = (style, t) => {
 };
 
 // ---------------------------------------------------------------------------
+// Heatmap rendering (native canvas — plot-style-completion-v1)
+// ---------------------------------------------------------------------------
+//
+// Decode the base64-float32 grids the server ships and paint them to a
+// <canvas>. Keeps the render on the GPU/CPU path the browser is good at
+// without ever hitting a server PNG. Colormaps implemented inline so
+// they're tweakable without adding a dependency. Every heatmap respects
+// the user's plotStyle (cardPadding, cardBorderRadius, cardBackground).
+
+const decodeFloat32Grid = (grid) => {
+  if (!grid?.data || !grid?.dims) return null;
+  try {
+    const bin = atob(grid.data);
+    const buf = new ArrayBuffer(bin.length);
+    const view = new Uint8Array(buf);
+    for (let i = 0; i < bin.length; i++) view[i] = bin.charCodeAt(i);
+    return {
+      data: new Float32Array(buf),
+      h: grid.dims[0], w: grid.dims[1],
+      stats: grid.stats || {},
+      stride: grid.stride || [1, 1],
+    };
+  } catch (e) { return null; }
+};
+
+const decodeUint8Mask = (b64, h, w) => {
+  if (!b64 || !h || !w) return null;
+  try {
+    const bin = atob(b64);
+    const a = new Uint8Array(h * w);
+    for (let i = 0; i < a.length; i++) a[i] = bin.charCodeAt(i);
+    return a;
+  } catch (e) { return null; }
+};
+
+// A small set of perceptually-uniform-ish colormaps. Values are [r,g,b]
+// anchor stops at t=0..1; `colormapLUT(name, N)` builds a linear LUT.
+const CMAP_STOPS = {
+  gray:     [[0,0,0],[1,1,1]],
+  viridis:  [[0.267,0.005,0.329],[0.231,0.318,0.545],[0.127,0.567,0.551],[0.369,0.788,0.383],[0.993,0.906,0.144]],
+  magma:    [[0.001,0.000,0.014],[0.232,0.060,0.437],[0.550,0.161,0.506],[0.874,0.288,0.408],[0.987,0.750,0.350]],
+  inferno:  [[0.001,0.000,0.014],[0.340,0.062,0.429],[0.727,0.212,0.331],[0.988,0.539,0.209],[0.988,1.000,0.644]],
+  plasma:   [[0.050,0.029,0.528],[0.452,0.015,0.658],[0.767,0.215,0.505],[0.948,0.527,0.241],[0.940,0.975,0.131]],
+  cividis:  [[0.000,0.138,0.302],[0.235,0.301,0.512],[0.493,0.477,0.475],[0.753,0.691,0.377],[0.995,0.906,0.143]],
+  turbo:    [[0.190,0.072,0.232],[0.255,0.427,0.989],[0.118,0.938,0.732],[0.836,0.951,0.235],[0.961,0.241,0.074],[0.480,0.015,0.011]],
+  hot:      [[0,0,0],[0.65,0,0],[1,0.4,0],[1,1,0],[1,1,1]],
+  // Divergent: negative → blue, zero → white, positive → red.
+  rdbu:     [[0.020,0.188,0.380],[0.550,0.780,0.890],[1,1,1],[0.960,0.540,0.380],[0.650,0.000,0.150]],
+  // Jet kept for backwards-compat with scientific users who still prefer it.
+  jet:      [[0,0,0.5],[0,0,1],[0,1,1],[1,1,0],[1,0,0],[0.5,0,0]],
+};
+
+const colormapLUT = (name, N = 256) => {
+  const stops = CMAP_STOPS[name] || CMAP_STOPS.gray;
+  const out = new Uint8ClampedArray(N * 4);
+  for (let i = 0; i < N; i++) {
+    const t = i / (N - 1);
+    const pos = t * (stops.length - 1);
+    const i0 = Math.floor(pos);
+    const i1 = Math.min(stops.length - 1, i0 + 1);
+    const f = pos - i0;
+    const [r0, g0, b0] = stops[i0];
+    const [r1, g1, b1] = stops[i1];
+    out[i*4+0] = Math.round(255 * (r0 + (r1 - r0) * f));
+    out[i*4+1] = Math.round(255 * (g0 + (g1 - g0) * f));
+    out[i*4+2] = Math.round(255 * (b0 + (b1 - b0) * f));
+    out[i*4+3] = 255;
+  }
+  return out;
+};
+
+// HeatmapCanvas — paint a 2-D float32 grid to a <canvas> with a colormap.
+// Props:
+//   grid:        output of `decodeFloat32Grid(serverGrid)` (or null)
+//   cmap:        'gray' | 'viridis' | 'magma' | 'inferno' | 'plasma' |
+//                'cividis' | 'turbo' | 'hot' | 'rdbu' | 'jet'
+//   divergent:   if true, map [-|vmax|, +|vmax|] symmetrically (for FPN maps)
+//   vmin / vmax: explicit scale. Defaults to p1/p99 from grid.stats.
+//   logScale:    if true, map log10(1 + value) (good for PSDs)
+//   maskDim:     optional Uint8Array kept-mask dim (same shape as grid);
+//                cells where maskDim[i]==0 are painted at 30% alpha in red.
+//   width/height: CSS pixel size of the output canvas. The backing buffer
+//                 is drawn at the source grid resolution and upscaled by
+//                 nearest neighbour via image-rendering: pixelated so the
+//                 cell structure stays sharp.
+//   aspectLock:  if true, keep grid aspect ratio (letterbox).
+const HeatmapCanvas = ({
+  grid, cmap = 'gray', divergent = false, vmin, vmax,
+  logScale = false, maskDim = null,
+  width = 360, height = 260, aspectLock = true, children,
+}) => {
+  const ref = useRef(null);
+  // Decode-once memoized LUT.
+  const lut = useMemo(() => colormapLUT(cmap, 256), [cmap]);
+  useEffect(() => {
+    const cv = ref.current;
+    if (!cv || !grid || !grid.data?.length) return;
+    const { w, h, data, stats } = grid;
+    let lo = Number.isFinite(vmin) ? vmin : stats.p1 ?? stats.min ?? 0;
+    let hi = Number.isFinite(vmax) ? vmax : stats.p99 ?? stats.max ?? 1;
+    if (logScale) {
+      const mag = Math.max(Math.abs(lo), Math.abs(hi), 1e-9);
+      lo = 0; hi = Math.log10(1 + mag);
+    }
+    if (divergent) {
+      const m = Math.max(Math.abs(lo), Math.abs(hi), 1e-9);
+      lo = -m; hi = +m;
+    }
+    if (!(hi > lo)) hi = lo + 1;
+    // Render at grid resolution, then CSS-upscale.
+    cv.width = w; cv.height = h;
+    const ctx = cv.getContext('2d');
+    const img = ctx.createImageData(w, h);
+    const d = img.data;
+    const range = hi - lo;
+    for (let i = 0; i < data.length; i++) {
+      let v = data[i];
+      if (!Number.isFinite(v)) { d[i*4] = 30; d[i*4+1] = 32; d[i*4+2] = 38; d[i*4+3] = 255; continue; }
+      if (logScale) v = Math.log10(1 + Math.abs(v));
+      let t = (v - lo) / range;
+      if (t < 0) t = 0; else if (t > 1) t = 1;
+      const k = Math.round(t * 255) << 2;
+      d[i*4]   = lut[k];
+      d[i*4+1] = lut[k + 1];
+      d[i*4+2] = lut[k + 2];
+      d[i*4+3] = 255;
+    }
+    if (maskDim && maskDim.length === data.length) {
+      for (let i = 0; i < maskDim.length; i++) {
+        if (maskDim[i] === 0) {
+          // Dim excluded pixels with a red tint at 55% alpha.
+          d[i*4]   = Math.min(255, d[i*4] * 0.5 + 180);
+          d[i*4+1] = Math.round(d[i*4+1] * 0.45);
+          d[i*4+2] = Math.round(d[i*4+2] * 0.45);
+        }
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }, [grid, lut, divergent, vmin, vmax, logScale, maskDim]);
+
+  // Letterbox to grid aspect if requested.
+  let cssW = width, cssH = height;
+  if (aspectLock && grid?.w && grid?.h) {
+    const ar = grid.w / grid.h;
+    if (width / height > ar) cssW = height * ar; else cssH = width / ar;
+  }
+  return (
+    <div style={{ position: 'relative', width: '100%',
+                  display: 'flex', justifyContent: 'center',
+                  alignItems: 'center' }}>
+      <canvas ref={ref} style={{
+        width: cssW, height: cssH, maxWidth: '100%',
+        imageRendering: 'pixelated',
+        borderRadius: 4, display: 'block',
+      }} />
+      {children && (
+        <svg viewBox={`0 0 ${cssW} ${cssH}`}
+             preserveAspectRatio="none"
+             style={{ position: 'absolute', inset: 0,
+                      width: cssW, height: cssH,
+                      pointerEvents: 'none' }}>
+          {typeof children === 'function'
+            ? children({ w: cssW, h: cssH, gridW: grid?.w, gridH: grid?.h })
+            : children}
+        </svg>
+      )}
+    </div>
+  );
+};
+
+// Tiny color-bar legend that pairs with a HeatmapCanvas. Shows 6 tick
+// labels (min / -- / median / -- / max) + the cmap gradient.
+const HeatmapColorBar = ({ cmap = 'gray', vmin, vmax, label, width = 200, divergent = false }) => {
+  const { style } = usePlotStyle();
+  const t = useTheme();
+  const stops = useMemo(() => {
+    const lut = colormapLUT(cmap, 32);
+    const grads = [];
+    for (let i = 0; i < 32; i++) {
+      grads.push(`rgb(${lut[i*4]},${lut[i*4+1]},${lut[i*4+2]}) ${((i/31)*100).toFixed(1)}%`);
+    }
+    return `linear-gradient(90deg, ${grads.join(',')})`;
+  }, [cmap]);
+  let lo = vmin, hi = vmax;
+  if (divergent) {
+    const m = Math.max(Math.abs(lo), Math.abs(hi));
+    lo = -m; hi = +m;
+  }
+  const fmt = (v) => Number.isFinite(v)
+    ? (Math.abs(v) >= 100 ? v.toFixed(0)
+       : Math.abs(v) >= 1 ? v.toFixed(2)
+       : v.toFixed(3))
+    : '—';
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8,
+                   fontFamily: style.fontFamily,
+                   fontSize: scaled(style.legendSize, style),
+                   color: t.textMuted, fontWeight: style.legendWeight }}>
+      {label && <span>{label}</span>}
+      <div style={{ width, height: 10, borderRadius: 3, background: stops,
+                    border: `1px solid ${t.border}` }} />
+      <span style={{ fontFamily: 'ui-monospace,Menlo,monospace',
+                     fontSize: scaled(style.tickSize, style) }}>
+        {fmt(lo)} → {fmt(hi)}
+      </span>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
 // usePlotStyleState — bootstrap the provider from localStorage
 // ---------------------------------------------------------------------------
 const usePlotStyleState = () => {
@@ -1953,4 +2163,7 @@ Object.assign(window, {
   scaled, useChartSize, legendCssFor, plotPaletteColor, cardChromeFor,
   PlotStylePanel,
   CanvasColorbar,
+  // Heatmap primitives (plot-style-completion-v1)
+  HeatmapCanvas, HeatmapColorBar,
+  decodeFloat32Grid, decodeUint8Mask, colormapLUT, CMAP_STOPS,
 });

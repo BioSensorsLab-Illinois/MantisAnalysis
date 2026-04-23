@@ -929,6 +929,9 @@ def _mount_api(app: FastAPI) -> None:
                 "fit_tilt_plane": bool(req.fit_tilt_plane),
             },
         }
+        # PNG-figure responses are legacy (plot-style-completion-v1 native
+        # canvas/SVG rewrite). Kept only when the caller explicitly opts
+        # in, so existing CLI users can still ask for offline-ready PNGs.
         if req.include_pngs:
             resp["figures"] = figures_json
             if chromatic_b64:
@@ -1232,11 +1235,62 @@ def _fpn_to_response(r) -> FPNComputeResponse:
     )
 
 
+def _float32_grid(arr: np.ndarray, *, max_cells: int = 65_536) -> Dict[str, Any]:
+    """Pack a 2-D array as a compact client-consumable descriptor.
+
+    The client renders heatmaps natively on a ``<canvas>`` in real time
+    (no server PNGs). For that it needs the numeric grid plus enough
+    hints to pick a color-scale range. The array is downsampled by a
+    nearest-neighbor stride when it exceeds ``max_cells`` total entries
+    so typical ROI heatmaps stay under ~256 KB of base64 payload.
+
+    Returned shape:
+
+        {
+          "dims":    [H, W],
+          "data":    base64(float32 array, H*W values, row-major),
+          "stats":   {"min": ..., "max": ..., "p1": ..., "p99": ..., "mean": ..., "has_nan": bool},
+          "stride":  [sy, sx],    # nearest-neighbor downsample applied
+        }
+    """
+    a = np.asarray(arr)
+    if a.ndim != 2:
+        raise ValueError(f"expected 2-D array, got shape {a.shape}")
+    h, w = int(a.shape[0]), int(a.shape[1])
+    sy = sx = 1
+    if h * w > max_cells:
+        # pick strides so H*W / (sy*sx) <= max_cells, keeping aspect ratio.
+        ratio = (h * w) / float(max_cells)
+        k = int(np.ceil(np.sqrt(ratio)))
+        sy = sx = max(1, k)
+        a = a[::sy, ::sx]
+    af = np.ascontiguousarray(a, dtype=np.float32)
+    finite = af[np.isfinite(af)]
+    if finite.size == 0:
+        stats = {"min": 0.0, "max": 1.0, "p1": 0.0, "p99": 1.0,
+                 "mean": 0.0, "has_nan": True}
+    else:
+        stats = {
+            "min": float(finite.min()),
+            "max": float(finite.max()),
+            "p1":  float(np.percentile(finite, 1)),
+            "p99": float(np.percentile(finite, 99)),
+            "mean": float(finite.mean()),
+            "has_nan": bool(af.size != finite.size),
+        }
+    return {
+        "dims": [int(af.shape[0]), int(af.shape[1])],
+        "data": base64.b64encode(af.tobytes()).decode("ascii"),
+        "stats": stats,
+        "stride": [sy, sx],
+    }
+
+
 def _fpn_full_dict(r) -> Dict[str, Any]:
     """FPN result as a JSON-serializable dict, including the 1-D profile
-    arrays + hot/cold pixel lists the frontend needs for inline charts.
-    The large 2-D arrays (fpn_map, autocorr_2d, psd_log) are omitted —
-    those are fetched via PNG endpoints when the analysis modal opens.
+    arrays + hot/cold pixel lists + 2-D grids the frontend needs for the
+    native canvas heatmaps. 2-D grids are base64-float32 with a nearest-
+    neighbor downsample above 64 k cells so payloads stay bounded.
     """
     base = _fpn_to_response(r).model_dump()
     base["roi"] = list(r.roi)
@@ -1260,6 +1314,16 @@ def _fpn_full_dict(r) -> Dict[str, Any]:
     # frontend can render a bar chart without a follow-up round-trip.
     base["hist_bin_edges"] = [float(x) for x in r.hist_bin_edges.tolist()]
     base["hist_counts"]    = [int(c) for c in r.hist_counts.tolist()]
+    # 2-D grids for native canvas rendering (no server PNGs).
+    base["image_grid"]    = _float32_grid(r.image)
+    base["fpn_map_grid"]  = _float32_grid(r.fpn_map)
+    base["psd_log_grid"]  = _float32_grid(r.psd_log)
+    base["autocorr_grid"] = _float32_grid(r.autocorr_2d)
+    base["kept_mask_dims"] = [int(r.mask_kept.shape[0]), int(r.mask_kept.shape[1])]
+    # Pack the bool kept-mask the same way (as uint8 0/1) so the native
+    # hotpix / fpn-map renderers can dim excluded pixels.
+    km = np.ascontiguousarray(r.mask_kept.astype(np.uint8))
+    base["kept_mask_b64"] = base64.b64encode(km.tobytes()).decode("ascii")
     base["settings"] = {
         "median_size": int(r.settings.median_size),
         "gaussian_sigma": float(r.settings.gaussian_sigma),
@@ -1290,6 +1354,8 @@ def _dof_to_dict(r) -> Dict[str, Any]:
     four focus metrics, per-point ``focus_all`` dict, and a top-level
     ``tilt_plane`` entry when the bilinear plane fit ran.
     """
+    heatmap_grid = _float32_grid(r.heatmap) if r.heatmap is not None else None
+    image_grid = _float32_grid(r.image) if r.image is not None else None
     return {
         "name": r.name,
         "metric": r.metric,
@@ -1300,6 +1366,9 @@ def _dof_to_dict(r) -> Dict[str, Any]:
         "px_per_unit_h": r.px_per_unit_h,
         "px_per_unit_v": r.px_per_unit_v,
         "tilt_plane": r.tilt_plane,
+        "heatmap_step": int(r.heatmap_step),
+        "heatmap_grid": heatmap_grid,
+        "image_grid": image_grid,
         "points": [
             {
                 "x": float(p.point.x),

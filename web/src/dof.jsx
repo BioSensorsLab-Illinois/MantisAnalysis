@@ -621,7 +621,7 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
         compute_all_metrics: true,
         bootstrap: true, n_boot: 200,
         fit_tilt_plane: points.length >= 3,
-        include_pngs: true,
+        include_pngs: false,   // plot-style-completion-v1: all native, no server PNGs.
       };
       const res = await apiFetch('/api/dof/analyze', { method: 'POST', body });
       onRunAnalysis({

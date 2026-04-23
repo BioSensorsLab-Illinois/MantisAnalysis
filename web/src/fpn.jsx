@@ -708,7 +708,7 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
         channels: chsOrActive,
         rois: rois.map(r => [r.y0, r.x0, r.y1, r.x1]),
         settings: settingsPayload(),
-        include_pngs: true,
+        include_pngs: false,   // plot-style-completion-v1: all native, no server PNGs.
       };
       const res = await apiFetch('/api/fpn/analyze', { method: 'POST', body });
       onRunAnalysis({

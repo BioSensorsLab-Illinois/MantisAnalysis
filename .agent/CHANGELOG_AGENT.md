@@ -4,6 +4,61 @@ Append-only log of agent sessions. One bullet per session, newest at top.
 
 ---
 
+## 2026-04-23 — plot-style-completion-v1: zero PNGs + real plotStyle wiring (Claude Opus 4.7)
+
+User: "for analysis result style, lots of control is still not working
+at all, nothing changed after i change font, scale, lines, etc. I
+tested with DoF, USAF, and FPN and almost nothing works at all. Also
+enforce absolutely no image as plot, all plot need to be plotted in
+canvas in realtime. and must looks beautiful."
+
+Initiative: `.agent/runs/plot-style-completion-v1/`.
+
+What shipped:
+
+- **Zero server PNGs in the analysis modals.** Every former
+  `<img src="data:image/png...">` path is now native. DoF Gaussian /
+  Heatmap / Points+Tilt / Chromatic shift and FPN Map / PSD /
+  Autocorr / Hot-pixels all paint on a real `<canvas>` or inline SVG
+  from JSON data the server ships.
+- **New `HeatmapCanvas` + `HeatmapColorBar` primitives** in
+  `shared.jsx` with 9 colormaps (gray, viridis, magma, inferno,
+  plasma, cividis, turbo, hot, rdbu, jet), divergent + log-scale
+  support, auto aspect-lock, and an SVG overlay slot so charts can
+  layer picks / markers / peak crosses on top. Decoder handles
+  base64-float32 grids + uint8 masks in the browser.
+- **Server JSON extended** (`mantisanalysis/server.py`): new
+  `_float32_grid` packer downsamples above 64 k cells so typical
+  payloads stay under ~256 KB, ships p1/p99/mean stats alongside the
+  raw data. FPN results gain `image_grid`, `fpn_map_grid`,
+  `psd_log_grid`, `autocorr_grid`, `kept_mask_b64`; DoF results gain
+  `heatmap_grid`, `image_grid`, `heatmap_step`.
+- **Picker payloads** now send `include_pngs: false` so the server
+  stops wasting CPU on figures nobody looks at.
+- **plotStyle sliders actually bite**:
+    - `Elements ×` now scales line widths too (wrapped every
+      `strokeWidth={style.*}` in `scaled(style.*, style)`).
+    - SVG fontSize literals remapped to their semantic fields —
+      tick / axis-label / legend / title sizes all respect the
+      matching slider.
+    - `LineOverlayChart`, `MetricOverlayChart`, `ChromaticShiftChart`
+      HTML card chrome + title typography + bottom legend fonts now
+      flow from plotStyle: titleSize/Weight/Italic, legendSize/Weight,
+      cardBackground, cardBorder, cardBorderRadius, cardPadding,
+      showGrid, gridOpacity, markerSize, markerStrokeWidth.
+    - New shared `ChartCard` wraps every new native tab in a single
+      chrome primitive so tweaking any card-chrome slider reshapes
+      all charts at once.
+- Browser-verified end-to-end: DoF modal renders 0 `<img>` tags with
+  4 native canvases on the Heatmap tab; bumping `Legend 20` +
+  `Elements × 2` via the style panel multiplies the bottom-legend
+  font to 40 px in real time.
+
+Smoke: Tier 1 + 2 + 3 green; 40/40 pytest (including the Playwright
+smoke). All changes committable — follows `backlog-cleanup-v1`.
+
+---
+
 ## 2026-04-23 — backlog-cleanup-v1: drain post-trio backlog → first commit (Claude Opus 4.7)
 
 User: "take care all of the items mentioned above, with B-0010 after

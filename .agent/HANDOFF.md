@@ -1,14 +1,17 @@
 # HANDOFF — current live state pointer
 
-Last updated: **2026-04-23**, end of `backlog-cleanup-v1` (post-trio
-backlog fully drained; committable).
+Last updated: **2026-04-23**, end of `plot-style-completion-v1`
+(zero PNGs in analysis modals; plotStyle controls fully wired).
 
 ## Current state of the working tree
 
 - Branch: `main`.
-- VCS state: **large multi-session refactor uncommitted** on `main`.
-  B-0010 (initial commit + push) is the only open gate left from this
-  cleanup sweep and awaits explicit user consent.
+- VCS state: clean up to `backlog-cleanup-v1` ([53acac8](https://github.com/BioSensorsLab-Illinois/MantisAnalysis/commit/53acac8)).
+  `plot-style-completion-v1` changes — `mantisanalysis/server.py`,
+  `mantisanalysis/web/src/shared.jsx`, `mantisanalysis/web/src/analysis.jsx`,
+  `mantisanalysis/web/src/dof.jsx`, `mantisanalysis/web/src/fpn.jsx`,
+  plus the initiative's `ExecPlan.md` + `Status.md` — are staged but
+  not yet committed at this snapshot.
 
 ## What just shipped (backlog-cleanup-v1)
 
@@ -94,11 +97,14 @@ and the `.agent/runs/backlog-cleanup-v1/` initiative folder. Deleted:
 
 ## Active initiative
 
-`.agent/runs/backlog-cleanup-v1/` — post-trio backlog drain. All
-milestones ticked except the final commit (B-0010) which is up to the
-user.
+`.agent/runs/plot-style-completion-v1/` — zero-PNG analysis modals +
+plotStyle wiring. All milestones ticked; see
+`.agent/runs/plot-style-completion-v1/Status.md` for the evidence grid.
 
 Preceded by:
+- `.agent/runs/backlog-cleanup-v1/` — drained post-trio backlog (closed
+  B-0016 / B-0020 / B-0021 / B-0019 / B-0015 / B-0011 / legacy sweep /
+  D-0014) and shipped the first commit ([53acac8](https://github.com/BioSensorsLab-Illinois/MantisAnalysis/commit/53acac8)).
 - `.agent/runs/analysis-polish-v1/` — publication-grade plotStyle
   framework (infrastructure that this session wired up across every
   chart component).
