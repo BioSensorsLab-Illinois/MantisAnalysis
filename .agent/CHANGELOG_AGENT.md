@@ -4,6 +4,80 @@ Append-only log of agent sessions. One bullet per session, newest at top.
 
 ---
 
+## 2026-04-23 — analysis-page-overhaul-v1 Phase 0 + 1 + 2 (Claude Opus 4.7)
+
+User: "understand project, then execute plan: .agent/runs/analysis-page-overhaul-v1/ExecPlan.md."
+
+Session scope: open the initiative; land the first three phases at clean
+commit boundaries with Tier 1+2 smoke + pytest green on each.
+
+- **Phase 0 — inventory.md.** Full audit of the analysis modal stack:
+  - 30 `DEFAULT_PLOT_STYLE` fields tagged alive / partial / dead
+    (confirmed dead: `chartScale`, `aspect`, `showLegend`; orphaned:
+    `tickWeight`, `annotationSize` only in 3 places; `showGrid` gates
+    only 7 of 15+ grid-drawing charts).
+  - ~40-chart catalog per-modal with ChartCard adoption + SVG layout
+    knobs + empty-state status.
+  - Five-source background hierarchy mapped (modal backdrop / panel /
+    tab body / card chrome / SVG surface / export bgcolor); DoF's
+    missing `BgColorPicker` documented.
+  - Three-modal shell duplication mapped line-for-line.
+  - Bug candidates: `MTFCurvesTab` shadows plotStyle `style` with a
+    local viz-mode key, silently nulling `cardMaxWidth` on the MTF tab;
+    no modal installs an Esc listener despite "(Esc)" hint.
+- **Phase 1 — foundation primitives (`web/src/shared.jsx`, +593 lines,
+  old exports kept live).**
+  - Two new plotStyle fields: `pageBackground`
+    (`'theme' | 'white' | 'black' | 'transparent' | <hex>`) and
+    `chartBodyBackground` (`'inherit' | 'panel' | 'white' |
+    'transparent'`).
+  - Helpers: `pageBgFor(style, t, themeFallback)` +
+    `chartBodyBgFor(style, t)`. Canonical `channelColor(ch)` +
+    `paletteColor(style, ch)` in shared.jsx so primitives don't reach
+    back into analysis.jsx.
+  - `tokens(style, t)` + `useTokens()` — memoized inline-style dict
+    (title / axisLabel / tick / legend / annotation / gridLine /
+    axisLine / line / marker).
+  - `useChartGeom({ W, H, PAD, xDomain, yDomain, yFlipped })` —
+    geometry hook that honors `style.aspect`. No-args form reads from
+    `<Chart>`'s `ChartGeomCtx`; every hook call unconditional.
+  - `<Chart title sub footer channel exportName aspect geom chartBg>`
+    — single primitive: card chrome + title row with optional per-card
+    PNG button + aspect-bounded body + `ChartGeomCtx.Provider`.
+  - `<Page plotStyleState themeFallback as style>` — PlotStyleCtx
+    provider that also paints the container with the resolved page
+    background.
+  - `renderChartToPng(node, opts)` — SVG-first export pipeline. Three
+    paths: single-svg direct serialize (XMLSerializer → Blob → Image →
+    canvas), canvas + SVG overlay composite (heatmaps), HTML-heavy
+    fallback via `renderNodeToPng` (dom-to-image + 15 s watchdog). No
+    CORS trap: cloned SVGs inline font-family from computed style.
+- **Phase 2 — pruned `chartScale` + `useChartSize` + "Chart ×" slider.**
+  Zero callers outside shared.jsx; deleted the field, the hook, the
+  slider row, and the window export. Deferred to Phase 3: "Card bg" →
+  "Page bg" rename and per-section hint popovers (UI language should
+  flip with the shell unification, not ahead of it).
+
+Verification each phase:
+- Tier 1 + Tier 2 smoke: PASS.
+- pytest: 40/40 green.
+- Browser boot: every new `window.*` export present; offscreen
+  `<Page><Chart>` render mounts SVG + PNG button; `<Chart>` without
+  `geom` prop renders without throws; post-chartScale-drop reload
+  still green with no console errors.
+- Screenshot of DoF mode — existing UI unaffected.
+
+Commits on `main`: `468490a` (Phase 0), `f081404` (Phase 1), `d9cbf8e`
+(Phase 2). Not pushed (per B-0010 consent gate).
+
+Phase 3+ is explicit multi-session work: merging three modal shells
+into one, rewriting 15 charts onto `<Chart>`, replacing
+`mantisExport` callers with `renderChartToPng`, Playwright suite,
+docs cleanup. See initiative `Status.md` for the next-session entry
+point and `inventory.md` §H for the phase → code-map crosswalk.
+
+---
+
 ## 2026-04-23 — plot-style-completion-v1: zero PNGs + real plotStyle wiring (Claude Opus 4.7)
 
 User: "for analysis result style, lots of control is still not working

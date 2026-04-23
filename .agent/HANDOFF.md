@@ -1,19 +1,54 @@
 # HANDOFF — current live state pointer
 
-Last updated: **2026-04-23**, end of `plot-style-completion-v1`
-(zero PNGs in analysis modals; plotStyle controls fully wired).
+Last updated: **2026-04-23**, end of `analysis-page-overhaul-v1` Phase 0+1+2
+(inventory + foundation primitives + plotStyle cleanup).
 
 ## Current state of the working tree
 
 - Branch: `main`.
-- VCS state: clean up to `backlog-cleanup-v1` ([53acac8](https://github.com/BioSensorsLab-Illinois/MantisAnalysis/commit/53acac8)).
-  `plot-style-completion-v1` changes — `mantisanalysis/server.py`,
-  `mantisanalysis/web/src/shared.jsx`, `mantisanalysis/web/src/analysis.jsx`,
-  `mantisanalysis/web/src/dof.jsx`, `mantisanalysis/web/src/fpn.jsx`,
-  plus the initiative's `ExecPlan.md` + `Status.md` — are staged but
-  not yet committed at this snapshot.
+- Three new commits on top of the previous `plot-style-completion-v1`
+  ship (84a918b):
+  - `468490a` — analysis-page-overhaul-v1 Phase 0 (ExecPlan.md +
+    inventory.md under `.agent/runs/analysis-page-overhaul-v1/`).
+  - `f081404` — analysis-page-overhaul-v1 Phase 1 foundation primitives
+    (+593 lines in `web/src/shared.jsx`; old exports kept live).
+  - `d9cbf8e` — analysis-page-overhaul-v1 Phase 2 prune (`chartScale` +
+    `useChartSize` + "Chart ×" slider deleted).
+- Not yet pushed (per B-0010 explicit-consent gate).
 
-## What just shipped (backlog-cleanup-v1)
+## What just shipped (analysis-page-overhaul-v1 Phase 0+1+2)
+
+- **Phase 0 — `.agent/runs/analysis-page-overhaul-v1/inventory.md`.**
+  Full audit: 30 plotStyle fields tagged alive/partial/dead; ~40-chart
+  catalog with ChartCard adoption; five-source background-hierarchy
+  map; three-modal shell duplication mapped; `MTFCurvesTab` shadow bug
+  + DoF-missing-BgColorPicker + missing Esc-to-close documented.
+- **Phase 1 — foundation primitives (`web/src/shared.jsx`).** New
+  exports:
+  - `pageBackground` + `chartBodyBackground` plotStyle fields;
+    `pageBgFor()` + `chartBodyBgFor()` resolvers.
+  - Canonical `channelColor(ch)` + `paletteColor(style, ch)` in shared
+    scope.
+  - `tokens(style, t)` + `useTokens()` memoized style dict.
+  - `useChartGeom({ W, H, PAD, xDomain, yDomain, yFlipped })` geometry
+    hook honoring `style.aspect`.
+  - `<Chart>` — single chart primitive with card chrome + title row +
+    per-card PNG button + aspect-bounded body + `ChartGeomCtx`.
+  - `<Page>` — PlotStyleCtx provider that paints the container with
+    resolved `pageBackground`.
+  - `renderChartToPng(node, opts)` — SVG-first export (direct
+    serialize / canvas composite / HTML fallback via
+    `renderNodeToPng`). No dom-to-image CORS trap.
+  - Old helpers (`cardChromeFor`, `ChartCard`, `mantisExport`) remain
+    live — nothing in analysis.jsx / fpn.jsx / dof.jsx / usaf.jsx is
+    touched yet.
+- **Phase 2 — plotStyle prune.** Deleted `chartScale` field +
+  `useChartSize` hook + "Chart ×" slider; zero callers outside
+  shared.jsx. `showLegend` + `tickWeight` + `annotationSize` kept for
+  Phase 6's typography sweep; `aspect` already wired via
+  `useChartGeom` in Phase 1.
+
+## What just shipped before that (backlog-cleanup-v1)
 
 Single session that swept the open backlog after the USAF/FPN/DoF
 rewrite trio closed:
@@ -72,36 +107,48 @@ curl http://127.0.0.1:8765/api/health
 
 ## Where to pick up next
 
-1. **B-0010** — initial commit + `git push -u origin main`. This is
-   the explicit user-consent gate from the previous handoff and is
-   still the next action after this session's backlog sweep.
-2. **B-0018** — real-sample validation: needs real H5 captures. Staging
+1. **analysis-page-overhaul-v1 Phase 3** — extract `<AnalysisModal>`
+   shell from USAF/FPN/DoF duplicates. Create `web/src/analysis/`
+   subtree: `modal.jsx` (shell), `usaf.jsx`, `fpn.jsx`, `dof.jsx`
+   per-mode specs. Add DoF's missing `BgColorPicker`. Install the
+   Esc-to-close listener all three modals already advertise. Keep old
+   modals live behind a feature flag until Phase 4. See
+   `.agent/runs/analysis-page-overhaul-v1/Status.md` + `inventory.md` §E.
+2. **Phase 4 onward** (separate sessions): rewrite 15 charts through
+   `<Chart>`, migrate every `mantisExport` caller to `renderChartToPng`
+   (Phase 5), empty-state + typography polish (Phase 6), Playwright
+   analysis-modal suite (Phase 7), docs + dead-code cleanup including
+   `LegacyPngModal` + `PlotlyChart` wrapper (Phase 8).
+3. **B-0010** — initial `git push -u origin main` is still the explicit
+   user-consent gate from prior handoffs. Eleven commits now on `main`
+   are unpushed; ask before pushing.
+4. **B-0018** — real-sample validation: needs real H5 captures. Staging
    area is `docs/validation/` per its README.
-3. **B-0015 extended** — per-mode interaction tests + CI gating of the
+5. **B-0015 extended** — per-mode interaction tests + CI gating of the
    Playwright smoke (installing chromium in CI is ~300 MB).
-4. **B-0014** — adopt a bundler for `web/` (Vite/esbuild) if the CDN
-   Babel boot becomes a bottleneck.
-5. **B-0006, B-0007, B-0012** — untouched legacy items that stayed
+6. **B-0014** — adopt a bundler for `web/` (Vite/esbuild) if the CDN
+   Babel boot becomes a bottleneck. Will become more attractive after
+   Phase 3's `web/src/analysis/` subtree.
+7. **B-0006, B-0007, B-0012** — untouched legacy items that stayed
    valid after Qt removal (legacy Workflow A CLI smoke, rotate-clears-
    picks warning, onboarding helper script).
 
 ## Known dirty files
 
-Everything in `mantisanalysis/` (incl. new `plotting.py`, shrunken
-`*_render.py`), `web/src/analysis.jsx`, `web/src/dof.jsx`, `tests/web/`,
-`docs/validation/`, `pyproject.toml`, `.agent/BACKLOG.md`,
-`.agent/CHANGELOG_AGENT.md`, `.agent/DECISIONS.md`,
-`.agent/ARCHITECTURE.md`, `.agent/REPO_MAP.md`, `.agent/HANDOFF.md`,
-and the `.agent/runs/backlog-cleanup-v1/` initiative folder. Deleted:
-`requirements.txt`. `git status -sb` will show the full list.
+Working tree is clean as of the three analysis-page-overhaul-v1 commits.
+`git status -sb` should show only the branch ahead-count against origin.
 
 ## Active initiative
 
-`.agent/runs/plot-style-completion-v1/` — zero-PNG analysis modals +
-plotStyle wiring. All milestones ticked; see
-`.agent/runs/plot-style-completion-v1/Status.md` for the evidence grid.
+`.agent/runs/analysis-page-overhaul-v1/` — full rewrite of the analysis
+modal stack as a first-class feature. Phase 0 + 1 + 2 done; Phase 3 is
+the first high-risk surgery (unifying the three modal shells). See
+`Status.md` for the milestone grid and `inventory.md` for the full
+design document that drives the remaining phases.
 
 Preceded by:
+- `.agent/runs/plot-style-completion-v1/` — zero-PNG analysis modals +
+  plotStyle wiring.
 - `.agent/runs/backlog-cleanup-v1/` — drained post-trio backlog (closed
   B-0016 / B-0020 / B-0021 / B-0019 / B-0015 / B-0011 / legacy sweep /
   D-0014) and shipped the first commit ([53acac8](https://github.com/BioSensorsLab-Illinois/MantisAnalysis/commit/53acac8)).
