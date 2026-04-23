@@ -155,6 +155,11 @@ const DEFAULT_PLOT_STYLE = {
   // Layout
   gridGap: 14,
   cardPadding: 10,
+  // Chart card width cap (px). Grid cells stop stretching beyond this, so
+  // the user can have a 2×2 layout that only occupies part of the modal
+  // with empty space on the right / bottom — instead of every card being
+  // forced to fill the available 1fr slot. 0 disables the cap.
+  cardMaxWidth: 0,
   aspect: 'auto',            // 'auto' | '4:3' | '16:9' | '1:1' | '3:4'
   // Palette — 'channel' = the per-channel colors (default, physics-correct);
   //          other palettes override channel colors with a shared sequential
@@ -1274,7 +1279,13 @@ const Modal = ({ children, onClose, width = 480, label, padding = 20 }) => {
 // Toast — transient floating message (renders via portal-free positioning)
 const Toast = ({ msg, kind = 'info', onDone, duration = 2200 }) => {
   const t = useTheme();
-  useEffect(() => { const id = setTimeout(() => onDone?.(), duration); return () => clearTimeout(id); }, [msg, duration, onDone]);
+  // Stabilize onDone via ref — otherwise every parent re-render passes a
+  // fresh closure, which re-fires the effect and restarts the auto-dismiss
+  // timer forever. This is exactly the "Running DoF analysis on 4
+  // channels…" stuck-at-the-bottom bug.
+  const onDoneRef = useRef(onDone);
+  useEffect(() => { onDoneRef.current = onDone; }, [onDone]);
+  useEffect(() => { const id = setTimeout(() => onDoneRef.current?.(), duration); return () => clearTimeout(id); }, [msg, duration]);
   const colors = {
     info: { bg: t.accent, fg: '#fff' },
     warn: { bg: t.warn, fg: '#fff' },
@@ -1766,18 +1777,28 @@ const LAYOUT_OPTIONS = [
 const layoutsForCount = (n) =>
   LAYOUT_OPTIONS.filter(o => o.cols === null || o.cols === 'wide' || o.cols <= Math.max(1, n));
 
-const gridStyleFor = (layout, n, minCardPx = 300, gap) => {
+const gridStyleFor = (layout, n, minCardPx = 300, gap, cardMaxWidth = 0) => {
   const opt = LAYOUT_OPTIONS.find(o => o.id === layout) || LAYOUT_OPTIONS[0];
   const base = Number.isFinite(gap) ? { gap } : {};
+  // When the user caps card width (style.cardMaxWidth > 0), upper bound
+  // each track at that px value instead of 1fr stretching. Flush-left
+  // packing so unused space goes on the right + bottom, matching how a
+  // "make cards smaller" control usually behaves.
+  const hasCap = Number.isFinite(cardMaxWidth) && cardMaxWidth > 0;
+  const upper = hasCap ? `${cardMaxWidth}px` : '1fr';
+  const justify = hasCap ? { justifyContent: 'flex-start' } : {};
   if (opt.cols === null) {
-    return { ...base, gridTemplateColumns: `repeat(auto-fill, minmax(${minCardPx}px, 1fr))` };
+    return { ...base, ...justify,
+             gridTemplateColumns: `repeat(auto-fill, minmax(${minCardPx}px, ${upper}))` };
   }
   if (opt.cols === 'wide') {
     // N × 1: one row, all items. Width per card: distribute viewport
     // minus a safety margin.
-    return { ...base, gridTemplateColumns: `repeat(${Math.max(1, n)}, minmax(220px, 1fr))` };
+    return { ...base, ...justify,
+             gridTemplateColumns: `repeat(${Math.max(1, n)}, minmax(220px, ${upper}))` };
   }
-  return { ...base, gridTemplateColumns: `repeat(${opt.cols}, minmax(200px, 1fr))` };
+  return { ...base, ...justify,
+           gridTemplateColumns: `repeat(${opt.cols}, minmax(200px, ${upper}))` };
 };
 
 // ---------------------------------------------------------------------------
@@ -1795,22 +1816,43 @@ const PlotStylePanel = ({ open, onToggle }) => {
   const t = useTheme();
   const { style, setStyle, resetStyle } = usePlotStyle();
 
-  // Compact number input — used for fontSize / lineWidth / etc.
-  const Num = ({ label, value, min, max, step = 1, onChange, width = 52 }) => (
-    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4,
-                     fontSize: 10.5, color: t.textMuted }}>
-      {label}
-      <input type="number" value={value} min={min} max={max} step={step}
-             onChange={(e) => {
-               const v = parseFloat(e.target.value);
-               if (Number.isFinite(v)) onChange(v);
-             }}
-             style={{ width, padding: '3px 4px', fontSize: 11,
-                      fontFamily: 'ui-monospace,Menlo,monospace',
-                      background: t.inputBg, color: t.text,
-                      border: `1px solid ${t.border}`, borderRadius: 3 }} />
-    </label>
-  );
+  // Slider + readout — sliders don't steal focus on click and don't need
+  // select-all to edit. The numeric read-out is also an input so
+  // precision tweaks are still possible: click the number, type, Enter.
+  // The input only commits on blur / Enter so each keystroke doesn't
+  // reflow the world.
+  const Num = ({ label, value, min, max, step = 1, onChange, width = 110 }) => {
+    const [draft, setDraft] = useState(String(value));
+    useEffect(() => { setDraft(String(value)); }, [value]);
+    const commit = () => {
+      const v = parseFloat(draft);
+      if (Number.isFinite(v)) onChange(Math.max(min, Math.min(max, v)));
+      else setDraft(String(value));
+    };
+    return (
+      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6,
+                       fontSize: 10.5, color: t.textMuted }}>
+        <span style={{ whiteSpace: 'nowrap' }}>{label}</span>
+        <input type="range" min={min} max={max} step={step} value={value}
+               onChange={(e) => onChange(parseFloat(e.target.value))}
+               style={{ width, accentColor: t.accent,
+                        cursor: 'pointer' }} />
+        <input type="text" value={draft}
+               onFocus={(e) => e.target.select()}
+               onChange={(e) => setDraft(e.target.value)}
+               onBlur={commit}
+               onKeyDown={(e) => {
+                 if (e.key === 'Enter') { commit(); e.target.blur(); }
+                 else if (e.key === 'Escape') { setDraft(String(value)); e.target.blur(); }
+               }}
+               style={{ width: 44, padding: '2px 4px', fontSize: 10.5,
+                        fontFamily: 'ui-monospace,Menlo,monospace',
+                        textAlign: 'right',
+                        background: t.inputBg, color: t.text,
+                        border: `1px solid ${t.border}`, borderRadius: 3 }} />
+      </label>
+    );
+  };
 
   const pillBtn = (label, onClick, active) => (
     <button onClick={onClick} key={label}
@@ -1980,11 +2022,15 @@ const PlotStylePanel = ({ open, onToggle }) => {
         <div>
           <div style={{ fontSize: 9.5, color: t.textMuted, textTransform: 'uppercase',
                         letterSpacing: 0.5, fontWeight: 600, marginBottom: 4 }}>Layout</div>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             <Num label="Gap"     value={style.gridGap}    min={0}  max={32} step={1}
                  onChange={(v) => setStyle({ gridGap: v })} />
             <Num label="Padding" value={style.cardPadding} min={0}  max={30} step={1}
                  onChange={(v) => setStyle({ cardPadding: v })} />
+            <Tip title="Cap each chart card's width (px). Cells stop stretching at this size, so a 2×2 layout can leave empty space on the right + bottom. 0 = no cap.">
+              <Num label="Card max" value={style.cardMaxWidth} min={0} max={1200} step={20}
+                   onChange={(v) => setStyle({ cardMaxWidth: v })} width={130} />
+            </Tip>
             <select value={style.cardBackground}
                     onChange={(e) => setStyle({ cardBackground: e.target.value })}
                     title="Card background"

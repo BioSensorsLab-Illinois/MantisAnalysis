@@ -36,7 +36,7 @@ const GridTabFrame = ({ caption, n, children, minCardPx = 380,
           Publication preset's tight grid actually tightens the layout in
           real time, and the user's manual Gap slider is respected. */}
       <div style={{ display: 'grid',
-                    ...gridStyleFor(layout, n, minCardPx, style.gridGap) }}>
+                    ...gridStyleFor(layout, n, minCardPx, style.gridGap, style.cardMaxWidth) }}>
         {children}
       </div>
     </div>
@@ -282,65 +282,19 @@ const USAFAnalysisModal = ({ run, onClose, onToast }) => {
     onToast?.('Exported analysis JSON', 'success');
   }, [visibleChannels, keptIdx, measurements, allSpecs, threshold, perChLim, onToast]);
 
-  // Capture the currently-visible tab body as a PNG via dom-to-image-more.
-  // Walks the DOM to inline computed styles + serialize SVGs so the
-  // exported raster matches what's on screen, including the chart
-  // typography and Plotly's rendered output.
+  // USAF tab export — delegates to the shared mantisExport so per-card
+  // PNG buttons and the top-bar PNG button behave identically.
   const tabBodyRef = useRefA(null);
   const exportPNG = useCallbackA(async () => {
     const node = tabBodyRef.current;
-    const dti = window.domtoimage;
-    if (!node || !dti) {
-      onToast?.('PNG export unavailable (dom-to-image not loaded)', 'danger');
-      return;
-    }
+    if (!node) { onToast?.('Export unavailable', 'danger'); return; }
     try {
       onToast?.('Rendering…');
-      // Pull scale / format / background from the user's plotStyle so the
-      // exported image honors their choices. `exportBackground: 'auto'`
-      // falls back to the in-modal background color; 'transparent' drops
-      // bgcolor from the dom-to-image options so the PNG has true alpha;
-      // 'white' forces a print-ready white canvas.
-      const ps = plotStyleState.style;
-      const scale = Number.isFinite(ps.exportScale) ? ps.exportScale : 2;
-      const format = ps.exportFormat === 'svg' ? 'svg' : 'png';
-      const chosenBg = ps.exportBackground === 'auto' ? effectiveBg
-                     : ps.exportBackground === 'white' ? '#ffffff'
-                     : 'transparent';
-      const noExportNodes = [...node.querySelectorAll('[data-no-export]')];
-      const previousDisplay = noExportNodes.map(n => n.style.display);
-      noExportNodes.forEach(n => { n.style.display = 'none'; });
-      void node.offsetHeight;
-      const w = node.scrollWidth, h = node.scrollHeight;
-      const dtiOpts = {
-        width: w * scale,
-        height: h * scale,
-        style: { transform: `scale(${scale})`, transformOrigin: 'top left',
-                 width: `${w}px`, height: `${h}px` },
-      };
-      if (chosenBg !== 'transparent') dtiOpts.bgcolor = chosenBg;
-      let blob;
-      try {
-        blob = format === 'svg'
-          ? await dti.toSvg(node, dtiOpts).then(dataUrl => {
-              const svgText = decodeURIComponent(dataUrl.replace(/^data:image\/svg\+xml;charset=utf-8,/, ''));
-              return new Blob([svgText], { type: 'image/svg+xml' });
-            })
-          : await dti.toBlob(node, dtiOpts);
-      } finally {
-        noExportNodes.forEach((n, i) => { n.style.display = previousDisplay[i] || ''; });
-      }
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `mantis-${tab}-${Date.now()}.${format}`;
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1200);
-      onToast?.(`Exported ${tab} as ${format.toUpperCase()} (${scale}×)`, 'success');
-    } catch (err) {
-      onToast?.(`Export failed: ${err.message || err}`, 'danger');
-    }
-  }, [tab, effectiveBg, bgColor, onToast, plotStyleState.style]);
+      const res = await mantisExport(node, `mantis-${tab}-${Date.now()}`,
+                                      plotStyleState.style, effectiveBg);
+      onToast?.(`Exported ${tab} as ${res.format.toUpperCase()} (${res.scale}×)`, 'success');
+    } catch (err) { onToast?.(`Export failed: ${err.message || err}`, 'danger'); }
+  }, [tab, effectiveBg, onToast, plotStyleState.style]);
 
   return (
     <PlotStyleCtx.Provider value={plotStyleState}>
@@ -498,7 +452,7 @@ const MTFCurvesTab = ({ channels, specs, keptIdx, measurements, threshold, perCh
         <ExportLayoutPicker value={mtfLayout} onChange={setMtfLayout} n={channels.length} />
       </div>
       <div style={{ display: 'grid', gap: 14,
-                    ...gridStyleFor(mtfLayout, channels.length, 380) }}>
+                    ...gridStyleFor(mtfLayout, channels.length, 380, undefined, style.cardMaxWidth) }}>
         {channels.map(ch => (
           <MiniMTFChart key={ch} channel={ch} specs={specs} keptIdx={keptIdx}
                         measurements={measurements} threshold={threshold}
@@ -612,7 +566,7 @@ const MiniMTFChart = ({ channel, specs, keptIdx, measurements, threshold, detect
           det. limit {detectionLimit != null ? `${detectionLimit.toFixed(2)} lp/mm` : '—'}
         </span>
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block', background: t.panelAlt, borderRadius: 4 }}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block', background: 'transparent', borderRadius: 4 }}>
         {/* Y grid + labels */}
         {yTicks.map(yv => {
           const y = yToPx(yv);
@@ -1293,50 +1247,18 @@ const FPNAnalysisModal = ({ run, onClose, onToast }) => {
     onToast?.('Exported analysis JSON', 'success');
   }, [visibleChannels, visibleRoiIdx, measurements, allRois, settings, onToast]);
 
+  // FPN tab export — shared path.
   const tabBodyRef = useRefA(null);
   const exportPNG = useCallbackA(async () => {
     const node = tabBodyRef.current;
-    const dti = window.domtoimage;
-    if (!node || !dti) { onToast?.('Export unavailable', 'danger'); return; }
+    if (!node) { onToast?.('Export unavailable', 'danger'); return; }
     try {
       onToast?.('Rendering…');
-      const ps = plotStyleState.style;
-      const scale = Number.isFinite(ps.exportScale) ? ps.exportScale : 2;
-      const format = ps.exportFormat === 'svg' ? 'svg' : 'png';
-      const chosenBg = ps.exportBackground === 'auto' ? effectiveBg
-                     : ps.exportBackground === 'white' ? '#ffffff'
-                     : 'transparent';
-      const noExportNodes = [...node.querySelectorAll('[data-no-export]')];
-      const previousDisplay = noExportNodes.map(n => n.style.display);
-      noExportNodes.forEach(n => { n.style.display = 'none'; });
-      void node.offsetHeight;
-      const w = node.scrollWidth, h = node.scrollHeight;
-      const dtiOpts = {
-        width: w * scale,
-        height: h * scale,
-        style: { transform: `scale(${scale})`, transformOrigin: 'top left',
-                 width: `${w}px`, height: `${h}px` },
-      };
-      if (chosenBg !== 'transparent') dtiOpts.bgcolor = chosenBg;
-      let blob;
-      try {
-        blob = format === 'svg'
-          ? await dti.toSvg(node, dtiOpts).then(dataUrl => {
-              const svgText = decodeURIComponent(dataUrl.replace(/^data:image\/svg\+xml;charset=utf-8,/, ''));
-              return new Blob([svgText], { type: 'image/svg+xml' });
-            })
-          : await dti.toBlob(node, dtiOpts);
-      } finally {
-        noExportNodes.forEach((n, i) => { n.style.display = previousDisplay[i] || ''; });
-      }
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `mantis-fpn-${tab}-${Date.now()}.${format}`;
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1200);
-      onToast?.(`Exported ${tab} as ${format.toUpperCase()} (${scale}×)`, 'success');
-    } catch (err) { onToast?.(`Export failed: ${err.message}`, 'danger'); }
-  }, [tab, effectiveBg, bgColor, onToast, plotStyleState.style]);
+      const res = await mantisExport(node, `mantis-fpn-${tab}-${Date.now()}`,
+                                      plotStyleState.style, effectiveBg);
+      onToast?.(`Exported ${tab} as ${res.format.toUpperCase()} (${res.scale}×)`, 'success');
+    } catch (err) { onToast?.(`Export failed: ${err.message || err}`, 'danger'); }
+  }, [tab, effectiveBg, onToast, plotStyleState.style]);
 
   const roiLabel = (i) => roiLabelOverrides[i] ?? (run.rois?.[i]?.label || `ROI-${i + 1}`);
   const setRoiLabel = (i, label) => setRoiLabelOverrides(prev => ({ ...prev, [i]: label }));
@@ -1793,7 +1715,7 @@ const FPNHistChart = ({ channel, roiName, measurement, unit, fullDR }) => {
           μ={xfmt(mean)} · σ_res={xfmt(std)}
         </span>
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block', background: t.panelAlt, borderRadius: 4 }}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block', background: 'transparent', borderRadius: 4 }}>
         {/* Y grid (3 lines) */}
         {[0, 0.5, 1].map(f => {
           const y = PAD_T + (1 - f) * (H - PAD_T - PAD_B);
@@ -1917,11 +1839,11 @@ const RowColCard = ({ ch, label, m }) => {
       </div>
       <div style={{ display: 'grid', gridTemplateRows: 'auto auto', gap: 3 }}>
         <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H}
-             style={{ background: t.panelAlt, borderRadius: 4 }}>
+             style={{ background: 'transparent', borderRadius: 4 }}>
           {plot('rows →', m.row_means, m.row_stds)}
         </svg>
         <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H}
-             style={{ background: t.panelAlt, borderRadius: 4 }}>
+             style={{ background: 'transparent', borderRadius: 4 }}>
           {plot('cols →', m.col_means, m.col_stds)}
         </svg>
       </div>
@@ -1996,7 +1918,7 @@ const PSD1DChart = ({ axis, channels, roiIdx, measurements }) => {
         {axis === 'row' ? 'row-mean PSD' : 'col-mean PSD'}
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%"
-           style={{ background: t.panelAlt, borderRadius: 4 }}>
+           style={{ background: 'transparent', borderRadius: 4 }}>
         {[0, 0.1, 0.2, 0.3, 0.4, 0.5].map(fv => (
           <g key={fv}>
             <line x1={xToPx(fv)} y1={PAD_T} x2={xToPx(fv)} y2={H - PAD_B}
@@ -2297,7 +2219,7 @@ const MetricBars = ({ metric, channels, measurements, visibleRoiIdx, roiLabel })
       <div style={{ fontSize: 12, fontWeight: 600, color: t.text, marginBottom: 4,
                     fontFamily: 'ui-monospace,Menlo,monospace' }}>{metric.label}</div>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%"
-           style={{ background: t.panelAlt, borderRadius: 4 }}>
+           style={{ background: 'transparent', borderRadius: 4 }}>
         {Array.from({ length: yTicks + 1 }, (_, k) => yMax * k / yTicks).map((yv, k) => (
           <g key={k}>
             <line x1={PAD_L} y1={yToPx(yv)} x2={W - PAD_R} y2={yToPx(yv)}
@@ -2361,13 +2283,16 @@ const DoFAnalysisModal = ({ run, onClose, onToast }) => {
   const { style } = usePlotStyle();
   const plotStyleState = usePlotStyleState();
   const [styleOpen, setStyleOpen] = useStateA(false);
-  const { response = {} } = run;
+  // Response is state, not prop, so we can re-post /api/dof/analyze when
+  // the user flips the top-bar Metric control and refresh every tab with
+  // the newly-computed data.
+  const [response, setResponse] = useStateA(run.response || {});
+  const [reRunning, setReRunning] = useStateA(false);
   const allChannels = response.channels || [];
   const results = response.results || {};
   const thumbnails = response.channel_thumbnails || {};
   const figures = response.figures || {};
   const settings = response.settings || {};
-  const chromaticPng = response.chromatic_shift_png || null;
 
   // A list of user-drawn line specs we echoed back in `run.lines`.
   const allLines = run.lines || [];
@@ -2379,7 +2304,12 @@ const DoFAnalysisModal = ({ run, onClose, onToast }) => {
   const [gainFilter, setGainFilter] = useStateA('all');
   const [lineIdxFilter, setLineIdxFilter] = useStateA('all');
   const [tab, setTab] = useStateA('summary');
-  const [metricFilter, setMetricFilter] = useStateA('laplacian'); // metric_sweep key
+  // Primary metric filter — drives the whole analysis. Seeded from the
+  // run's settings so initial render matches what the picker computed.
+  // Changing it re-POSTs /api/dof/analyze with the new metric so every
+  // tab (Summary / Lines / Gaussian / Heatmap / Chromatic / Points) gets
+  // rebuilt against the new metric, not just the Metric-compare tab.
+  const [metricFilter, setMetricFilter] = useStateA(run.response?.settings?.metric || run.metric || 'laplacian');
   const [unitPref, setUnitPref] = useStateA('auto'); // B-0020
   // B-0021 — live tilt-angle override. Seeded from the run payload. Clamped
   // to [0, 89]° in the input. tiltFactor = 1 / cos(θ·π/180); 1 when θ=0 so
@@ -2393,6 +2323,39 @@ const DoFAnalysisModal = ({ run, onClose, onToast }) => {
   const anyCalibrated = useMemoA(() =>
     Object.values(results).some(r => (r?.lines || []).some(dofIsCalibrated)),
   [results]);
+
+  // Re-run analysis on the server when the top-bar Metric flips so every
+  // tab uses the new metric's peak / DoF / Gaussian / heatmap numbers.
+  // Seeded from `settings.metric`, so nothing fires on first render.
+  useEffectA(() => {
+    const current = response?.settings?.metric;
+    if (!current || current === metricFilter) return;
+    if (!run?.source?.source_id || !run?.channels?.length) return;
+    let alive = true;
+    setReRunning(true);
+    onToast?.(`Re-running analysis with ${metricFilter}…`);
+    const body = {
+      source_id: run.source.source_id,
+      channels: run.channels,
+      points: (run.points || []).map(p => ({ x: p.x, y: p.y, label: p.label || '' })),
+      lines:  (run.lines  || []).map(l => ({ p0: l.p0, p1: l.p1 })),
+      metric: metricFilter,
+      half_window: settings.half_window,
+      threshold:   settings.threshold,
+      calibration: settings.calibration || run.calibration || null,
+      isp: run.isp || null,
+      compute_all_metrics: !!settings.compute_all_metrics,
+      bootstrap: !!settings.bootstrap,
+      n_boot: settings.n_boot || 100,
+      fit_tilt_plane: !!settings.fit_tilt_plane,
+      include_pngs: false,
+    };
+    apiFetch('/api/dof/analyze', { method: 'POST', body })
+      .then(res => { if (alive) { setResponse(res); onToast?.(`Switched to ${metricFilter}`, 'success'); } })
+      .catch(err => { if (alive) onToast?.(`Re-run failed: ${err.detail || err.message}`, 'danger'); })
+      .finally(() => { if (alive) setReRunning(false); });
+    return () => { alive = false; };
+  }, [metricFilter]);
 
   const visibleChannels = useMemoA(() => {
     const base = chans.filter(c => allChannels.includes(c));
@@ -2478,45 +2441,12 @@ const DoFAnalysisModal = ({ run, onClose, onToast }) => {
   const tabBodyRef = useRefA(null);
   const exportPNG = useCallbackA(async () => {
     const node = tabBodyRef.current;
-    const dti = window.domtoimage;
-    if (!node || !dti) { onToast?.('Export unavailable', 'danger'); return; }
+    if (!node) { onToast?.('Export unavailable', 'danger'); return; }
     try {
       onToast?.('Rendering…');
-      const ps = plotStyleState.style;
-      const scale = Number.isFinite(ps.exportScale) ? ps.exportScale : 2;
-      const format = ps.exportFormat === 'svg' ? 'svg' : 'png';
-      const bg = ps.exportBackground === 'transparent' ? 'transparent'
-               : ps.exportBackground === 'white' ? '#ffffff'
-               : t.panelAlt;
-      const noExportNodes = [...node.querySelectorAll('[data-no-export]')];
-      const previousDisplay = noExportNodes.map(n => n.style.display);
-      noExportNodes.forEach(n => { n.style.display = 'none'; });
-      void node.offsetHeight;
-      const w = node.scrollWidth, h = node.scrollHeight;
-      const dtiOpts = {
-        width: w * scale,
-        height: h * scale,
-        style: { transform: `scale(${scale})`, transformOrigin: 'top left',
-                 width: `${w}px`, height: `${h}px` },
-      };
-      if (bg !== 'transparent') dtiOpts.bgcolor = bg;
-      let blob;
-      try {
-        blob = format === 'svg'
-          ? await dti.toSvg(node, dtiOpts).then(dataUrl => {
-              const svgText = decodeURIComponent(dataUrl.replace(/^data:image\/svg\+xml;charset=utf-8,/, ''));
-              return new Blob([svgText], { type: 'image/svg+xml' });
-            })
-          : await dti.toBlob(node, dtiOpts);
-      } finally {
-        noExportNodes.forEach((n, i) => { n.style.display = previousDisplay[i] || ''; });
-      }
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `mantis-dof-${tab}-${Date.now()}.${format}`;
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1200);
-      onToast?.(`Exported ${tab} as ${format.toUpperCase()} (${scale}×)`, 'success');
+      const res = await mantisExport(node, `mantis-dof-${tab}-${Date.now()}`,
+                                      plotStyleState.style, t.panelAlt);
+      onToast?.(`Exported ${tab} as ${res.format.toUpperCase()} (${res.scale}×)`, 'success');
     } catch (err) { onToast?.(`Export failed: ${err.message}`, 'danger'); }
   }, [tab, t.panelAlt, onToast, plotStyleState.style]);
 
@@ -2650,7 +2580,10 @@ const DoFAnalysisModal = ({ run, onClose, onToast }) => {
         </div>
 
         <div ref={tabBodyRef} style={{ flex: 1, minHeight: 0, overflow: 'auto',
-                                        padding: 16, background: t.panelAlt }}>
+                                        padding: 16,
+                                        background: style.cardBackground === 'white'       ? '#ffffff'
+                                                   : style.cardBackground === 'transparent' ? 'transparent'
+                                                   : t.panelAlt }}>
           {tab === 'summary' && <DoFSummaryTab channels={visibleChannels} results={results}
                                                 visibleLineIdx={visibleLineIdx}
                                                 lineLabel={lineLabel} pointLabel={pointLabel}
@@ -2950,7 +2883,7 @@ const LineOverlayChart = ({ idx, channels, results, label, unitPref = 'auto',
                     fontFamily: style.fontFamily }}>{label}</div>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%"
            preserveAspectRatio="xMidYMid meet"
-           style={{ background: t.panelAlt, borderRadius: 4, display: 'block' }}>
+           style={{ background: 'transparent', borderRadius: 4, display: 'block' }}>
         {style.showGrid && yTicks.map(y => (
           <g key={y}>
             <line x1={PAD_L} y1={yOf(y)} x2={W - PAD_R} y2={yOf(y)}
@@ -3112,7 +3045,7 @@ const MetricOverlayChart = ({ ch, lr, label, unitPref = 'auto', tiltFactor = 1 }
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%"
            preserveAspectRatio="xMidYMid meet"
-           style={{ background: t.panelAlt, borderRadius: 4, display: 'block' }}>
+           style={{ background: 'transparent', borderRadius: 4, display: 'block' }}>
         {style.showGrid && [0, 0.5, 1].map(y => (
           <line key={y} x1={PAD_L} y1={yOf(y)} x2={W - PAD_R} y2={yOf(y)}
                 stroke={t.border} strokeWidth={scaled(style.gridWidth, style)}
@@ -3180,12 +3113,15 @@ const DoFChromaticTab = ({ channels, results, visibleLineIdx, lineLabel,
         Peak position per channel per line. Error bars = 95% bootstrap CI.
         Spread across channels = chromatic focus shift.
       </div>
-      <div style={{ display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))',
-                    gap: style.gridGap }}>
-        <ChromaticShiftChart channels={channels} results={results}
-                              visibleLineIdx={visibleLineIdx} lineLabel={lineLabel}
-                              unitPref={unitPref} tiltFactor={tiltFactor} />
+      {/* Single chart — bound width so it stops ballooning to fill a wide
+          modal (otherwise the viewBox scales, and so do all the SVG
+          labels inside). Center it for balance. */}
+      <div style={{ display: 'flex', justifyContent: 'center' }}>
+        <div style={{ width: '100%', maxWidth: 640 }}>
+          <ChromaticShiftChart channels={channels} results={results}
+                                visibleLineIdx={visibleLineIdx} lineLabel={lineLabel}
+                                unitPref={unitPref} tiltFactor={tiltFactor} />
+        </div>
       </div>
     </div>
   );
@@ -3235,7 +3171,7 @@ const ChromaticShiftChart = ({ channels, results, visibleLineIdx, lineLabel,
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%"
            preserveAspectRatio="xMidYMid meet"
-           style={{ background: t.panelAlt, borderRadius: 4, display: 'block' }}>
+           style={{ background: 'transparent', borderRadius: 4, display: 'block' }}>
         {style.showGrid && [yMin, (yMin + yMax) / 2, yMax].map(y => (
           <g key={y}>
             <line x1={PAD_L} y1={yOf(y)} x2={W - PAD_R} y2={yOf(y)}
@@ -3313,12 +3249,73 @@ const ChromaticShiftChart = ({ channels, results, visibleLineIdx, lineLabel,
 // ===========================================================================
 
 // Shared card chrome + title for all DoF/FPN native tab cards.
-const ChartCard = ({ ch, sub, children, footer }) => {
+// Single export path — used by per-card PNG buttons and the modal's
+// top-bar PNG button. dom-to-image-more supports a native `scale`
+// option, so we drop the old transform-scale hack that was shifting
+// SVG <text> on export. `copyDefaultStyles` keeps the embedded styles
+// faithful to what the user sees on-screen. Honors
+// plotStyle.exportScale / exportFormat / exportBackground.
+const mantisExport = async (node, filename, plotStyle, themeFallbackBg) => {
+  if (!node) throw new Error('no node to export');
+  const dti = window.domtoimage;
+  if (!dti) throw new Error('dom-to-image not loaded');
+  const ps = plotStyle || {};
+  const scale  = Number.isFinite(ps.exportScale) ? ps.exportScale : 2;
+  const format = ps.exportFormat === 'svg' ? 'svg' : 'png';
+  const bg     = ps.exportBackground === 'transparent' ? 'transparent'
+               : ps.exportBackground === 'white'       ? '#ffffff'
+               : (themeFallbackBg || '#ffffff');
+  // Hide any `data-no-export` bits (per-card download buttons, tab
+  // toolbars) so they don't appear in the exported image.
+  const hidden = [...node.querySelectorAll('[data-no-export]')];
+  const prevDisp = hidden.map(n => n.style.display);
+  hidden.forEach(n => { n.style.display = 'none'; });
+  void node.offsetHeight;
+  const opts = {
+    scale,
+    // Pass width/height at NATURAL size; dom-to-image-more multiplies
+    // internally by `scale` for the output buffer — no transform hack.
+    width: node.scrollWidth,
+    height: node.scrollHeight,
+    copyDefaultStyles: true,
+  };
+  if (bg !== 'transparent') opts.bgcolor = bg;
+  let blob;
+  try {
+    if (format === 'svg') {
+      const dataUrl = await dti.toSvg(node, opts);
+      const svgText = decodeURIComponent(dataUrl.replace(/^data:image\/svg\+xml;charset=utf-8,/, ''));
+      blob = new Blob([svgText], { type: 'image/svg+xml' });
+    } else {
+      blob = await dti.toBlob(node, opts);
+    }
+  } finally {
+    hidden.forEach((n, i) => { n.style.display = prevDisp[i] || ''; });
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `${filename}.${format}`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1200);
+  return { format, scale, bytes: blob.size };
+};
+
+const ChartCard = ({ ch, sub, children, footer, exportName }) => {
   const t = useTheme();
   const { style } = usePlotStyle();
   const chrome = cardChromeFor(style, t);
+  const cardRef = useRefA(null);
+  const onExport = async () => {
+    const name = exportName || (ch ? `mantis-${ch}` : 'mantis-chart');
+    try {
+      await mantisExport(cardRef.current,
+        `${name}-${Date.now()}`.replace(/\s+/g, '_').toLowerCase(),
+        style, t.panel);
+    } catch (err) { console.error('export failed', err); }
+  };
   return (
-    <div style={{ ...chrome, display: 'flex', flexDirection: 'column',
+    <div ref={cardRef}
+         style={{ ...chrome, display: 'flex', flexDirection: 'column',
                   boxShadow: style.cardBorder ? `0 1px 2px ${t.shadow || 'rgba(0,0,0,0.04)'}` : 'none' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8,
                     marginBottom: 6, flexWrap: 'wrap' }}>
@@ -3335,6 +3332,16 @@ const ChartCard = ({ ch, sub, children, footer }) => {
                                fontSize: scaled(style.legendSize, style),
                                fontWeight: style.legendWeight,
                                color: t.textMuted }}>{sub}</span>}
+        <span style={{ flex: 1 }} />
+        <button data-no-export onClick={onExport}
+                title="Download this chart as an image (tight crop)"
+                style={{ background: 'transparent', border: `1px solid ${t.border}`,
+                          color: t.textMuted, borderRadius: 4,
+                          padding: '2px 6px', cursor: 'pointer',
+                          fontFamily: 'inherit', fontSize: 10.5,
+                          display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <Icon name="export" size={10} />PNG
+        </button>
       </div>
       {children}
       {footer && <div style={{ marginTop: 6,
@@ -3428,7 +3435,7 @@ const GaussianFitChart = ({ ch, ln, label, unitPref = 'auto', tiltFactor = 1 }) 
                sub={<>· {label}{unitName !== 'px' && ` · ${unitName}`}{tiltFactor !== 1 && ` · θ=${((Math.acos(1/tiltFactor)*180/Math.PI)||0).toFixed(0)}°`}</>}>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%"
            preserveAspectRatio="xMidYMid meet"
-           style={{ background: t.panelAlt, borderRadius: 4, display: 'block' }}>
+           style={{ background: 'transparent', borderRadius: 4, display: 'block' }}>
         {style.showGrid && yTicks.map(y => (
           <line key={`gy${y}`} x1={PAD_L} y1={yOf(y)} x2={W - PAD_R} y2={yOf(y)}
                 stroke={t.border} strokeWidth={scaled(style.gridWidth, style)}
@@ -3717,7 +3724,7 @@ const PointsBarChart = ({ points, pointLabel, color }) => {
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%"
          preserveAspectRatio="xMidYMid meet"
-         style={{ background: t.panelAlt, borderRadius: 4, display: 'block' }}>
+         style={{ background: 'transparent', borderRadius: 4, display: 'block' }}>
       {style.showGrid && yTicks.map(y => (
         <line key={y} x1={PAD_L} y1={yOf(y)} x2={W - PAD_R} y2={yOf(y)}
               stroke={t.border} strokeWidth={scaled(style.gridWidth, style)}
@@ -3794,7 +3801,7 @@ const TiltPlaneSVG = ({ r, color }) => {
   const ay = cy + Math.sin(dirRad) * L;
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%"
-         style={{ background: t.panelAlt, borderRadius: 4, marginTop: 8, display: 'block' }}>
+         style={{ background: 'transparent', borderRadius: 4, marginTop: 8, display: 'block' }}>
       <rect x={PAD - 2} y={PAD - 2} width={W - 2*PAD + 4} height={H - 2*PAD + 4}
             fill="none" stroke={t.border} strokeWidth={scaled(style.axisStrokeWidth, style)} />
       {pts.map((p, i) => (

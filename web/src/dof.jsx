@@ -630,6 +630,7 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
         lines: lines.map(l => ({ id: l.id, p0: l.p0, p1: l.p1, label: l.label || '' })),
         metric, half_window: halfWin, threshold,
         calibration: calibrationPayload(),
+        isp: buildIspPayload(),
         displayUnit,
         tilt_angle_deg: calibrated ? tiltAngleDeg : 0,
         response: res,
