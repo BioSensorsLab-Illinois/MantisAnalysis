@@ -9,9 +9,30 @@ Last updated: 2026-04-24 (Phase 1 + Phase 2 closed)
 
 ## Current focus
 
-Phase 3 is next — atomic cutover of the real app (shared.jsx + 6
-mode files) to ES modules, delete the CDN + Babel path. Own
-session.
+Phase 3 is next. **Must be atomic** — empirical finding this
+session (2026-04-24) showed dual-mode is infeasible.
+
+## Phase 3 probe finding (2026-04-24)
+
+User requested Phase 3 start; began as an exploratory probe to
+test whether `shared.jsx` could be dual-moded (run under both CDN
+and Vite during transition). Result:
+
+- Added `export const _PHASE3_PROBE = '...'` to `shared.jsx` top.
+  CDN path reloaded and React still mounted cleanly → Babel-
+  standalone **silently strips top-level `export`**. Good.
+- Added `import ReactImport from 'react'` to the top. CDN path
+  immediately broke with a cascade of `<App>` component errors
+  → Babel-standalone **does NOT strip `import`**; it throws.
+
+**Conclusion**: dual-mode shared.jsx requires import-maps +
+`<script type="module">` on the CDN side, which is a larger
+delta than the bundler migration itself. Phase 3 is therefore an
+atomic cutover — no viable partial ship.
+
+shared.jsx was reverted to pristine after the probe; no code
+changes ship this session for Phase 3. ExecPlan updated with the
+empirical note + revised atomic-cutover subtask list.
 
 ## Progress
 
@@ -104,14 +125,27 @@ Honesty:
 
 ## Next concrete action
 
-**Phase 3** — atomic cutover. Migrate `shared.jsx` to full ES
-module; convert the 6 mode files (`app.jsx`, `usaf.jsx`, `fpn.jsx`,
-`dof.jsx`, `analysis.jsx`, `isp_settings.jsx`) to ES imports;
-update `main.jsx` to mount the real `<App>`; delete the CDN +
-Babel-standalone script tags from `web/index.html`. Final step:
-either swap FastAPI's static mount to serve `web/dist/` OR make
-FastAPI redirect `/` → `/dist/index-vite.html`.
+**Phase 3 (dedicated session)** — atomic cutover. Concrete
+subtask list is in `ExecPlan.md` § Phase 3. Essential moves:
 
-Risk profile: higher than Phases 1–2 — touches every frontend
-file + deletes the fallback path. Spawn `planner-architect` +
-`risk-skeptic` + `playwright-verifier` at Phase 3 close.
+1. `shared.jsx` — add `import { useState, ... } from 'react'`;
+   `export` every primitive in the `Object.assign(window, ...)`
+   block; delete the window-assignment block.
+2. Each mode file — replace `window.X` destructures with
+   `import { X } from './shared.jsx'`; replace `window.React` /
+   `window.ReactDOM` / `window.Plotly` / `window.domtoimage`
+   with real npm imports.
+3. `npm install plotly.js-dist-min dom-to-image-more`.
+4. `main.jsx` — mount the real `<App>`.
+5. `web/index.html` — delete CDN script tags (or replace with
+   the Vite-built HTML).
+6. `mantisanalysis/server.py` — serve `web/dist/` as the default.
+7. `scripts/doctor.py` — Node/npm check WARN → FAIL.
+8. Update tests.
+
+Risk profile: HIGH — touches every frontend file. Spawn
+`planner-architect` for the plan review + `risk-skeptic` for
+missed `window.X` references before committing, then
+`playwright-verifier` after the build renders.
+
+Estimated effort: 2-3 dedicated sessions.

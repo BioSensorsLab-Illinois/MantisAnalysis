@@ -55,24 +55,73 @@ converge on Vite as the canonical toolchain in 2026.
   on :5173.
 - Tier 0-3 + pytest stay green; CDN path untouched.
 
-### Phase 2 — migrate `web/src/shared.jsx` to ES modules
+### Phase 2 — migrate `web/src/shared.jsx` to ES modules *(PIVOTED 2026-04-24)*
 
-- Replace every `window.X = X` export with `export const X`.
-- Update every caller (6 other files) to `import { X } from './shared'`.
-- Keep `window.X` fallbacks on the CDN path during the transition.
-- Verify both paths (CDN + Vite) still work after the shared.jsx
-  split.
+Original: dual-path shared.jsx (`export const X` + `window.X = X`).
+Empirical test showed this is infeasible under Babel-standalone's
+`<script type="text/babel">` loading.
 
-### Phase 3 — migrate the remaining 6 files + kill CDN
+Shipped alternative: parallel `web/src/shared-esm.js` with a
+strategic subset (constants, hooks, API helpers, `SourceCtx`).
+Live API shell in `main.jsx`. CDN byte-identical.
 
-- Migrate `app.jsx`, `usaf.jsx`, `fpn.jsx`, `dof.jsx`,
-  `analysis.jsx`, `isp_settings.jsx` to ES modules.
-- Delete CDN paths from `web/index.html`; Vite becomes the only
-  frontend.
-- `mantisanalysis/server.py`: mount `web/dist/` in production;
-  proxy to Vite dev server in development (or just require the
-  user to run `npm run dev`).
-- Promote Node/npm doctor check from WARN to FAIL.
+### Phase 3 — atomic cutover *(REVISED after empirical Babel-standalone test 2026-04-24)*
+
+**Empirical finding** (2026-04-24, Phase 3a probe): Babel-standalone
+silently strips top-level `export` statements (CDN still renders)
+BUT throws on top-level `import` statements (CDN breaks
+immediately). So **dual-mode shared.jsx is infeasible** without
+import-maps + switching every CDN `<script type="text/babel">` to
+`<script type="module">` — which is a larger delta than the
+bundler migration itself.
+
+This makes Phase 3 **necessarily atomic**: `shared.jsx` + 6 mode
+files + `main.jsx` + `web/index.html` + FastAPI mount + tests all
+change in one coordinated commit. The CDN path dies the moment
+`import` statements enter `shared.jsx`, so there's no partial
+"Phase 3a" that keeps both paths green.
+
+Subtask checklist (single atomic commit):
+
+- `shared.jsx`:
+    * Replace `const { useState, ... } = React;` with
+      `import { useState, ... } from 'react';`.
+    * Add `export` before every primitive in the
+      `Object.assign(window, ...)` block.
+    * Delete the `Object.assign(window, ...)` block itself.
+- Each mode file (`app.jsx`, `usaf.jsx`, `fpn.jsx`, `dof.jsx`,
+  `analysis.jsx`, `isp_settings.jsx`):
+    * `const { useState, ... } = React` → `import { useState, ... } from 'react'`
+    * `const { Card, Button, ... } = window` → `import { Card, Button, ... } from './shared.jsx'`
+    * `ReactDOM.createRoot` → `import { createRoot } from 'react-dom/client'`
+    * `window.Plotly` → `import Plotly from 'plotly.js-dist-min'`
+    * `window.domtoimage` → `import domtoimage from 'dom-to-image-more'`
+- Install `plotly.js-dist-min` + `dom-to-image-more` via npm.
+- `main.jsx` — import + mount the real `<App>` (not
+  `<PhaseTwoShell>`); delete Phase 2 shell.
+- `web/index.html` — delete CDN script tags. Two options:
+    a. Replace its contents with the Vite-built HTML + rewrite
+       asset paths. Requires a post-build copy step.
+    b. Delete `web/index.html`; rename `web/index-vite.html` →
+       `web/index.html`; Vite build emits `web/dist/index.html`.
+       FastAPI then serves `web/dist/` as `/`.
+- `mantisanalysis/server.py` — mount `web/dist/` when it exists
+  (else fall back to `web/` with a "run npm run build first"
+  response for the root path).
+- `scripts/doctor.py` — promote Node/npm check from WARN to FAIL.
+- `tests/web/test_web_boot.py` — verify the boot test's selectors
+  + URL still work against the Vite-built page.
+- Delete `web/src/shared-esm.js` — Phase 2's parallel file is
+  redundant once shared.jsx is the single source of truth.
+
+**Session budget**: 2-3 dedicated sessions. One long session can
+probably land the edit wave + a successful build; subsequent
+sessions handle reviewer findings + tests + any regressions in
+the mode panels' rendering (easy to miss a `window.X` usage
+buried deep in a 2600-line file).
+
+Rollback: `git revert` the atomic cutover commit; working tree
+returns to the Phase 2 dual-path state.
 
 ### Phase 4 — ESLint + Prettier
 
