@@ -1107,15 +1107,43 @@ def _mount_api(app: FastAPI) -> None:
 # Static mount — serve the React frontend
 # ---------------------------------------------------------------------------
 
-def _mount_static(app: FastAPI) -> None:
-    """Serve the React frontend.
+_UNBUILT_PAGE = """<!doctype html>
+<html lang=\"en\"><head><meta charset=\"utf-8\">
+<title>MantisAnalysis — build the frontend first</title>
+<style>
+ body {{ font: 15px/1.55 -apple-system, 'Inter Tight', system-ui, sans-serif;
+        background: #121212; color: #eee; margin: 0; padding: 4rem 2rem;
+        max-width: 44rem; }}
+ code {{ background: #1e1e1e; padding: 2px 6px; border-radius: 4px;
+        font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+        font-size: 13px; }}
+ pre  {{ background: #1e1e1e; padding: 1rem 1.25rem; border-radius: 6px;
+        font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+        font-size: 13px; overflow-x: auto; }}
+ h1 {{ color: #6bcb3a; font-weight: 600; }}
+ a  {{ color: #4a9eff; }}
+</style></head><body>
+<h1>Frontend bundle not built</h1>
+<p>FastAPI is running, but <code>{dist}</code> is empty — the Vite
+build hasn't been run yet.</p>
+<p>Build the SPA from the repo root:</p>
+<pre>npm install       # first time only
+npm run build     # emits web/dist/</pre>
+<p>Then reload this page.</p>
+<p>API docs: <a href=\"/api/docs\">/api/docs</a> · health:
+<a href=\"/api/health\">/api/health</a></p>
+</body></html>"""
 
-    The JSX files are transpiled in-browser by Babel-standalone, which caches
-    the transpile result by URL. Without ``Cache-Control: no-store`` the
-    browser keeps an old transpile after we edit a .jsx file, so subsequent
-    reloads run stale code (and any new identifier we reference shows up as
-    a ReferenceError). For a local dev tool the right answer is to disable
-    caching entirely on the static tree.
+
+def _mount_static(app: FastAPI) -> None:
+    """Serve the Vite-built React frontend from ``web/dist/``.
+
+    bundler-migration-v1 Phase 3: the frontend is now ES-module-bundled
+    by Vite. ``npm run build`` emits to ``web/dist/``. If the build
+    hasn't run yet, ``/`` serves a friendly explainer page instead of
+    404ing. ``NO_CACHE`` stays in place — local dev benefits from it,
+    and the hashed filenames Vite emits make HTTP caching largely
+    redundant anyway.
     """
     if not WEB_DIR.exists():
         return
@@ -1123,9 +1151,23 @@ def _mount_static(app: FastAPI) -> None:
     NO_CACHE = {"Cache-Control": "no-store, max-age=0",
                 "Pragma": "no-cache", "Expires": "0"}
 
+    dist_dir = WEB_DIR / "dist"
+    dist_index = dist_dir / "index.html"
+
+    if not dist_index.exists():
+        page = _UNBUILT_PAGE.format(dist=str(dist_dir))
+
+        @app.get("/")
+        def _unbuilt_root():
+            from fastapi.responses import HTMLResponse
+
+            return HTMLResponse(page, headers=NO_CACHE)
+
+        return
+
     @app.get("/")
     def root():
-        return FileResponse(WEB_DIR / "index.html", headers=NO_CACHE)
+        return FileResponse(dist_index, headers=NO_CACHE)
 
     class NoCacheStatic(StaticFiles):
         async def get_response(self, path, scope):
@@ -1133,7 +1175,7 @@ def _mount_static(app: FastAPI) -> None:
             resp.headers.update(NO_CACHE)
             return resp
 
-    app.mount("/", NoCacheStatic(directory=str(WEB_DIR), html=True), name="web")
+    app.mount("/", NoCacheStatic(directory=str(dist_dir), html=True), name="web")
 
 
 # ---------------------------------------------------------------------------

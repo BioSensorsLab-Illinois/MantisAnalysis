@@ -11,6 +11,8 @@
     "clean": "rm -rf web/dist node_modules/.vite"
   },
   "dependencies": {
+    "dom-to-image-more": "^3.7.2",
+    "plotly.js-dist-min": "^3.5.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

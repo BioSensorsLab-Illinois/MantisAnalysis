@@ -209,29 +209,28 @@ def _which(cmd: str) -> "str | None":
 
 
 def check_node_npm() -> Tuple[bool, bool]:
-    """bundler-migration-v1 Phase 1: Node ≥ 20 + npm.
+    """bundler-migration-v1 Phase 3: Node ≥ 20 + npm.
 
-    WARN-level until Phase 3 promotes Vite to the only frontend
-    path. Today both the CDN + Babel path and the Vite path work, so
-    missing Node only blocks the new `npm run dev` workflow, not the
-    production app.
+    The frontend is now ES-module-bundled by Vite and served from
+    ``web/dist/``. Without Node the app cannot be built, so any missing
+    or below-floor Node install is a FAIL.
     """
     node = _which("node")
     if node is None:
         _status(
             "Node (>= 20) + npm",
-            "WARN",
-            "Node not found. Needed for `npm run dev` / `npm run build` "
-            "(bundler-migration-v1). Install Node >= 20.",
+            "FAIL",
+            "Node not found. Needed for `npm install` + `npm run build`. "
+            "Install Node >= 20 — without it the SPA cannot be built or served.",
         )
-        return True, True
+        return False, False
     try:
         version_raw = subprocess.run(
             [node, "--version"], capture_output=True, text=True, timeout=5,
         ).stdout.strip()
     except (subprocess.TimeoutExpired, OSError):
-        _status("Node", "WARN", f"{node} didn't respond to --version")
-        return True, True
+        _status("Node", "FAIL", f"{node} didn't respond to --version")
+        return False, False
     try:
         major = int(version_raw.lstrip("v").split(".")[0])
     except (ValueError, IndexError):
@@ -240,14 +239,14 @@ def check_node_npm() -> Tuple[bool, bool]:
     if major < 20:
         _status(
             "Node + npm",
-            "WARN",
-            f"{version_raw} is below the recommended floor of Node 20. "
+            "FAIL",
+            f"{version_raw} is below the floor of Node 20. "
             "package.json engines pins >= 20.",
         )
-        return True, True
+        return False, False
     if npm is None:
-        _status("npm", "WARN", "npm not on PATH; Node without npm is unusual.")
-        return True, True
+        _status("npm", "FAIL", "npm not on PATH; Node without npm is unusual.")
+        return False, False
     _status(f"Node {version_raw} + npm (at {npm})", "OK")
     return True, False
 
@@ -283,7 +282,7 @@ CHECKS = [
     ("Runtime deps", check_runtime_deps),
     ("Dev deps", check_dev_deps),
     ("Web-smoke deps (optional)", check_web_smoke),
-    ("Node + npm (optional for bundler-migration-v1)", check_node_npm),
+    ("Node + npm (required post bundler-migration-v1)", check_node_npm),
     ("Editable install", check_editable_install),
     ("Harness scripts", check_scripts),
     ("Agent layer", check_agent_layer),

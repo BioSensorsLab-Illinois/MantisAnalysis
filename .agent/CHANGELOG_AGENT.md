@@ -4,6 +4,80 @@ Append-only log of agent sessions. One bullet per session, newest at top.
 
 ---
 
+## 2026-04-24 — bundler-migration-v1 Phase 3 atomic cutover (Claude Opus 4.7, 1M context)
+
+User: "1." (pick Phase 3 atomic cutover from the previous close).
+
+Phase 3 shipped the full ES-module cutover in one atomic move: every
+`.jsx` file now uses `import` / `export`, React + Plotly +
+dom-to-image-more are real npm packages (not CDN `<script>` tags),
+and FastAPI serves the Vite-built `web/dist/` as the SPA root.
+
+### What shipped
+
+- `shared.jsx`, `app.jsx`, `usaf.jsx`, `fpn.jsx`, `dof.jsx`,
+  `analysis.jsx`, `isp_settings.jsx` — all ES modules. Each imports
+  React + the subset of shared primitives it uses; each exports its
+  top-level component. The global `window.X` bridge in shared.jsx
+  is gone; so are `window.Plotly` and `window.domtoimage` inside
+  analysis.jsx.
+- `web/src/main.jsx` — rewritten as a one-screen file that imports
+  `<App>` from `./app.jsx` and mounts via `createRoot`.
+- `web/src/shared-esm.js` — deleted (merged back into shared.jsx).
+- `web/index.html` — rewritten as the Vite entry; every CDN
+  `<script>` tag and every `<script type="text/babel">` deleted.
+- `vite.config.js` — `base: '/'` (was `/dist/`), single input
+  `web/index.html`.
+- `mantisanalysis/server.py` — `_mount_static` now prefers
+  `web/dist/index.html`; if the dist is absent, `/` serves a
+  friendly "build the frontend first" page instead of 404/500.
+- `scripts/doctor.py` — Node ≥ 20 + npm check promoted WARN → FAIL.
+  Without Node the SPA cannot be built or served, so `doctor` now
+  blocks on it.
+- `tests/web/test_web_boot.py` — Playwright path skips cleanly when
+  `web/dist/index.html` is absent, so CI without Node still passes
+  the non-browser API test.
+- `web/src/usaf.jsx` RulerH — dead-side fix: `<text x={`calc(...)`}>`
+  isn't a valid SVG attribute and Chromium surfaces it as a console
+  error. Replaced with a `<g transform="translate(3,0)">` wrapper
+  that keeps the 3-px offset without calc(). This was a pre-existing
+  latent bug that the Phase 3 test (which can now actually load the
+  built SPA) surfaced.
+- `package.json` — now lists `plotly.js-dist-min` and
+  `dom-to-image-more` as real dependencies (via `npm install` in
+  Phase 3 startup).
+
+### Verification
+
+- Tier 0 — 4 scanners PASS
+- Tier 1 — 15 modules imported PASS
+- Tier 2 — headless figures PASS
+- Tier 3 — FastAPI endpoints PASS
+- pytest — 107/107 (`test_web_boot.py` both tests green; Playwright
+  path loaded the built page and verified React mounts, mode rail
+  renders, no console errors)
+- `npm run build` — 41 modules, 5.35 MB (gzip 1.62 MB)
+- Browser verification via Preview MCP — FastAPI at :8773, served
+  the real SPA; DoF mode default rendered; switching to USAF and
+  FPN produced zero console errors
+
+### Honesty
+
+- **Bundle is 5 MB uncompressed** — dominated by Plotly.js
+  (plotly.js-dist-min ≈ 4.4 MB). Vite warns "chunks > 500 KB after
+  minification." A dynamic `import()` for `plotly.js-dist-min` (only
+  loaded when the analysis modal opens) is the obvious Phase 4+ win
+  but out of scope here. Gzip is 1.6 MB, which is fine for
+  single-user local dev.
+- **`shared.jsx` still uses aliased React hook names inside each
+  mode file** (`useStateU`, `useStateF`, etc.) — the migration did
+  not rename them. This is cosmetic cruft but safe.
+- **Tests that used to live in `web/ CDN` assumptions didn't need
+  updates** — the Playwright boot test was almost CDN-agnostic; the
+  only real change was adding a skip when `web/dist/` is absent.
+
+---
+
 ## 2026-04-24 — bundler-migration-v1 Phase 2 (Claude Opus 4.7, 1M context)
 
 User: "continue" (resume bundler-migration-v1 from Phase 1 close).

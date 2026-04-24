@@ -1,6 +1,13 @@
 // Shared UI primitives for MantisAnalysis — BioSensors Lab @ UIUC.
 // Author: Zhongmin Zhu <j@polarxphotonics.com>
-// Exports components to `window` at bottom so other babel scripts can use them.
+//
+// bundler-migration-v1 Phase 3: ES-module native. The final
+// `export { … }` statement at the bottom of this file replaces the
+// pre-Phase-3 `Object.assign(window, …)` window-globals bridge.
+// Every named item re-exported there is also a top-level `const`
+// declaration earlier in the file.
+import React from 'react';
+import domtoimage from 'dom-to-image-more';
 
 const { useState, useEffect, useRef, useMemo, useCallback, createContext, useContext } = React;
 
@@ -2563,7 +2570,7 @@ const renderChartToPng = async (node, opts = {}) => {
 // + style + bg resolution.
 const renderNodeToPng = async (node, opts = {}) => {
   if (!node) throw new Error('no node to render');
-  const dti = window.domtoimage;
+  const dti = domtoimage;
   if (!dti) throw new Error('dom-to-image not loaded');
   const {
     filename = `mantis-chart-${Date.now()}`,
@@ -2794,9 +2801,9 @@ const Page = ({
   );
 };
 
-Object.assign(window, {
+export {
   THEMES, CHANNEL_COLORS, ELEMENT_COLORS, BRAND, IMAGE_DIMS,
-  ThemeCtx, useTheme,
+  ThemeCtx, useTheme, defaultAnalysisChannels,
   Icon, Card, Row, Slider, Select, Button, ChannelChip, Segmented,
   Checkbox, Spinbox, StatBlock, HUD, CanvasToolbar, CanvasBtn,
   parseChannel, sCycColor, makeUSAFImage, makeFPNImage, makeDoFImage,
@@ -2825,4 +2832,4 @@ Object.assign(window, {
   channelColor, paletteColor,
   pageBgFor, chartBodyBgFor,
   renderChartToPng, renderNodeToPng,
-});
+};

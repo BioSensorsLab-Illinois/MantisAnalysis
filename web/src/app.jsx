@@ -1,5 +1,42 @@
 // MantisAnalysis — main app shell (server-backed).
 // BioSensors Lab @ UIUC · Zhongmin Zhu <j@polarxphotonics.com>
+//
+// bundler-migration-v1 Phase 3: ES-module native. Entry point moved
+// to main.jsx; this file exports the <App> component. Aliased React
+// hook names (useStateApp / useEffectApp / ...) are kept so the body
+// of this file doesn't need rewriting.
+import React from 'react';
+import {
+  THEMES, CHANNEL_COLORS, ELEMENT_COLORS, BRAND, IMAGE_DIMS,
+  ThemeCtx, useTheme,
+  Icon, Card, Row, Slider, Select, Button, ChannelChip, Segmented,
+  Checkbox, Spinbox, StatBlock, HUD, CanvasToolbar, CanvasBtn,
+  parseChannel, sCycColor, makeUSAFImage, makeFPNImage, makeDoFImage,
+  Tip, Kbd, Modal, Toast,
+  useLocalStorageState, useImageMouse, useDragCapture, useViewport, modeGrid,
+  distSegment, downloadBlob, exportJSON, exportCSV, pickImageFile,
+  API_BASE, apiFetch, apiUpload, channelPngUrl, formatApiDetail, colormapStripUrl,
+  SourceCtx, useSource, useDebounced,
+  FileFilterCtx, useFileFilter,
+  ResizeHandle, DraggablePanelList, FloatingWindow,
+  ExportLayoutPicker, gridStyleFor, layoutsForCount, LAYOUT_OPTIONS,
+  PlotStyleCtx, usePlotStyle, usePlotStyleState,
+  DEFAULT_PLOT_STYLE, PLOT_STYLE_PRESETS, PLOT_FONT_FAMILIES, PLOT_PALETTES,
+  PlotTitle, AxisLabel, AxisTick, LegendLabel, GridLine,
+  scaled, legendCssFor, plotPaletteColor, cardChromeFor,
+  PlotStylePanel, CanvasColorbar,
+  HeatmapCanvas, HeatmapColorBar,
+  decodeFloat32Grid, decodeUint8Mask, colormapLUT, CMAP_STOPS,
+  Chart, Page, ChartGeomCtx, useChartGeom, tokens, useTokens,
+  channelColor, paletteColor,
+  pageBgFor, chartBodyBgFor,
+  renderChartToPng, renderNodeToPng,
+} from './shared.jsx';
+import { USAFMode } from './usaf.jsx';
+import { FPNMode } from './fpn.jsx';
+import { DoFMode } from './dof.jsx';
+import { AnalysisModal } from './analysis.jsx';
+import { ISPSettingsWindow } from './isp_settings.jsx';
 const { useState: useStateApp, useEffect: useEffectApp, useCallback: useCallbackApp,
         useMemo: useMemoApp, useRef: useRefApp } = React;
 
@@ -535,4 +572,6 @@ const CommandPalette = ({ actions, onClose }) => {
   );
 };
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+// Phase 3: mounting moved to main.jsx. Export <App> for Vite entry.
+export { App };
+export default App;

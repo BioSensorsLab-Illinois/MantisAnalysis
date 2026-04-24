@@ -14,6 +14,18 @@
 //
 // BioSensors Lab · UIUC · Zhongmin Zhu <j@polarxphotonics.com>
 
+// bundler-migration-v1 Phase 3: ES-module native.
+import React from 'react';
+import {
+  CHANNEL_COLORS, useTheme, defaultAnalysisChannels,
+  Icon, Card, Row, Slider, Select, Button, ChannelChip, Segmented,
+  Checkbox, StatBlock, CanvasToolbar, CanvasBtn,
+  parseChannel, Tip, Kbd, Modal,
+  useLocalStorageState, distSegment, exportJSON, exportCSV,
+  apiFetch, channelPngUrl, useSource, useDebounced,
+  ResizeHandle,
+} from './shared.jsx';
+
 const { useState: useStateD, useEffect: useEffectD, useRef: useRefD,
         useMemo: useMemoD, useCallback: useCallbackD } = React;
 
@@ -2035,4 +2047,5 @@ const RefLengthDialog = ({ init, onClose, onCommit }) => {
   );
 };
 
-Object.assign(window, { DoFMode });
+export { DoFMode };
+export default DoFMode;

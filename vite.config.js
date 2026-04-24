@@ -1,14 +1,9 @@
-// vite.config.js — bundler-migration-v1 Phase 1.
+// vite.config.js — bundler-migration-v1 Phase 3 (atomic cutover).
 //
-// Vite-driven build for the MantisAnalysis React frontend. During
-// dev, serves on :5173 with HMR and proxies /api/* to the Python
-// FastAPI server on :8765. Production output goes to web/dist/,
-// which FastAPI will mount post-Phase 3.
-//
-// The existing CDN + Babel-standalone path at web/index.html stays
-// intact through Phase 2 so both rendering paths work. This Vite
-// entry loads `web/src/main.jsx`, which is minimal until Phase 2
-// migrates `shared.jsx` to ES modules.
+// Vite-driven build for the MantisAnalysis React frontend. Dev mode
+// serves web/index.html on :5173 with HMR and proxies /api/* to the
+// FastAPI server on :8765. Production build emits web/dist/, which
+// FastAPI serves as the primary SPA bundle.
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'node:path';
@@ -16,13 +11,10 @@ import { resolve } from 'node:path';
 export default defineConfig({
   root: resolve(import.meta.dirname, 'web'),
   publicDir: false,
-  // FastAPI mounts `web/` at `/` in production, so the built dist
-  // lives at `/dist/`. Emitting asset paths under `/dist/assets/...`
-  // keeps the prod HTML self-consistent when served via the Python
-  // server. Dev mode (vite) serves at `/` so this doesn't matter
-  // there. Phase 3 may revisit if FastAPI starts serving `web/dist/`
-  // as root.
-  base: '/dist/',
+  // FastAPI serves web/dist/ at /, so the built assets live under
+  // /assets/... at the origin root. Keep base = '/' for the prod
+  // mount and for vite dev alike.
+  base: '/',
   plugins: [react()],
   server: {
     port: 5173,
@@ -35,17 +27,9 @@ export default defineConfig({
     },
   },
   build: {
-    // Emit into `web/dist/` at the repo root so FastAPI can mount
-    // it with WEB_DIR overrides (Phase 3).
     outDir: resolve(import.meta.dirname, 'web/dist'),
     emptyOutDir: true,
     sourcemap: true,
     target: 'es2020',
-    rollupOptions: {
-      // Vite auto-detects web/index.html as the entry. Keep default
-      // unless we need multiple entries (Storybook comes with its
-      // own build in Phase 7).
-      input: resolve(import.meta.dirname, 'web/index-vite.html'),
-    },
   },
 });

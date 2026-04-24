@@ -4,6 +4,19 @@
 // UI features: rulers, zoom-to-cursor, pan (space / H tool / middle-mouse),
 // rotation-aware labels, snap-to-axis, multi-select sortable table, Save/Load
 // JSON config, ISP live-apply, display brightness/contrast/gamma, CSV export.
+
+// bundler-migration-v1 Phase 3: ES-module native.
+import React from 'react';
+import {
+  CHANNEL_COLORS, ELEMENT_COLORS, useTheme, defaultAnalysisChannels,
+  Icon, Card, Row, Slider, Select, Button, ChannelChip, Segmented,
+  Checkbox, Spinbox, StatBlock, HUD, CanvasToolbar, CanvasBtn,
+  parseChannel, sCycColor, Tip, Kbd,
+  useLocalStorageState, exportJSON, exportCSV,
+  apiFetch, channelPngUrl, SourceCtx, useSource, useFileFilter,
+  ResizeHandle, DraggablePanelList, FloatingWindow, CanvasColorbar,
+} from './shared.jsx';
+
 const { useState: useStateU, useEffect: useEffectU, useRef: useRefU,
         useMemo: useMemoU, useCallback: useCallbackU } = React;
 
@@ -1791,7 +1804,16 @@ const RulerH = ({ t, imgSize, step, ticks, zoom, panPx, cursorImg, leftInset }) 
           return (
             <g key={v}>
               <line x1={`${pct * 100}%`} x2={`${pct * 100}%`} y1={major ? 8 : 14} y2={20} stroke={t.textFaint} strokeWidth={major ? 0.8 : 0.5} />
-              {major && <text x={`calc(${pct * 100}% + 3px)`} y={10} fontSize={9} fill={t.textMuted} fontFamily="ui-monospace,Menlo,monospace">{v}</text>}
+              {/* SVG `x` can't accept calc(); use a translate(3,0) wrapper
+                  for the 3-px right offset instead, else Chromium rejects
+                  the attribute and surfaces it as a console error. */}
+              {major && (
+                <g transform="translate(3,0)">
+                  <text x={`${pct * 100}%`} y={10} fontSize={9}
+                        fill={t.textMuted}
+                        fontFamily="ui-monospace,Menlo,monospace">{v}</text>
+                </g>
+              )}
             </g>
           );
         })}
@@ -1829,4 +1851,5 @@ const RulerV = ({ t, imgSize, step, ticks, zoom, panPx, cursorImg, topInset }) =
   </div>
 );
 
-Object.assign(window, { USAFMode });
+export { USAFMode };
+export default USAFMode;

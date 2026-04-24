@@ -5,6 +5,13 @@
 // keyed on the source + mode so re-opening the same recording restores
 // the exact overrides — on Apply we PUT /api/sources/{id}/isp and let the
 // server return the authoritative SourceSummary which updates root state.
+// bundler-migration-v1 Phase 3: ES-module native.
+import React from 'react';
+import {
+  Icon, Card, Row, Slider, Select, Button, Segmented, Modal, Toast,
+  Kbd, Checkbox, Spinbox, useTheme, apiFetch, formatApiDetail,
+  useLocalStorageState,
+} from './shared.jsx';
 const { useState: useStateI, useEffect: useEffectI, useMemo: useMemoI,
         useCallback: useCallbackI } = React;
 
@@ -386,6 +393,6 @@ const GeomRow = ({ label, pair, setPair, inputStyle, min = 0 }) => {
   );
 };
 
-// Expose to window for clean cross-file reference (no ES modules in the
-// browser-Babel setup).
-window.ISPSettingsWindow = ISPSettingsWindow;
+// Phase 3: ES-module exports.
+export { ISPSettingsWindow };
+export default ISPSettingsWindow;

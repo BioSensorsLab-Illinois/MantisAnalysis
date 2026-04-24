@@ -15,6 +15,18 @@
 //
 // BioSensors Lab · UIUC · Zhongmin Zhu <j@polarxphotonics.com>
 
+// bundler-migration-v1 Phase 3: ES-module native.
+import React from 'react';
+import {
+  CHANNEL_COLORS, useTheme, defaultAnalysisChannels,
+  Icon, Card, Row, Slider, Select, Button, ChannelChip, Segmented,
+  Checkbox, StatBlock, HUD, CanvasToolbar, CanvasBtn,
+  parseChannel, Tip, Kbd,
+  useLocalStorageState, exportJSON, exportCSV,
+  apiFetch, channelPngUrl, useSource, useDebounced, useFileFilter,
+  ResizeHandle, CanvasColorbar,
+} from './shared.jsx';
+
 const { useState: useStateF, useEffect: useEffectF, useRef: useRefF,
         useMemo: useMemoF, useCallback: useCallbackF } = React;
 
@@ -1802,4 +1814,5 @@ const StabilityChart = ({ curve }) => {
   );
 };
 
-Object.assign(window, { FPNMode });
+export { FPNMode };
+export default FPNMode;

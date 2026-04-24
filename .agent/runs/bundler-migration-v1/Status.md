@@ -1,7 +1,7 @@
 # Status — bundler-migration-v1
 
 Opened: 2026-04-24
-Last updated: 2026-04-24 (Phase 1 + Phase 2 closed)
+Last updated: 2026-04-24 (Phase 1 + Phase 2 + Phase 3 closed)
 
 ## Current branch
 
@@ -9,8 +9,68 @@ Last updated: 2026-04-24 (Phase 1 + Phase 2 closed)
 
 ## Current focus
 
-Phase 3 is next. **Must be atomic** — empirical finding this
-session (2026-04-24) showed dual-mode is infeasible.
+Phase 3 shipped this session — ES-module atomic cutover landed with
+green Tier 0–3 + 107/107 pytest + browser verification across USAF /
+FPN / DoF. Phase 4 (ESLint + Prettier) is next.
+
+## Phase 3 shipment (2026-04-24)
+
+- `web/src/shared.jsx` — `import React from 'react'; import
+  domtoimage from 'dom-to-image-more'`; `export { ... }` for every
+  primitive; `window.domtoimage` → `domtoimage`. The
+  `Object.assign(window, ...)` bridge is gone.
+- `web/src/app.jsx` / `usaf.jsx` / `fpn.jsx` / `dof.jsx` /
+  `analysis.jsx` / `isp_settings.jsx` — each now imports React + the
+  exact shared subset it uses, then `export`s its top-level component.
+- `analysis.jsx` additionally imports `plotly.js-dist-min` and
+  `dom-to-image-more` as real npm modules; `window.Plotly` +
+  `window.domtoimage` are gone.
+- `web/src/main.jsx` — rewritten to `import App from './app.jsx'` +
+  `createRoot(...).render(<App />)`.
+- `web/src/shared-esm.js` — deleted (subset redundant post-migration).
+- `web/index.html` — rewritten as the Vite entry
+  (`<script type="module" src="/src/main.jsx"></script>`). All CDN
+  `<script>` tags (React, ReactDOM, Babel, Plotly, dom-to-image) are
+  gone, and every `<script type="text/babel">` too.
+- `vite.config.js` — `base: '/dist/'` → `base: '/'`; entry point is
+  the canonical `web/index.html`.
+- `mantisanalysis/server.py` — `_mount_static` now serves
+  `web/dist/index.html` and `web/dist/` as `/`. If the dist hasn't
+  been built, `/` returns a friendly HTML page instructing
+  `npm install && npm run build`.
+- `scripts/doctor.py` — the Node ≥ 20 + npm check is now FAIL-level
+  (was WARN through Phases 1–2).
+- `tests/web/test_web_boot.py` — skips the Playwright path when
+  `web/dist/index.html` is absent.
+- `web/src/usaf.jsx` RulerH — replaced `<text x={`calc(...)`}>` with
+  a `<g transform="translate(3,0)"><text x={'X%'}>` wrapper; SVG
+  attributes can't accept `calc()`, and the browser surfaces that as
+  a console error the boot test now catches.
+
+## Phase 3 final verification (2026-04-24)
+
+- [x] Tier 0 — 4 scanners PASS
+- [x] Tier 1 — imports PASS (15 modules)
+- [x] Tier 2 — headless figures PASS
+- [x] Tier 3 — FastAPI endpoints PASS
+- [x] pytest — 107/107 green
+- [x] `npm run build` — 41 modules, 5.35 MB (gzip 1.62 MB), 14.75 s
+- [x] Browser verification via Preview MCP — FastAPI + `web/dist/`
+      renders DoF (default), USAF, and FPN modes with no console
+      errors; `/api/health` returns `{"ok": true, "version": "0.2.0",
+      "sources": 1}`; full sidebar cards + channel chips + mode rail
+      all functional.
+
+## Progress
+
+- [x] Phase 1 — infrastructure (shipped 2026-04-24, commit e5bab0e)
+- [x] Phase 2 — parallel `shared-esm.js` (shipped 2026-04-24)
+- [x] Phase 3 — atomic cutover (**this commit**)
+- [ ] Phase 4 — ESLint + Prettier
+- [ ] Phase 5 — TypeScript gradual migration
+- [ ] Phase 6 — axe-core integration
+- [ ] Phase 7 — Storybook + initial stories
+- [ ] Phase 8 — docs + close
 
 ## Phase 3 probe finding (2026-04-24)
 

@@ -9,6 +9,7 @@ Specifically:
 To run:
     pip install -e '.[web-smoke]'
     playwright install chromium
+    npm install && npm run build   # post bundler-migration-v1 Phase 3
     pytest -m web_smoke
 
 The fixture is session-scoped so only one uvicorn boot is paid for.
@@ -16,10 +17,15 @@ The fixture is session-scoped so only one uvicorn boot is paid for.
 
 from __future__ import annotations
 
-import urllib.request
 import json
+import urllib.request
+from pathlib import Path
 
 import pytest
+
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_DIST_INDEX = _REPO_ROOT / "web" / "dist" / "index.html"
 
 
 def test_isp_modes_api_reachable(web_server: str) -> None:
@@ -54,6 +60,15 @@ def test_root_page_boots(web_server: str) -> None:
     pytest.importorskip("playwright")
     from playwright.sync_api import sync_playwright  # noqa: E402
 
+    # bundler-migration-v1 Phase 3 — the server now serves web/dist/
+    # as the SPA. Without the build the server returns a friendly
+    # "build the frontend first" page, not React — skip in that case
+    # so CI that doesn't have Node still passes the non-browser test.
+    if not _DIST_INDEX.is_file():
+        pytest.skip(
+            "web/dist/index.html not built. Run `npm install && npm run build`."
+        )
+
     errors: list[str] = []
     with sync_playwright() as p:
         browser = p.chromium.launch()
@@ -86,7 +101,9 @@ def test_root_page_boots(web_server: str) -> None:
 
         browser.close()
 
-    # Filter out benign warnings that Babel standalone emits on every boot.
+    # Filter out benign warnings (React DevTools hint, etc.). The
+    # Babel-standalone transformer warning is gone post-Phase 3 but
+    # the filter is cheap to keep for older checkouts.
     errors = [
         e
         for e in errors

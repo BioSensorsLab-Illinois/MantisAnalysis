@@ -3,6 +3,22 @@
 // charts (per-line profile cards, per-group mini-MTFs, G×E heatmap cells)
 // use inline SVG so we don't pay Plotly's per-instance cost dozens of
 // times per tab. No rasterized PNG plots anywhere.
+
+// bundler-migration-v1 Phase 3: ES-module native.
+import React from 'react';
+import Plotly from 'plotly.js-dist-min';
+import domtoimage from 'dom-to-image-more';
+import {
+  CHANNEL_COLORS, useTheme,
+  Icon, Row, Button, ChannelChip, Segmented,
+  parseChannel, Tip,
+  useLocalStorageState, exportJSON, exportCSV, apiFetch,
+  ExportLayoutPicker, gridStyleFor,
+  PlotStyleCtx, usePlotStyle, usePlotStyleState,
+  scaled, plotPaletteColor, cardChromeFor, PlotStylePanel,
+  HeatmapCanvas, HeatmapColorBar, decodeFloat32Grid,
+} from './shared.jsx';
+
 const { useState: useStateA, useEffect: useEffectA, useMemo: useMemoA,
         useRef: useRefA, useCallback: useCallbackA } = React;
 
@@ -46,7 +62,7 @@ const GridTabFrame = ({ caption, n, children, minCardPx = 380,
 // ---------------------------------------------------------------------------
 // Plotly wrapper
 // ---------------------------------------------------------------------------
-const plotlyReady = () => typeof window !== 'undefined' && window.Plotly;
+const plotlyReady = () => typeof Plotly !== 'undefined' && Plotly && typeof Plotly.newPlot === 'function';
 
 const PlotlyChart = ({ data, layout, config, style }) => {
   const ref = useRefA(null);
@@ -70,8 +86,8 @@ const PlotlyChart = ({ data, layout, config, style }) => {
       modeBarButtonsToRemove: ['lasso2d', 'select2d'],
       ...config,
     };
-    window.Plotly.newPlot(ref.current, data, merged, mergedConfig);
-    return () => { try { window.Plotly.purge(ref.current); } catch { /* noop */ } };
+    Plotly.newPlot(ref.current, data, merged, mergedConfig);
+    return () => { try { Plotly.purge(ref.current); } catch { /* noop */ } };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, layout, config, t.text, t.panel, t.panelAlt, t.border]);
   return <div ref={ref} style={{ width: '100%', height: '100%', minHeight: 280, ...style }} />;
@@ -3257,7 +3273,7 @@ const ChromaticShiftChart = ({ channels, results, visibleLineIdx, lineLabel,
 // stylesheet and can stall the export forever.
 const mantisExport = async (node, filename, plotStyle, themeFallbackBg) => {
   if (!node) throw new Error('no node to export');
-  const dti = window.domtoimage;
+  const dti = domtoimage;
   if (!dti) throw new Error('dom-to-image not loaded');
   const ps = plotStyle || {};
   const scale  = Number.isFinite(ps.exportScale) ? ps.exportScale : 2;
@@ -3925,4 +3941,5 @@ const LegacyPngModal = ({ run, onClose, onToast }) => {
   );
 };
 
-Object.assign(window, { AnalysisModal });
+export { AnalysisModal };
+export default AnalysisModal;
