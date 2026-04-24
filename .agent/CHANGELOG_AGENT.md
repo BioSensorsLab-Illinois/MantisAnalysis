@@ -4,6 +4,54 @@ Append-only log of agent sessions. One bullet per session, newest at top.
 
 ---
 
+## 2026-04-24 — bundler-migration-v1 Phase 1 (Claude Opus 4.7, 1M context)
+
+User picked "deep" scope for the B-0014 Vite decision — full 8-phase
+migration (Vite + ES modules + ESLint + Prettier + axe-core + gradual
+TypeScript + Storybook).
+
+Phase 1 scope: infrastructure only. Vite + React 18 installed
+alongside the existing CDN path; no existing `.jsx` files touched.
+Phases 2–8 land in follow-up sessions.
+
+### What shipped
+
+- `package.json` at repo root — Vite 5.4 + React 18.3.1 +
+  @vitejs/plugin-react 4.3; `npm run dev/build/preview/clean`
+  scripts; `engines.node >= 20`.
+- `vite.config.js` — React plugin, dev server :5173 with `/api/*`
+  proxy to `http://127.0.0.1:8765`, prod output `web/dist/`, entry
+  `web/index-vite.html`, sourcemaps on.
+- `web/index-vite.html` — parallel entry for Vite.
+- `web/src/main.jsx` — `<PhaseOnePlaceholder>` rendered via
+  `createRoot` proves the toolchain.
+- `.gitignore` — `node_modules/`, `web/dist/`, `.vite/`.
+- `scripts/doctor.py` — new `check_node_npm()` at WARN level.
+- `SETUP_AND_RUN.md` + `TOOLS_AND_SKILLS.md` + `BACKLOG.md` updated.
+
+### Build / dev verification
+
+- `npm install` — 7 packages.
+- `npm run build` — 30 modules, 143 KB (gzip 46 KB), 320 ms.
+- `npm run dev` — "VITE v5.4.21 ready in 136 ms" on :5173.
+
+### Gates
+
+- ✅ Tier 0 (4 scanners) / Tier 1 / Tier 2 / Tier 3
+- ✅ pytest 107/107 green
+
+Existing CDN path (`web/index.html`) byte-identical; production
+frontend unchanged.
+
+### Next phases (separate sessions)
+
+Phase 2 migrates `shared.jsx` to ES modules. Phase 3 finishes the
+`.jsx` migration + deletes CDN. Phase 4 ESLint/Prettier. Phase 5
+gradual TypeScript. Phase 6 axe-core. Phase 7 Storybook. Phase 8
+docs + close.
+
+---
+
 ## 2026-04-24 — correctness-sweep-v1 (Claude Opus 4.7, 1M context)
 
 User: "now work on all unfinished bug fixes and improvement other

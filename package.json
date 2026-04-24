@@ -1,0 +1,24 @@
+{
+  "name": "mantisanalysis-web",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "description": "MantisAnalysis web frontend — Vite-bundled React 18 SPA. Paired with the Python package (pyproject.toml) via FastAPI.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "clean": "rm -rf web/dist node_modules/.vite"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

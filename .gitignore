@@ -52,3 +52,12 @@ nosetests.xml
 # are host-specific and should not be committed.
 .agent/settings.local.json
 .agent/scheduled_tasks.lock
+
+# Vite / npm toolchain (bundler-migration-v1).
+# node_modules/ is re-derivable from package.json + lockfile.
+# web/dist/ is the production bundle output — re-emit via `npm run build`.
+# .vite/ is Vite's local optimization cache.
+node_modules/
+web/dist/
+.vite/
+package-lock.json.bak

@@ -43,7 +43,7 @@ roles, see [`agents/`](agents/).
 | **React 18** | ✅ | `web/index.html` (CDN), `web/src/*.jsx` | Core UI. |
 | **Babel standalone** | ✅ | `web/index.html` (CDN) | JSX transpiled in-browser. |
 | **dom-to-image-more** | 🟡 | CDN in `web/index.html` | Used for export path; known CORS issues being migrated away in `analysis-page-overhaul-v1` Phase 5. |
-| **Vite or esbuild (bundler)** | 🔵 | — | `B-0014`. Attractive after `web/src/analysis/` subtree lands. Would unlock npm deps + lockfile + Storybook. |
+| **Vite + @vitejs/plugin-react** | 🟡 | `package.json`, `vite.config.js` | bundler-migration-v1 Phase 1 (2026-04-24) landed: `npm install` + `npm run dev`/`npm run build` work. Phase 2+ migrates the real `.jsx` files to ES modules; Phase 3 deletes the CDN path. Vite 5.4; Node >= 20. |
 | **Storybook + Chromatic** | 🔵 | — | Gated on bundler decision. Component-level docs + interaction tests + a11y + visual regression if adopted. |
 | **React DevTools** | 🟡 | Browser extension (manual install) | Used for performance review. |
 

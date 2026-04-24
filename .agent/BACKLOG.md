@@ -3,6 +3,29 @@
 Explicit work that remains. Ordered by impact + readiness. Each item
 has a unique `B-000N` ID. Append-only; do not renumber.
 
+## B-0014 — Adopt a bundler for `web/` — **IN PROGRESS (Phase 1 shipped 2026-04-24)**
+
+Tracked under `.agent/runs/bundler-migration-v1/`. 8-phase plan:
+
+- **Phase 1** (CLOSED 2026-04-24) — Vite 5.4 + React 18 installed
+  alongside CDN path; `npm install` + `npm run dev` + `npm run build`
+  operational; `scripts/doctor.py` Node/npm check; hello-world entry
+  at `web/src/main.jsx` parallel to the live CDN app.
+- Phase 2 — migrate `web/src/shared.jsx` from `window.*` globals to
+  ES modules.
+- Phase 3 — migrate remaining 6 `.jsx` files + delete CDN + Babel
+  path; FastAPI serves `web/dist/`.
+- Phase 4 — ESLint + Prettier.
+- Phase 5 — gradual TypeScript (`.jsx` and `.tsx` side-by-side).
+- Phase 6 — axe-core integration under `pytest -m web_smoke`.
+- Phase 7 — Storybook with component stories.
+- Phase 8 — docs + close.
+
+Each phase is its own session. Rollback per-phase is trivial until
+Phase 3 (which deletes the CDN).
+
+---
+
 ## B-0022 — Claude Code hook: enforce browser verification for React UI changes — **CLOSED 2026-04-24**
 
 Closed under `harness-mechanical-v1`. `.agent/settings.json` now

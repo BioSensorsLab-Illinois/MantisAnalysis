@@ -202,6 +202,56 @@ def check_agent_layer() -> Tuple[bool, bool]:
     return True, False
 
 
+def _which(cmd: str) -> "str | None":
+    """Minimal shutil.which wrapper that's typed for None on miss."""
+    import shutil
+    return shutil.which(cmd)
+
+
+def check_node_npm() -> Tuple[bool, bool]:
+    """bundler-migration-v1 Phase 1: Node ≥ 20 + npm.
+
+    WARN-level until Phase 3 promotes Vite to the only frontend
+    path. Today both the CDN + Babel path and the Vite path work, so
+    missing Node only blocks the new `npm run dev` workflow, not the
+    production app.
+    """
+    node = _which("node")
+    if node is None:
+        _status(
+            "Node (>= 20) + npm",
+            "WARN",
+            "Node not found. Needed for `npm run dev` / `npm run build` "
+            "(bundler-migration-v1). Install Node >= 20.",
+        )
+        return True, True
+    try:
+        version_raw = subprocess.run(
+            [node, "--version"], capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+    except (subprocess.TimeoutExpired, OSError):
+        _status("Node", "WARN", f"{node} didn't respond to --version")
+        return True, True
+    try:
+        major = int(version_raw.lstrip("v").split(".")[0])
+    except (ValueError, IndexError):
+        major = 0
+    npm = _which("npm")
+    if major < 20:
+        _status(
+            "Node + npm",
+            "WARN",
+            f"{version_raw} is below the recommended floor of Node 20. "
+            "package.json engines pins >= 20.",
+        )
+        return True, True
+    if npm is None:
+        _status("npm", "WARN", "npm not on PATH; Node without npm is unusual.")
+        return True, True
+    _status(f"Node {version_raw} + npm (at {npm})", "OK")
+    return True, False
+
+
 def check_tier0() -> Tuple[bool, bool]:
     script = ROOT / "scripts" / "smoke_test.py"
     if not script.is_file():
@@ -233,6 +283,7 @@ CHECKS = [
     ("Runtime deps", check_runtime_deps),
     ("Dev deps", check_dev_deps),
     ("Web-smoke deps (optional)", check_web_smoke),
+    ("Node + npm (optional for bundler-migration-v1)", check_node_npm),
     ("Editable install", check_editable_install),
     ("Harness scripts", check_scripts),
     ("Agent layer", check_agent_layer),

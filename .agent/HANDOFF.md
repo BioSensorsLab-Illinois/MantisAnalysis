@@ -1,17 +1,38 @@
 # HANDOFF — current live state pointer
 
-Last updated: **2026-04-24**, end of `correctness-sweep-v1`
+Last updated: **2026-04-24**, end of `bundler-migration-v1 Phase 1`
 (Claude Opus 4.7, 1M context).
 
 ## Current state of the working tree
 
 - Branch: `main`.
-- Today's shipment: 5 commits already pushed (`isp-modes-v1`,
+- Today's shipment (pushed): 6 commits — `isp-modes-v1`,
   `agentic-workflow-overhaul-v1`, `isp-modes-v1-bugfixes-v1`,
-  `harness-mechanical-v1`, merge of upstream `release`) + this
-  session's `correctness-sweep-v1` commit (about to push).
+  `harness-mechanical-v1`, upstream `release` merge,
+  `correctness-sweep-v1`. Pending push:
+  `bundler-migration-v1` Phase 1.
 
 ## What just shipped
+
+**bundler-migration-v1 Phase 1** — closed. Vite + React 18
+toolchain installed alongside the existing CDN + Babel-standalone
+path:
+
+- `package.json` + `vite.config.js` + `web/index-vite.html` +
+  `web/src/main.jsx` (minimal Vite-compatible entry).
+- `npm run build` emits `web/dist/` (30 modules, 143 KB → 46 KB gz,
+  320 ms).
+- `npm run dev` serves on `:5173` with HMR (ready in 136 ms).
+- `scripts/doctor.py` new Node/npm check (WARN-level until Phase 3).
+- `.gitignore` + docs updated.
+
+The real CDN-served app at `web/index.html` + `web/src/*.jsx` is
+byte-identical; the production surface is unchanged. Phases 2–8
+migrate the real app to ES modules + add ESLint/Prettier/
+TypeScript/axe-core/Storybook in follow-up sessions. Full plan in
+`.agent/runs/bundler-migration-v1/ExecPlan.md`.
+
+Previous-ship summary (today, earlier):
 
 **correctness-sweep-v1** — closed. 5 RISKS + 3 BACKLOG items in
 one pass:
@@ -61,25 +82,36 @@ python -m pytest -q
 
 ## Active initiative
 
-None. All three of today's initiatives closed with proper Final
-verification blocks. `analysis-page-overhaul-v1` remains at Phase 2
-done / Phase 3 next — paused since the harness rework and now the
-natural product-facing follow-up.
+**`bundler-migration-v1`** — Phase 1 closed; Phases 2–8 pending
+(multi-session). Phase 2 is the natural resume: migrate
+`web/src/shared.jsx` from `window.*` globals to ES modules.
+
+`analysis-page-overhaul-v1` remains at Phase 2 done / Phase 3 next
+— paused since the harness rework. Can be interleaved with
+bundler-migration work OR resumed after the bundler migration
+lands (Phase 3) so the `web/src/analysis/` subtree is built with
+real ES modules from the start.
 
 ## Where to pick up next
 
-1. **`correctness-sweep-v1` commit push** — after this close-out.
-2. **H5 recording-inspection feature** — the originally-deferred
-   product work; the user explicitly excluded it from the current
-   sweep. Open via `skills/execplan-large-feature/SKILL.md`.
+1. **`bundler-migration-v1` Phase 1 push** — after this close-out
+   (current pending commit).
+2. **`bundler-migration-v1` Phase 2** — migrate `shared.jsx` to ES
+   modules. Natural resume; self-contained session.
 3. **analysis-page-overhaul-v1 Phase 3** — paused; unified
-   `<AnalysisModal>` shell refactor. Resume via its Status.md.
+   `<AnalysisModal>` shell refactor. Either interleave or wait for
+   bundler Phase 3 to land so the new subtree is ES-modules from
+   the start.
+4. **H5 recording-inspection feature** — originally-deferred
+   product work; now safe under the hardened harness. Open via
+   `skills/execplan-large-feature/SKILL.md`.
 
 ## Deferred with explicit rationale
 
-- **B-0014** — Vite bundler migration. Architectural; own
-  multi-session initiative. Gated on a user decision re: frontend
-  toolchain (currently CDN + Babel-standalone works).
+- **B-0014** — Vite bundler migration. **IN PROGRESS.**
+  `bundler-migration-v1` Phase 1 shipped 2026-04-24; Phases 2–8
+  are upcoming sessions. See
+  `.agent/runs/bundler-migration-v1/ExecPlan.md`.
 - **B-0015 extended** — per-mode Playwright interaction suites
   (USAF / FPN / DoF analysis modals). Substantial; depends on
   analysis-page-overhaul-v1 Phase 3 landing first.

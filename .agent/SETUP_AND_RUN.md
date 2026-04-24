@@ -48,6 +48,30 @@ playwright install chromium
 ~300 MB chromium download. Only needed if you'll run the opt-in
 Tier-4 browser smoke (`pytest -m web_smoke`).
 
+### Optional: Vite toolchain (bundler-migration-v1)
+
+The frontend currently ships two rendering paths in parallel:
+
+- **CDN + Babel-standalone** (production) — `web/index.html` served
+  by FastAPI; no Node required.
+- **Vite** (under migration) — `npm run dev` serves `web/src/main.jsx`
+  on `http://127.0.0.1:5173/` with HMR; `npm run build` emits
+  `web/dist/`.
+
+To enable the Vite path (Phase 1 is currently a hello-world
+placeholder; the real app migrates in Phases 2–3):
+
+```bash
+# Requires Node >= 20 + npm (engines field in package.json).
+npm install                    # one-time
+npm run dev                    # dev server on :5173 with HMR
+npm run build                  # production bundle to web/dist/
+npm run preview                # preview the built bundle on :4173
+```
+
+The `scripts/doctor.py` check surfaces Node status at WARN level
+today; it'll be promoted to FAIL when Phase 3 deletes the CDN path.
+
 ## Run the app
 
 ```bash
