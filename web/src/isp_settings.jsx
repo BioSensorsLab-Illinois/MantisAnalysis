@@ -215,9 +215,9 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }) => {
 
       {/* Super-pixel geometry */}
       <Section label="Super-pixel geometry">
-        <GeomRow label="Origin"       pair={stagedOrigin} setPair={setStagedOrigin} inputStyle={inputStyle} />
-        <GeomRow label="Sub-step"     pair={stagedSubStep} setPair={setStagedSubStep} inputStyle={inputStyle} />
-        <GeomRow label="Outer stride" pair={stagedOuter}  setPair={setStagedOuter}  inputStyle={inputStyle} />
+        <GeomRow label="Origin"       pair={stagedOrigin}  setPair={setStagedOrigin}  inputStyle={inputStyle} min={0} />
+        <GeomRow label="Sub-step"     pair={stagedSubStep} setPair={setStagedSubStep} inputStyle={inputStyle} min={1} />
+        <GeomRow label="Outer stride" pair={stagedOuter}   setPair={setStagedOuter}   inputStyle={inputStyle} min={1} />
         <div style={{ fontSize: 10.5, color: t.textFaint, marginTop: 8,
                       fontFamily: 'ui-monospace,Menlo,monospace' }}>
           preview: {_formulaPreview(activeMode, stagedOrigin, stagedSubStep, stagedOuter)}
@@ -365,20 +365,23 @@ const Section = ({ label, children }) => {
   );
 };
 
-const GeomRow = ({ label, pair, setPair, inputStyle }) => {
+const GeomRow = ({ label, pair, setPair, inputStyle, min = 0 }) => {
+  // `min` defaults to 0 (valid for origin); pass min={1} for sub_step and
+  // outer_stride rows so the UI rejects 0 client-side instead of letting
+  // the user submit and then eat a server 422. See bugfix bug_003.
   const t = useTheme();
   const set = (i, v) => setPair((prev) => {
     const n = [...prev];
-    n[i] = Math.max(0, Math.floor(Number(v) || 0));
+    n[i] = Math.max(min, Math.floor(Number(v) || min));
     return n;
   });
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '100px auto auto auto auto', alignItems: 'center', gap: 10, marginBottom: 4 }}>
       <span style={{ fontSize: 12, color: t.text }}>{label}</span>
       <span style={{ fontSize: 10.5, color: t.textFaint }}>row</span>
-      <input type="number" min={0} value={pair[0]} onChange={(e) => set(0, e.target.value)} style={inputStyle} />
+      <input type="number" min={min} value={pair[0]} onChange={(e) => set(0, e.target.value)} style={inputStyle} />
       <span style={{ fontSize: 10.5, color: t.textFaint }}>col</span>
-      <input type="number" min={0} value={pair[1]} onChange={(e) => set(1, e.target.value)} style={inputStyle} />
+      <input type="number" min={min} value={pair[1]} onChange={(e) => set(1, e.target.value)} style={inputStyle} />
     </div>
   );
 };

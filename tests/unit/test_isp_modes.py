@@ -117,3 +117,87 @@ def test_bare_single_has_one_channel() -> None:
     mode = isp_modes.get_mode("bare_single")
     assert not mode.dual_gain
     assert mode.slot_default_names() == ("L",)
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for isp-modes-v1-bugfixes-v1
+# ---------------------------------------------------------------------------
+
+
+def test_rename_collision_with_default_rejected():
+    """bug_004 regression: renaming NIR → ``R`` silently overwrote the
+    real R extraction in ``_apply_mode_to_half``. The fix raises
+    ValueError at config-normalization time so the PUT endpoint
+    returns 4xx instead of shipping silently-corrupt channels.
+    """
+    import pytest
+
+    from mantisanalysis import isp_modes as _isp
+
+    mode = _isp.get_mode(_isp.RGB_NIR.id)
+    # Collides with R's default name.
+    with pytest.raises(ValueError, match="collides"):
+        _isp.normalize_config(mode, {"channel_name_overrides": {"nir": "R"}})
+    # Also collides with G and B defaults.
+    for name in ("G", "B"):
+        with pytest.raises(ValueError, match="collides"):
+            _isp.normalize_config(mode, {"channel_name_overrides": {"nir": name}})
+
+
+def test_rename_to_distinct_name_accepted():
+    """Sanity counterpart: a non-colliding rename still works."""
+    from mantisanalysis import isp_modes as _isp
+
+    mode = _isp.get_mode(_isp.RGB_NIR.id)
+    cfg = _isp.normalize_config(mode, {"channel_name_overrides": {"nir": "UV-650"}})
+    assert cfg["channel_name_overrides"]["nir"] == "UV-650"
+
+
+def test_rename_collision_with_another_override_rejected():
+    """bug_004 regression (second path): two renames to the same name
+    must also be rejected. Construct a mode with two renameable slots
+    to exercise this branch.
+    """
+    import pytest
+
+    from mantisanalysis import isp_modes as _isp
+
+    # Build a synthetic mode with two renameable channels so we can
+    # collide renames against each other. polarization_single has one
+    # renameable slot ("polarizer"), which is not enough. Create a
+    # temporary mode by copying + patching one of the v1 modes.
+    pol = _isp.get_mode(_isp.POLARIZATION_SINGLE.id)
+    patched_channels = [
+        _isp.ChannelSpec(
+            slot_id=c.slot_id,
+            default_name=c.default_name,
+            loc=c.loc,
+            renameable=True,  # force all four renameable
+            color_hint=c.color_hint,
+        )
+        for c in pol.channels
+    ]
+    test_mode = _isp.ISPMode(
+        id="test_multi_rename",
+        display_name="test",
+        description="synthetic",
+        dual_gain=False,
+        channels=tuple(patched_channels),
+        default_origin=pol.default_origin,
+        default_sub_step=pol.default_sub_step,
+        default_outer_stride=pol.default_outer_stride,
+        supports_rgb_composite=False,
+    )
+    first_slot = patched_channels[0].slot_id
+    second_slot = patched_channels[1].slot_id
+    # Rename both to the same string.
+    with pytest.raises(ValueError, match="collides with channel_name_overrides"):
+        _isp.normalize_config(test_mode, {
+            "channel_name_overrides": {first_slot: "BAND-A", second_slot: "BAND-A"},
+        })
+    # Different names → fine.
+    cfg = _isp.normalize_config(test_mode, {
+        "channel_name_overrides": {first_slot: "BAND-A", second_slot: "BAND-B"},
+    })
+    assert cfg["channel_name_overrides"][first_slot] == "BAND-A"
+    assert cfg["channel_name_overrides"][second_slot] == "BAND-B"

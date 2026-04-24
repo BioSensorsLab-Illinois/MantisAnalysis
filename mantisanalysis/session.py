@@ -129,12 +129,18 @@ class SessionStore:
                               name: Optional[str] = None) -> "LoadedSource":
         """Load a dark frame from disk and attach it to `source_id`.
 
-        Validates that the dark file produces the same channel keys + shapes
-        as the parent source. Returns the updated `LoadedSource`. Raises
-        `KeyError` if the source id is unknown, `ValueError` on shape mismatch.
+        Loads the dark under the source's *currently active* ISP mode +
+        config so the key set matches after any reconfigure_isp call.
+        Validates that the dark file produces the same channel keys +
+        shapes as the parent source. Raises `KeyError` on unknown source,
+        `ValueError` on shape / key mismatch.
         """
         src = self.get(source_id)
-        dark_channels, _attrs, _kind = load_any(path)
+        dark_channels, _attrs, _raw, _mode_id, _cfg, _kind = load_any_detail(
+            path,
+            isp_mode_id=src.isp_mode_id,
+            isp_config=src.isp_config,
+        )
         _validate_dark_shapes(src, dark_channels)
         with self._lock:
             src.dark_channels = dark_channels
@@ -144,7 +150,8 @@ class SessionStore:
 
     def attach_dark_from_bytes(self, source_id: str, data: bytes, name: str
                                ) -> "LoadedSource":
-        """Persist uploaded dark bytes to a temp file and attach via load_any."""
+        """Persist uploaded dark bytes to a temp file and attach under the
+        source's currently active ISP mode + config."""
         import tempfile
         suffix = Path(name).suffix
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
@@ -152,7 +159,11 @@ class SessionStore:
             tmp_path = Path(f.name)
         try:
             src = self.get(source_id)
-            dark_channels, _attrs, _kind = load_any(tmp_path)
+            dark_channels, _attrs, _raw, _mode_id, _cfg, _kind = load_any_detail(
+                tmp_path,
+                isp_mode_id=src.isp_mode_id,
+                isp_config=src.isp_config,
+            )
             _validate_dark_shapes(src, dark_channels)
             with self._lock:
                 src.dark_channels = dark_channels
@@ -201,20 +212,46 @@ class SessionStore:
             )
         mode = _isp.get_mode(mode_id)
         cfg = _isp.normalize_config(mode, overrides)
-        new_channels = extract_with_mode(src.raw_frame, mode, cfg)
-        # Keep the HG-Y / LG-Y synthesized luminance invariant for rgb_nir,
-        # matching load_h5_channels. Other modes don't carry Y.
-        if mode.id == _isp.RGB_NIR.id:
-            hg = {k: new_channels[f"HG-{k}"] for k in ("R", "G", "B")}
-            lg = {k: new_channels[f"LG-{k}"] for k in ("R", "G", "B")}
-            new_channels["HG-Y"] = luminance_from_rgb(hg)
-            new_channels["LG-Y"] = luminance_from_rgb(lg)
-        elif src.source_kind == "image" and mode.id == _isp.RGB_IMAGE.id:
-            # RGB image path synthesizes Y too, for parity with
-            # load_image_channels default behaviour.
-            new_channels["Y"] = luminance_from_rgb(
-                {k: new_channels[k] for k in ("R", "G", "B")}
-            )
+        # RGB-image reconfigure needs plane-splitting, not the generic
+        # stride-based extract_with_mode path — the raw frame is (H, W, 3)
+        # and extract_by_spec's stride-1 slicing returns the whole 3-D
+        # array three times (one per primary slot), which downstream
+        # consumers reject (channel_to_png_bytes on 3-D raises; analysis
+        # endpoints get the wrong shape). Mirror load_image_channels's
+        # behaviour verbatim so reconfigure round-trips cleanly.
+        # See bugfix bug_001.
+        if (src.source_kind == "image"
+                and mode.id == _isp.RGB_IMAGE.id
+                and src.raw_frame is not None
+                and src.raw_frame.ndim == 3
+                and src.raw_frame.shape[-1] in (3, 4)):
+            arr = src.raw_frame
+            if arr.shape[-1] == 4:
+                arr = arr[..., :3]
+            new_channels = {
+                "R": np.ascontiguousarray(arr[..., 0]),
+                "G": np.ascontiguousarray(arr[..., 1]),
+                "B": np.ascontiguousarray(arr[..., 2]),
+            }
+            new_channels["Y"] = luminance_from_rgb(new_channels)
+        else:
+            new_channels = extract_with_mode(src.raw_frame, mode, cfg)
+            # Keep the HG-Y / LG-Y synthesized luminance invariant for rgb_nir,
+            # matching load_h5_channels. Other modes don't carry Y.
+            if mode.id == _isp.RGB_NIR.id:
+                hg = {k: new_channels[f"HG-{k}"] for k in ("R", "G", "B")}
+                lg = {k: new_channels[f"LG-{k}"] for k in ("R", "G", "B")}
+                new_channels["HG-Y"] = luminance_from_rgb(hg)
+                new_channels["LG-Y"] = luminance_from_rgb(lg)
+            elif src.source_kind == "image" and mode.id == _isp.RGB_IMAGE.id:
+                # RGB image path synthesizes Y too, for parity with
+                # load_image_channels default behaviour. (This branch
+                # handles exotic callers that force RGB_IMAGE on a
+                # non-3-plane raw frame; the 3-plane fast path above
+                # covers the common case.)
+                new_channels["Y"] = luminance_from_rgb(
+                    {k: new_channels[k] for k in ("R", "G", "B")}
+                )
         any_ch = next(iter(new_channels.values()))
         new_shape = (int(any_ch.shape[0]), int(any_ch.shape[1]))
         # Dark-frame compatibility: if any current dark channel doesn't

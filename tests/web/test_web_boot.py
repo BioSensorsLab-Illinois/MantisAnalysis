@@ -21,14 +21,15 @@ import json
 
 import pytest
 
-playwright = pytest.importorskip("playwright")
-from playwright.sync_api import sync_playwright  # noqa: E402
-
 
 def test_isp_modes_api_reachable(web_server: str) -> None:
     """ISP-modes-v1: /api/isp/modes returns the v1 mode set with
     rgb_nir's documented defaults. Doesn't require a browser — plain
-    HTTP smoke so it stays fast and skippable under normal pytest runs.
+    HTTP smoke so it runs under the default pytest invocation, not
+    only under ``-m web_smoke``. (The module-scope ``importorskip``
+    was moved into ``test_root_page_boots`` so this test is collected
+    even in environments that don't have playwright installed.
+    See bugfix bug_008.)
     """
     with urllib.request.urlopen(f"{web_server}/api/isp/modes", timeout=5) as r:
         data = json.loads(r.read().decode())
@@ -47,6 +48,12 @@ def test_isp_modes_api_reachable(web_server: str) -> None:
 
 @pytest.mark.web_smoke
 def test_root_page_boots(web_server: str) -> None:
+    # Import-skip lives inside the test body (not at module scope) so
+    # the non-browser test_isp_modes_api_reachable above runs without
+    # needing playwright installed. See bugfix bug_008.
+    pytest.importorskip("playwright")
+    from playwright.sync_api import sync_playwright  # noqa: E402
+
     errors: list[str] = []
     with sync_playwright() as p:
         browser = p.chromium.launch()

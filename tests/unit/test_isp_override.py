@@ -218,3 +218,114 @@ def test_odd_half_dimensions_crop_to_common_shape(tmp_path: Path) -> None:
     assert len(set(shapes2.values())) == 1, (
         f"channels after reconfigure had mismatched shapes: {shapes2}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for isp-modes-v1-bugfixes-v1
+# ---------------------------------------------------------------------------
+
+
+def _write_rgb_png(path: Path, h: int = 8, w: int = 10) -> None:
+    """Build a deterministic RGB PNG with tagged per-channel values.
+
+    Channel R is filled with 100, G with 150, B with 200. Tests can
+    assert specific per-channel means after reconfigure to catch
+    cross-channel contamination (bug_001 + bug_004).
+    """
+    from PIL import Image
+
+    arr = np.zeros((h, w, 3), dtype=np.uint8)
+    arr[..., 0] = 100  # R
+    arr[..., 1] = 150  # G
+    arr[..., 2] = 200  # B
+    Image.fromarray(arr, mode="RGB").save(path)
+
+
+def test_rgb_image_reconfigure_produces_2d_channels(tmp_path: Path) -> None:
+    """bug_001 regression.
+
+    Before the fix: ``reconfigure_isp`` on an RGB PNG went through
+    ``extract_with_mode`` with a 3-D ``(H, W, 3)`` raw frame. All
+    three primary slots had ``loc=(0,0)`` and stride=(1,1), so
+    ``extract_by_spec`` returned the whole 3-D array three times;
+    R/G/B aliased to the same buffer.
+    """
+    p = tmp_path / "rgb.png"
+    _write_rgb_png(p, h=8, w=10)
+
+    store = SessionStore()
+    src = store.load_from_path(p)
+    # Sanity on the initial load.
+    assert src.isp_mode_id == "rgb_image"
+    assert src.source_kind == "image"
+    for key in ("R", "G", "B", "Y"):
+        assert src.channels[key].ndim == 2, f"initial {key} should be 2-D"
+
+    # Reconfigure to the same mode with no overrides. This must
+    # preserve the 2-D plane-split structure + the per-channel values.
+    src2 = store.reconfigure_isp(src.source_id, "rgb_image")
+    for key in ("R", "G", "B", "Y"):
+        assert key in src2.channels, f"{key} missing after reconfigure"
+        assert src2.channels[key].ndim == 2, (
+            f"{key} is {src2.channels[key].ndim}-D after reconfigure "
+            f"(shape={src2.channels[key].shape}); bug_001 regression"
+        )
+    # Per-primary means must match the seeded fill values — if R/G/B
+    # aliased to the same buffer they'd all have the same mean.
+    assert int(src2.channels["R"].mean()) == 100
+    assert int(src2.channels["G"].mean()) == 150
+    assert int(src2.channels["B"].mean()) == 200
+    # R / G / B must be distinct arrays, not three views of the same buffer.
+    assert src2.channels["R"] is not src2.channels["G"]
+    assert src2.channels["G"] is not src2.channels["B"]
+    # Shape matches the input image (H, W).
+    assert src2.channels["R"].shape == (8, 10)
+    assert src2.shape_hw == (8, 10)
+
+
+def test_attach_dark_from_path_after_reconfigure_works(tmp_path: Path) -> None:
+    """merged_bug_002 regression.
+
+    Before the fix: ``attach_dark_from_path`` called ``load_any`` which
+    had been removed from the imports, so every attach raised
+    ``NameError: name 'load_any' is not defined``. The fix routes the
+    call through ``load_any_detail`` with the source's current ISP
+    mode + config so the dark's channel key set matches the source
+    even after a reconfigure.
+    """
+    p_src = tmp_path / "src.png"
+    p_dark = tmp_path / "dark.png"
+    _write_rgb_png(p_src, h=8, w=10)
+    _write_rgb_png(p_dark, h=8, w=10)
+
+    store = SessionStore()
+    src = store.load_from_path(p_src)
+    # Attach pre-reconfigure — must succeed (this was the NameError path).
+    out = store.attach_dark_from_path(src.source_id, p_dark, name="dark.png")
+    assert out.has_dark is True
+    assert out.dark_name == "dark.png"
+    assert set(out.dark_channels.keys()) >= {"R", "G", "B", "Y"}
+    for key in ("R", "G", "B"):
+        assert out.dark_channels[key].shape == out.channels[key].shape
+
+    # Reconfigure, then attach again — must succeed (sibling gap in
+    # merged_bug_002: dark was always loaded under the source-kind
+    # default mode, so post-reconfigure channel keys could diverge).
+    store.reconfigure_isp(src.source_id, "rgb_image")
+    out2 = store.attach_dark_from_path(src.source_id, p_dark)
+    assert out2.has_dark is True
+
+
+def test_attach_dark_from_bytes_works(tmp_path: Path) -> None:
+    """merged_bug_002 regression — bytes path parallel to the path one."""
+    p_src = tmp_path / "src.png"
+    _write_rgb_png(p_src, h=8, w=10)
+    dark_bytes = (tmp_path / "src.png").read_bytes()
+
+    store = SessionStore()
+    src = store.load_from_path(p_src)
+    out = store.attach_dark_from_bytes(src.source_id, dark_bytes, "upload-dark.png")
+    assert out.has_dark is True
+    assert out.dark_name == "upload-dark.png"
+    # Upload bytes have no original disk path.
+    assert out.dark_path is None

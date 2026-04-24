@@ -307,6 +307,36 @@ def normalize_config(mode: ISPMode,
     renameable = {c.slot_id for c in mode.channels if c.renameable}
     names = {k: str(v) for k, v in names.items() if k in renameable and str(v).strip()}
 
+    # Reject renames that collide with another slot's default_name or with
+    # another active rename target. Without this, _apply_mode_to_half's
+    # dict-assignment loop silently overwrites one channel with another
+    # (e.g. renaming NIR → "R" drops real R data). Fail loud with a
+    # ValueError so the PUT /api/sources/{id}/isp endpoint returns 4xx
+    # and the UI surfaces a toast. See bugfix merged_bug_004.
+    slot_by_id = {c.slot_id: c for c in mode.channels}
+    for slot_id, new_name in names.items():
+        spec = slot_by_id[slot_id]
+        # Collides with another slot's (locked) default name.
+        for other in mode.channels:
+            if other.slot_id == slot_id:
+                continue
+            if new_name == other.default_name:
+                raise ValueError(
+                    f"channel_name_overrides[{slot_id!r}]={new_name!r} collides "
+                    f"with slot {other.slot_id!r}'s default name in mode "
+                    f"{mode.id!r}; pick a name that doesn't shadow another channel."
+                )
+        # Collides with another active rename target.
+        for other_id, other_name in names.items():
+            if other_id == slot_id:
+                continue
+            if new_name == other_name:
+                raise ValueError(
+                    f"channel_name_overrides[{slot_id!r}]={new_name!r} collides "
+                    f"with channel_name_overrides[{other_id!r}]={other_name!r}; "
+                    "each renameable channel needs a unique display name."
+                )
+
     # Per-channel loc overrides (isp-modes-v1 follow-up): lets the user
     # point, say, RGB-NIR's R slot at a different 2×2 sub-tile when the
     # sensor orientation doesn't match the mode's defaults. Accepts a
