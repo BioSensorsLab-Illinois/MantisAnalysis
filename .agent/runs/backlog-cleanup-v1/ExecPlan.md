@@ -3,6 +3,8 @@
 Opened: 2026-04-23
 Owner: agent (per user "take care of all items mentioned above")
 
+<!-- qt-allowed: Historical initiative — referenced pre-D-0009 Qt cleanup entries from the backlog (pick_lines_gui.py etc.). Preserved verbatim as archaeology. -->
+
 ## Goal
 
 Drain the open backlog (post-trio) in one coherent sweep, then make the
@@ -57,3 +59,5 @@ Claude Preview MCP for any user-visible change (B-0020, B-0021, B-0019).
 - Real-sample H5 captures for B-0018 (user action).
 - B-0006 (legacy Workflow A smoke): keep on backlog; low priority.
 - B-0007, B-0008, B-0009, B-0012, B-0014: stay on backlog.
+
+<!-- /qt-allowed -->

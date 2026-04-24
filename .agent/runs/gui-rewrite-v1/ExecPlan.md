@@ -2,6 +2,8 @@
 
 > One initiative = one branch = one ExecPlan + one Status.
 
+<!-- qt-allowed: Historical — this initiative planned the PyQt→FastAPI+React rewrite (D-0009). References to the Qt era preserved as archaeology. -->
+
 ## Goal
 
 Introduce a new web-based GUI stack (React 18 + Babel standalone, single-page, CDN-loaded) alongside the existing PyQt desktop app, seeded from the `MantisAnalysis Suite` hi-fi design handoff bundle produced in Claude Design. The new GUI lives at `web/` and runs as a static prototype today.
@@ -57,3 +59,5 @@ Context for future agents: this lays the keel for eventually replacing the 1936-
 ## Outcomes & Retrospective
 
 Pending. Will fill at close.
+
+<!-- /qt-allowed -->

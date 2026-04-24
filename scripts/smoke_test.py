@@ -2,21 +2,27 @@
 
 Tiers
 -----
+0. Agent-doc consistency — delegates to scripts/check_agent_docs.py.
+   Scans .agent/*.md + CLAUDE.md + AGENTS.md for stale PySide/Qt claims
+   and broken command references. No Python imports required from the
+   product package.
 1. Imports — every package module imports without error. No display required.
 2. Headless figures — every figure builder produces a `matplotlib.Figure`
    when fed synthetic data (matplotlib Agg backend).
 3. Server — spins up the FastAPI app with fastapi.testclient and exercises
    the core endpoints end-to-end (sample load → channel thumbnail → USAF
    measure → FPN compute → DoF compute). No external process required.
-4. End-to-end (reserved) — real browser automation; planned under the
-   web-python-bridge initiative.
+4. End-to-end — opt-in real browser automation via Playwright.
+   See tests/web/test_web_boot.py and [project.optional-dependencies].web-smoke.
+   Invoked separately via `pytest -m web_smoke`; not run by `--tier 4` here.
 
 Usage
 -----
-    python scripts/smoke_test.py --tier 1
-    python scripts/smoke_test.py --tier 2
-    python scripts/smoke_test.py --tier 3
-    python scripts/smoke_test.py --tier 4       # not yet implemented
+    python scripts/smoke_test.py --tier 0       # docs consistency
+    python scripts/smoke_test.py --tier 1       # imports
+    python scripts/smoke_test.py --tier 2       # headless figures
+    python scripts/smoke_test.py --tier 3       # FastAPI TestClient
+    python scripts/smoke_test.py --tier 4       # placeholder (see pytest -m web_smoke)
 
 Exit codes: 0 = pass, non-zero = failed (specific tier failure printed).
 """
@@ -31,6 +37,38 @@ from typing import List, Tuple
 # Make sibling package importable when running the script directly.
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+
+
+# ---------------------------------------------------------------------------
+# Tier 0 — agent-doc consistency
+
+def tier0() -> Tuple[bool, str]:
+    """Run scripts/check_agent_docs.py as a subprocess and mirror its result."""
+    import subprocess
+
+    script = ROOT / "scripts" / "check_agent_docs.py"
+    if not script.is_file():
+        return False, f"check_agent_docs.py missing at {script.relative_to(ROOT)}"
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(script)],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "check_agent_docs.py timed out after 30 s"
+    if proc.returncode != 0:
+        return False, proc.stdout + ("\n" + proc.stderr if proc.stderr else "")
+    # Return concise OK + first+last output lines (keeps noise low).
+    lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
+    head = lines[0] if lines else "OK"
+    tail = lines[-1] if lines else ""
+    if head == tail:
+        return True, head
+    return True, f"{head}\n{tail}"
 
 
 # ---------------------------------------------------------------------------
@@ -431,10 +469,14 @@ def tier3() -> Tuple[bool, str]:
 # Tier 4 — placeholder
 
 def tier4() -> Tuple[bool, str]:
-    return False, "Tier 4 not yet implemented (see .agent/BACKLOG.md B-0015)."
+    return False, (
+        "Tier 4 real-browser smoke is wired via Playwright in tests/web/. "
+        "Run with: pip install -e '.[web-smoke]' && playwright install chromium && "
+        "pytest -m web_smoke -q"
+    )
 
 
-TIERS = {1: tier1, 2: tier2, 3: tier3, 4: tier4}
+TIERS = {0: tier0, 1: tier1, 2: tier2, 3: tier3, 4: tier4}
 
 
 def main() -> int:
@@ -442,7 +484,7 @@ def main() -> int:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument("--tier", type=int, default=1, choices=[1, 2, 3, 4])
+    p.add_argument("--tier", type=int, default=1, choices=[0, 1, 2, 3, 4])
     args = p.parse_args()
     tier = args.tier
     print(f"=== MantisAnalysis smoke — tier {tier} ===")

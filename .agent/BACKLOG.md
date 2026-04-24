@@ -3,6 +3,127 @@
 Explicit work that remains. Ordered by impact + readiness. Each item
 has a unique `B-000N` ID. Append-only; do not renumber.
 
+## B-0022 — Claude Code hook: enforce browser verification for React UI changes
+
+**Why**: The `agentic-workflow-overhaul-v1` reviewer pass flagged this
+as a P0 escape hatch. `AGENT_RULES.md` rule 3 + `UI_VERIFICATION.md`
+describe the browser-verification requirement in prose, but nothing
+*mechanically* prevents an agent from editing `web/src/*.jsx` and
+claiming done without booting a browser. A
+`PostToolUse` hook on `Edit(web/src/*.jsx)` that writes a marker +
+a `Stop` hook that fails if the marker exists but no new PNG lives
+under `.agent/runs/<slug>/screenshots/` would close the gap.
+
+**Scope**: `.agent/settings.json` hook definitions +
+`scripts/mark_ui_edit.py` + `scripts/check_ui_verification.py` +
+`.agent/TOOLS_AND_SKILLS.md` hook status row.
+
+**Blocks**: requires user consent — hooks intercept every qualifying
+tool call.
+
+**Estimated effort**: ~half session once user approves.
+
+---
+
+## B-0023 — `scripts/check_stopping_criteria.py` — mechanical stopping-criteria enforcement
+
+**Why**: `STOPPING_CRITERIA.md` is pure prose. Risk-skeptic rated this
+as P1: an agent can write "complete" without running the 16-item
+checklist. A script that parses the active initiative's `Status.md`
+"Final verification checklist" section and exits non-zero if
+required gates aren't ticked would make the gate mechanical.
+
+**Scope**: new script + Tier 0b wiring + wire into
+`STOPPING_CRITERIA.md` preamble as the canonical invocation.
+
+**Estimated effort**: ~1 session.
+
+---
+
+## B-0024 — Reviewer-output evidence artifacts
+
+**Why**: Risk-skeptic P1 C — `independent-review-loop` is a markdown
+skill. An agent could fabricate the "Reviewer findings" table without
+actually invoking reviewers. Require each spawned reviewer to write
+its full report to `.agent/runs/<slug>/reviews/<agent>-<YYYYMMDD>.md`;
+`check_stopping_criteria.py` asserts at least one review file exists
+per reviewer claimed in Status.md.
+
+**Scope**: `independent-review-loop/SKILL.md` addendum +
+`check_stopping_criteria.py` (see B-0023).
+
+**Estimated effort**: ~half session after B-0023 lands.
+
+---
+
+## B-0025 — PreCompact hook for mid-initiative state preservation
+
+**Why**: Risk-skeptic P1 G. Context compaction mid-initiative without
+the agent explicitly invoking `context-handoff` leaves the
+post-compact model with a possibly-stale `HANDOFF.md`. A Claude Code
+`PreCompact` hook running `scripts/snapshot_session.sh <slug>` would
+append a timestamped block to Status.md with git HEAD, dirty files,
+last-tier-status — guaranteeing the post-compact state has what it
+needs to resume.
+
+**Scope**: `.agent/settings.json` hook + `scripts/snapshot_session.sh`.
+
+**Blocks**: requires user consent + repo-wide (not just
+settings.local) hook.
+
+**Estimated effort**: ~half session once approved.
+
+---
+
+## B-0026 — Self-edit protection for `.agent/settings.local.json`
+
+**Why**: Risk-skeptic P0 L. `.agent/settings.local.json` is editable
+by the agent under its own permissions. A confused / prompt-injected
+agent could add `Bash(git push *)` or `Bash(rm -rf *)` mid-session.
+Mitigation: (a) session-start check diffs current vs. `git show
+HEAD:.agent/settings.local.json` and surfaces unexpected changes; (b)
+`PreToolUse` hook on `Edit(.agent/settings.local.json)` requiring
+user confirmation regardless of permission mode; (c) add path to a
+review-required list in `.gitattributes`.
+
+**Scope**: session-start skill addendum + hook + `.gitattributes`.
+
+**Estimated effort**: ~half session once user approves the hook.
+
+---
+
+## B-0027 — Skill frontmatter harness-match validator
+
+**Why**: Risk-skeptic P2 I. Skill `description` / `when_to_use` fields
+are what the Claude Code harness matches against user intent. Nothing
+verifies they actually trigger. A `scripts/check_skill_frontmatter.py`
+that enforces description ≤ 200 chars, triggers are user-voice phrases,
+and optionally replays representative prompts against a mock matcher
+would catch silent drift. Wire into Tier 0.
+
+**Scope**: new script + wire-in + YAML schema.
+
+**Estimated effort**: ~half session.
+
+---
+
+## B-0028 — Expand Tier-0 command-flag validation
+
+**Why**: Test-coverage-reviewer P2 E + risk-skeptic P2 E.
+`check_agent_docs.py` validates command *paths* exist but not that
+flags are valid. A doc typo `--teir 3` or `--tier 5` passes silently.
+Proposed: enumerate valid subcommands/flags for known scripts;
+optionally exec `<cmd> --help` and grep.
+
+**Scope**: extend `scripts/check_agent_docs.py`.
+
+**Estimated effort**: ~1 session.
+
+---
+
+<!-- qt-allowed: Closed entries below reference the Qt-era architecture that was removed in D-0009 + D-0014. The references are historical (CLOSED with date) and kept for archaeology. New entries must describe the current FastAPI + React stack. -->
+
+
 ---
 
 ## B-0017 — DoF mode rewrite (same treatment as FPN) — **CLOSED 2026-04-22**
@@ -564,3 +685,5 @@ analysis (B-0013), visual regressions and logic bugs will bite.
   3. Gate CI on them once stable.
 
 **Estimated effort**: ~1 day for the smoke step.
+
+<!-- /qt-allowed -->

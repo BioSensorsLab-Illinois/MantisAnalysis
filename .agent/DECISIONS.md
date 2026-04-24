@@ -29,6 +29,8 @@ Not yet pushed (the working tree was just `git init`'d locally).
 
 ---
 
+<!-- qt-allowed: Entries below document the Qt era, the Qt-to-web transition, and the D-0009 / D-0014 decisions that removed Qt. Historical references are preserved for archaeology. -->
+
 ## D-0003 — Python floor: 3.10  (2026-04-22)
 
 **Context**: PySide6 6.5 supports 3.8+; matplotlib 3.7 supports 3.9+.
@@ -394,3 +396,88 @@ factories and every helper only they referenced
 **Revisit**: only if a new figure builder needs to draw from the same
 palette and we want to widen `plotting.py` into a fuller `plotting`
 submodule (e.g. typed theme objects, multi-palette export).
+
+<!-- /qt-allowed -->
+
+---
+
+## D-0015 — Agent-harness overhaul: React/FastAPI truth, specialist subagents, reusable skills, stopping criteria, Tier-0 docs gate  (2026-04-24)
+
+**Context**: Session audit found that `.agent/` docs described the
+pre-D-0009 desktop-GUI stack even though D-0009 and D-0014 had
+deleted that layer and replaced it with FastAPI + React. The workflow
+also lacked specialist review, stopping criteria, browser-
+verification protocol, context-handoff protocol, and any mechanical
+catch for future doc drift. A future unsupervised run (H5 inspector
+feature was the stated next step) could self-certify a broken UI
+change because no gate would stop it.
+
+**Options considered**:
+  (a) Leave as-is; fix stale docs on an ad-hoc basis. Cheap, but
+      the problem re-accumulates.
+  (b) Mechanical rewrite: rebuild `.agent/` as a robust harness —
+      drift scanner, specialist subagents, skills, stopping
+      criteria, browser-verification protocol, long-running
+      autonomous-run protocol.
+  (c) Migrate to a completely different harness model (e.g., a
+      hosted agent platform). Overkill for a solo lab repo.
+
+**Decision**: (b).
+
+**What shipped**:
+- `CLAUDE.md` at repo root (short entry + compaction protocol).
+- `.agent/agents/` with 10 specialist reviewer briefs
+  (planner-architect, react-ui-ux-reviewer, frontend-react-engineer,
+  fastapi-backend-reviewer, playwright-verifier,
+  accessibility-reviewer, performance-reviewer,
+  test-coverage-reviewer, risk-skeptic, docs-handoff-curator).
+- `.agent/skills/` with 17 reusable workflow skills.
+- `.agent/UI_VERIFICATION.md`, `.agent/STOPPING_CRITERIA.md`,
+  `.agent/REFERENCES.md`, `.agent/settings.local.README.md`.
+- Rewrite of `00_START_HERE`, `AGENT_RULES`, `PROJECT_BRIEF`,
+  `SETUP_AND_RUN`, `SESSION_BOOTSTRAP`, `WORKFLOWS`, `QUALITY_GATES`,
+  `TASK_PLAYBOOK`, `TOOLS_AND_SKILLS`, `REPO_MAP`, `manifest.yaml`,
+  `RISKS`, `README.md` (of `.agent/`) for React/FastAPI truth.
+- `.agent/ARCHITECTURE.md` invariants updated: theme dict now
+  React-side; added FastAPI-as-source-of-truth invariant;
+  localStorage schema invariant; no-bundler invariant.
+- Historical references to the pre-D-0009 UI preserved inside
+  explicit historical-allowlist marker blocks (see
+  `scripts/check_agent_docs.py` for the marker syntax).
+- `scripts/check_agent_docs.py` — Tier-0 drift scanner (Qt terms,
+  dead commands, missing manifest paths, broken agent / skill
+  cross-references, oversized allow-lists); wired into
+  `scripts/smoke_test.py --tier 0`.
+- `tests/unit/test_check_agent_docs.py` — 10 unit tests for the
+  scanner.
+- `.agent/templates/ExecPlan.md` + `Status.md` upgraded with
+  UI/UX impact, verification agents, reviewer findings table,
+  stop/resume notes.
+- `.agent/settings.local.json` expanded with routine-safe verification
+  commands; rationale per entry in `settings.local.README.md`.
+
+**Consequences**:
+- Tier 0 (`python scripts/smoke_test.py --tier 0`) is now mandatory
+  at every session start + every pre-close.
+- Every non-trivial initiative must spawn at least
+  `docs-handoff-curator` + one domain-specific reviewer.
+- Browser verification is now a named gate (Tier 4 via
+  `pytest -m web_smoke`), not an informal ask.
+- The 16-item `STOPPING_CRITERIA.md` checklist is the canonical
+  close-out gate; self-certification is explicitly banned.
+- New deferred items in `BACKLOG.md` (B-0022–B-0028) track the
+  mechanical-enforcement gaps identified by the `risk-skeptic`
+  adversarial review. These require user consent for Claude Code
+  hooks or per-session settings changes.
+- New `RISKS.md` entries R-0014 / R-0015 / R-0016 document the
+  residual enforcement gaps + mitigations.
+
+**Revisit**:
+- When Claude Code custom-subagent auto-discovery / `PreCompact`
+  hooks reach the harness, migrate B-0022 / B-0025 from "documented
+  design" to "installed hook".
+- When the bundler decision (B-0014) fires, update skill frontmatter
+  (B-0027) to reflect the new toolchain.
+- When H5 recording-inspection feature begins, verify the new
+  harness supports it end-to-end: open an initiative, run the full
+  reviewer loop, observe whether the gaps in R-0014 re-surface.

@@ -2,6 +2,9 @@
 
 > Updated at every milestone. Append-only.
 
+<!-- qt-allowed: This historical initiative is the PyQt→FastAPI+React rewrite (D-0009). References to PySide6, pick_lines_gui.py, etc. are preserved as the archaeological record of why the current architecture exists. -->
+
+
 ## 2026-04-22 — Extended scope: PyQt deletion + real functionality (D-0009)
 
 User feedback on the v1 prototype-only drop: *"nothing works, the goal is to delete the QT app, implement the full functionality of the new GUI"*. This initiative expanded to cover the full backend + real wiring + Qt deletion.
@@ -121,3 +124,5 @@ Expected additions (everything new — this repo's working tree was previously c
 - The prototype ships a 13-line USAF seed, an ROI for FPN, probe points + reference-length calibration for DoF. Good starting state for a demo; user can save to localStorage via the palette.
 - Branding is already MantisAnalysis / BioSensors Lab @ UIUC / `j@polarxphotonics.com` — matches repo identity.
 - If the prototype's branding ever needs to flip to MIT email or an updated lab tagline, it's centralized in the `BRAND` object at `web/src/shared.jsx:10`.
+
+<!-- /qt-allowed -->

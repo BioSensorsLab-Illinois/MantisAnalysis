@@ -122,12 +122,24 @@ Analysis response shape:
    - RGB image inputs → `{R, G, B, Y}`.
    - Grayscale image inputs → `{L}`.
 4. **Theme is a dict** mapping role names (`BG`, `SURFACE`, `TEXT`,
-   `ACCENT`, ...) to hex strings. See `scripts/pick_lines_gui.py:70-109`
-   for the two complete palettes.
-5. **QScrollArea** in sidebars uses
-   `setHorizontalScrollBarPolicy(ScrollBarAsNeeded)` +
-   `setMinimumWidth(180)` + `body.setMinimumWidth(0)` to let the
-   splitter shrink. Don't revert.
+   `ACCENT`, ...) to hex strings. Defined in `web/src/shared.jsx::THEMES`
+   for light + dark palettes; every theme-aware component reads via
+   `useTheme()` / `useTokens()`. The matplotlib backend reads
+   `fig_face` + `text` kwargs from the server-side render helpers.
+5. **FastAPI is the single source of truth** for all computed
+   numbers. The React layer renders what the server emits; it does
+   NOT compute Michelson / DSNU / focus values. Procedural image
+   generators in `shared.jsx` (`makeUSAFImage` / `makeFPNImage` /
+   `makeDoFImage`) are vestigial — the real canvas image is the
+   server-rendered PNG thumbnail via `channelPngUrl(...)`.
+6. **localStorage keys** are namespaced `mantis/<mode>/<field>`. User-
+   facing state only (theme, mode, DoF refs, plot style, ISP
+   settings). Server state (loaded sources) is in-memory and does not
+   survive process restarts. Any localStorage schema change needs a
+   migration shim or a tolerant reader.
+7. **No frontend bundler today.** `web/index.html` loads React 18 +
+   Babel standalone from CDN; JSX is transpiled in-browser. B-0014
+   tracks the Vite migration decision.
 
 ## Web GUI (single authoritative surface, D-0009)
 

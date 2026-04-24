@@ -4,6 +4,198 @@ Append-only log of agent sessions. One bullet per session, newest at top.
 
 ---
 
+## 2026-04-24 — agentic-workflow-overhaul-v1 full shipment (Claude Opus 4.7, 1M context)
+
+User: "Substantially improve the repository's agentic operating layer
+under `.agent/` before implementing any new product feature. Do not
+start the H5 recording-inspection feature yet."
+
+Initiative: `.agent/runs/agentic-workflow-overhaul-v1/`. Pure
+`.agent/` + `CLAUDE.md` + `scripts/` work — no product code touched.
+
+What shipped (M0–M9):
+
+- **M0** — Initiative scaffold: ExecPlan + Status with full audit of
+  stale PySide/Qt drift across 13 `.agent/` docs.
+- **M1** — 10 specialist reviewer briefs under `.agent/agents/`:
+  planner-architect, react-ui-ux-reviewer, frontend-react-engineer,
+  fastapi-backend-reviewer, playwright-verifier,
+  accessibility-reviewer, performance-reviewer,
+  test-coverage-reviewer, risk-skeptic, docs-handoff-curator.
+- **M2** — 17 reusable skills under `.agent/skills/`: session-start,
+  execplan-large-feature, react-browser-ui-change, fastapi-api-change,
+  h5-io-data-pipeline-change, visualization-canvas-image-pipeline,
+  playwright-e2e-verification, visual-regression, accessibility-check,
+  performance-profiling, quality-gates, independent-review-loop,
+  context-handoff, docs-sync, safe-git-and-worktrees,
+  dependency-change, emergency-recovery.
+- **M3** — `CLAUDE.md` at repo root (short + compaction protocol),
+  `.agent/UI_VERIFICATION.md`, `.agent/STOPPING_CRITERIA.md`,
+  `.agent/REFERENCES.md`, `.agent/settings.local.README.md`.
+- **M4** — Rewrote 10 core docs for React/FastAPI truth:
+  `00_START_HERE`, `AGENT_RULES`, `PROJECT_BRIEF`, `SETUP_AND_RUN`,
+  `SESSION_BOOTSTRAP`, `WORKFLOWS`, `QUALITY_GATES`, `TASK_PLAYBOOK`,
+  `TOOLS_AND_SKILLS`, `manifest.yaml`, `REPO_MAP`, `RISKS`,
+  `ARCHITECTURE` invariants.
+- **M5** — `scripts/check_agent_docs.py` (Tier-0 drift scanner: Qt
+  terms, dead commands, missing manifest paths, broken cross-
+  references, oversized qt-allowed regions). Wired into
+  `scripts/smoke_test.py --tier 0`. Added
+  `tests/unit/test_check_agent_docs.py` with 10 unit tests.
+- **M6** — Templates upgraded: richer ExecPlan + Status with
+  UI/UX impact, verification agents, reviewer findings table,
+  browser-verification block, stop/resume notes.
+- **M7** — `.agent/settings.local.json` expanded with routine safe
+  verification commands; rationale per entry in
+  `settings.local.README.md`. No destructive / push / network-mutating
+  commands in the allowlist.
+- **M8** — Independent reviewer loop: spawned
+  `docs-handoff-curator`, `risk-skeptic`, `playwright-verifier`,
+  `react-ui-ux-reviewer`, `test-coverage-reviewer` in parallel.
+  Resolved P1 findings inline (extended `QT_PATTERNS`, added cross-
+  ref scanner, fixed Playwright skill Python syntax + `threshold`
+  semantics + `networkidle` caveat + pytest-playwright `page`
+  fixture, expanded UI_VERIFICATION states + responsive + export
+  checks, focus-return snippet). Recorded deferred hook-dependent
+  items as B-0022–B-0028 + R-0014 / R-0015 / R-0016.
+- **M9** — Close-out: `DECISIONS.md` D-0015 + HANDOFF refresh +
+  this entry.
+
+Stale Qt references either rewritten for React/FastAPI truth or
+preserved inside explicit `<!-- qt-allowed -->` blocks (historical
+append-only logs + archived run folders).
+
+Gates (verified after the final fix pass):
+
+- ✅ Tier 0 — check_agent_docs 73 docs OK.
+- ✅ Tier 1 — 15 modules imported.
+- ✅ Tier 2 — figures written.
+- ✅ Tier 3 — FastAPI endpoints exercised end-to-end.
+- ✅ pytest — 65/65 green (40 pre-existing + 15 isp-modes + 10 new
+  test_check_agent_docs).
+
+Files: ~50 .md rewritten or created; `scripts/check_agent_docs.py`
+(new); `scripts/smoke_test.py` (+Tier 0 function);
+`tests/unit/test_check_agent_docs.py` (new);
+`.agent/settings.local.json` (expanded allowlist).
+
+Status: closed — awaiting user review + commit per B-0010 consent.
+
+<!-- qt-allowed: Historical entries reference the pre-D-0009 Qt-era architecture. Entries below this block mention PySide6, QMainWindow, pick_lines_gui, etc. — preserved verbatim as session-by-session history. New entries must describe the current FastAPI + React stack. -->
+
+---
+
+## 2026-04-24 — isp-modes-v1 full shipment (Claude Opus 4.7)
+
+User: "Major feature request: add ISP-mode selector, per-mode origin /
+jumping-pixel overrides, dynamic channel lists, renameable 4th channel,
+RGB color display — all via a separate tool window, don't occupy side
+panels."
+
+Initiative: `.agent/runs/isp-modes-v1/`. Plan file at
+`/Users/zz4/.claude/plans/major-feature-request-add-encapsulated-bear.md`.
+v1 scope = Bare (single + dual-gain) + RGB-NIR + Polarization
+(GSense + FLIR). F13 Foveon + GSense mask/alignment pipelines deferred.
+
+All six phases landed in one session:
+
+- **Phase 0 — registry.** New `mantisanalysis/isp_modes.py` with
+  `ChannelSpec` / `ISPMode` dataclasses and 7 v1 modes (bare_single,
+  bare_dualgain, rgb_nir, rgb_image, grayscale_image,
+  polarization_single, polarization_dual). Each mode declares its
+  channel slots + default super-pixel geometry
+  (origin / sub_step / outer_stride). `normalize_config` validates
+  user overrides and drops rename entries for non-renameable slots.
+  `plotting.CHANNEL_COLORS` extended with polarization + RAW keys.
+- **Phase 1 — data layer.** `extract.py` gains `extract_by_spec`
+  (general formula `loc*sub_step + origin, stride outer_stride`);
+  legacy `ORIGIN`/`LOC`/`extract_channel`/`extract_rgb_nir` kept
+  byte-identical (tests/unit/test_bayer.py unchanged, still green).
+  `image_io.load_any` is now ISP-aware with a backward-compatible
+  signature; new `rgb_composite()` helper; new
+  `load_any_detail(path, isp_mode_id, isp_config)` returns the raw
+  frame for caching. `session.LoadedSource` gains `raw_frame`,
+  `isp_mode_id`, `isp_config`; new `reconfigure_isp` re-extracts
+  from cache and auto-detaches incompatible dark frames.
+- **Phase 2 — server layer.** Three new endpoints:
+  `GET /api/isp/modes` (static catalog),
+  `GET /api/sources/{id}/isp` (current config),
+  `PUT /api/sources/{id}/isp` (reconfigure). Thumbnail endpoint
+  gains `rgb_composite=true` query param; server builds R/G/B
+  composite from mode slots when supported, falls back to grayscale
+  otherwise. `SourceSummary` now carries `isp_mode_id`, `isp_config`,
+  `isp_channel_map`, `rgb_composite_available`.
+- **Phase 3 — UI window.** New `web/src/isp_settings.jsx` — Modal
+  built on `shared.jsx::Modal`, 3 open routes: gear icon in TopBar,
+  ⌘K palette action `isp.settings`, `Shift+I` keyboard shortcut.
+  Shows mode dropdown + description, 6 geometry inputs with live
+  formula preview, channel list with per-slot color / loc / rename
+  input, RGB composite toggle (conditional on
+  `supports_rgb_composite`), Revert/Cancel/Apply footer. Persists
+  via `useLocalStorageState('ispSettings/...')`.
+- **Phase 4 — mode file integration.** `usaf.jsx`, `fpn.jsx`,
+  `dof.jsx` drop their hardcoded `['HG-R','HG-G','HG-B','HG-NIR']`
+  defaults in favour of the new `defaultAnalysisChannels(available)`
+  helper in `shared.jsx`. Each mode reads the RGB-composite flag
+  from localStorage and passes it through `channelPngUrl(...,
+  rgbComposite)` — extended `channelPngUrl` with the new URL param.
+- **Phase 5 — tests.** `tests/unit/test_isp_modes.py` (9 tests:
+  parametric extraction per mode + rgb_nir-matches-legacy +
+  normalize-config validation + build_channel_keys rename +
+  polarization_dual key schema). `tests/unit/test_isp_override.py`
+  (11 tests: load-path defaults, reconfigure to bare_dualgain + back,
+  origin override shifts extraction, rename 4th channel, synthetic
+  source rejects, unknown-mode rejects). `tests/web/test_web_boot.py`
+  gains a plain-HTTP `/api/isp/modes` assertion.
+
+Browser verification against the preview server (synthetic sample):
+`Shift+I` opens the Modal, mode switch updates geometry / preview
+formula / channel list, NIR rename staging works, RGB-composite
+toggle only renders for modes declaring `supports_rgb_composite`.
+Apply correctly errors on the synthetic source (no cached raw frame).
+
+Net diff:
+
+- NEW: `.agent/runs/isp-modes-v1/` (ExecPlan + Status);
+  `mantisanalysis/isp_modes.py`; `web/src/isp_settings.jsx`;
+  `tests/unit/test_isp_modes.py`; `tests/unit/test_isp_override.py`.
+- MODIFIED: `extract.py`, `image_io.py`, `session.py`, `server.py`,
+  `plotting.py`, `web/index.html`, `web/src/shared.jsx`, `app.jsx`,
+  `usaf.jsx`, `fpn.jsx`, `dof.jsx`, `tests/web/test_web_boot.py`,
+  `.agent/CHANGELOG_AGENT.md`.
+
+Smoke after all changes: Tier 1 ✅ · Tier 2 ✅ · Tier 3 ✅ ·
+pytest 61/61 (59 unit/headless + 2 web).
+
+Follow-up fixes the same day (user-reported on a real MantisCam H5):
+
+- **422 broadcast crash on reconfigure** — `half[r::s, c::s]` produces
+  slightly different per-channel shapes when half dims aren't clean
+  multiples of stride, so luminance synthesis and any downstream
+  multi-channel math couldn't broadcast. Fix: new
+  `_crop_channels_to_common_shape` helper in `image_io.py` normalizes
+  every channel to the minimum (H, W) at the extraction boundary
+  (both within each half and across the HG/LG merge). New test
+  `test_odd_half_dimensions_crop_to_common_shape`.
+
+- **User-editable per-channel loc** — added
+  `isp_config.channel_loc_overrides = {slot: (r, c)}` so the user
+  can point e.g. RGB-NIR's R slot at a different 2×2 sub-tile
+  without writing code. Threaded through
+  `normalize_config`, `_apply_mode_to_half`, `session._summary_dict`,
+  `server.ISPReconfigureRequest`, and the `ISPSettingsWindow` UI
+  (per-slot row/col inputs with a `LOC*` chip when overridden, auto-
+  removed on reset to default). Four new unit tests cover round-
+  trip + drop-unknown-slot + negative-value validation + "R slot
+  pointed at (1,1) now extracts what default NIR did".
+
+Smoke after fixes: Tier 1 ✅ · Tier 2 ✅ · Tier 3 ✅ · pytest 65/65.
+
+Remaining known check: real MantisCam H5 validation (blocks on
+B-0018).
+
+---
+
 ## 2026-04-23 — analysis-page-overhaul-v1 Phase 0 + 1 + 2 (Claude Opus 4.7)
 
 User: "understand project, then execute plan: .agent/runs/analysis-page-overhaul-v1/ExecPlan.md."
@@ -1403,3 +1595,5 @@ Smoke status at session close: ✅ Tier 1, ✅ Tier 2, ⚠ Tier 3
 ---
 
 *(future entries above this line)*
+
+<!-- /qt-allowed -->

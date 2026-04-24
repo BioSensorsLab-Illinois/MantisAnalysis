@@ -1,69 +1,136 @@
 # QUALITY_GATES
 
-What "done" means and how to prove it.
+What "done" means and how to prove it. Complete reference:
+[`skills/quality-gates/SKILL.md`](skills/quality-gates/SKILL.md).
 
-## The smoke tiers
+## The nine-tier ladder
 
 Run from the repo root.
 
-### Tier 1 — Imports ✅ mandatory
+### Tier 0 — Agent-doc consistency ✅ mandatory for any `.agent/` edit
+
+```bash
+python scripts/smoke_test.py --tier 0
+```
+
+**Passes if**: no stale PySide/Qt current-UI claims in `.agent/*.md` /
+`CLAUDE.md` / `AGENTS.md`; every documented command / path resolves;
+`manifest.yaml` references files that exist. Delegates to
+[`scripts/check_agent_docs.py`](../scripts/check_agent_docs.py).
+
+**When mandatory**: every `.agent/` edit + every session start +
+every pre-close.
+
+### Tier 1 — Imports ✅ mandatory for any non-doc change
 
 ```bash
 python scripts/smoke_test.py --tier 1
 ```
 
-**Passes if**: every package and submodule imports without error.
-**No display required.** Runs in ≤ 1 s.
+Every package + submodule imports without error. No display
+required. ~1 s.
 
-Purpose: catch broken imports, missing `__init__.py`, syntax errors.
-
-### Tier 2 — Headless figures ✅ mandatory
+### Tier 2 — Headless figures ✅ mandatory for any non-doc change
 
 ```bash
 python scripts/smoke_test.py --tier 2
 ```
 
-**Passes if**: USAF + FPN + DoF figure builders all produce `Figure`
-objects when fed synthetic data. Writes PNGs into `outputs/smoke/`.
-**No display required.** Runs in ~3-5 s.
+USAF + FPN + DoF figure builders + ISP modes + chromatic shift +
+tilt-plane + stability curves all run against synthetic data and
+return Figures. Writes PNGs into `outputs/smoke/`. matplotlib Agg
+backend. ~3–5 s.
 
-Purpose: catch analysis-math regressions, figure-builder breakage,
-channel-schema drift, render/analysis contract violations.
-
-### Tier 3 — Qt boot 🟡 conditionally required
+### Tier 3 — FastAPI endpoints ✅ mandatory for backend/data change
 
 ```bash
 python scripts/smoke_test.py --tier 3
 ```
 
-**Passes if**: `QApplication` starts, `MainWindow` constructs, a quit
-timer fires, exit code is 0. **Requires a display** (GUI or xvfb-run).
+Boots `mantisanalysis.server:app` via `fastapi.testclient.TestClient`
+in-process and exercises:
 
-Required when: UI changes, theme changes, mode additions, QSS edits.
+- `GET /api/health`
+- `POST /api/sources/load-sample`
+- `GET /api/sources/<id>/channel/<ch>/thumbnail.png`
+- `POST /api/usaf/measure`
+- `POST /api/fpn/compute` + `/measure` + `/measure_batch` +
+  `/stability` + `/analyze`
+- `POST /api/dof/compute` (lean + rich) + `/stability` + `/analyze`
+- ISP modes are reachable via `GET /api/isp/modes` (exercised in
+  `tests/web/test_web_boot.py::test_isp_modes_api_reachable`).
 
-### Tier 4 — End-to-end 🔴 not yet implemented
+No external uvicorn, no display. ~2–4 s.
 
-Placeholder. Planned to load a bundled synthetic H5, drop picks in each
-mode programmatically, run analysis, assert figure counts.
-
-See `.agent/BACKLOG.md` B-0003.
-
-## Unit + headless tests
+### Tier 4 — Browser smoke 🟡 opt-in, mandatory for UI changes
 
 ```bash
-python -m pytest tests/ -q
+pip install -e '.[web-smoke]' && playwright install chromium
+pytest -m web_smoke -q
 ```
 
-**Must be green** on every push. Current count: 39 tests (5 unit
-modules + 1 headless module).
+Covers `tests/web/test_web_boot.py`:
 
-Areas tested:
-- USAF lp/mm table formula + canonical values (12 tests).
-- GSense Bayer extraction invariants (6 tests).
-- Michelson contrast estimators (5 tests).
-- DoF focus metrics monotonicity with blur (5 tests).
-- FPN math on uniform + noisy inputs (4 tests).
-- Headless figure builders build Figures (3 tests).
+- React mounts ≥ 1 child under `#root`.
+- Three mode-rail buttons (USAF / FPN / DoF) visible.
+- No uncaught console errors after 2 s.
+- `/api/isp/modes` returns the v1 mode catalog with `rgb_nir`
+  defaults intact.
+
+Wall: ~5–10 s (first test pays ~3 s for uvicorn; reused across the
+session).
+
+### Tier 5 — Feature Playwright 🟡 mandatory on new user flows
+
+`tests/web/test_<feature>.py` per flow. Use accessible locators +
+web-first assertions. See
+[`skills/playwright-e2e-verification/SKILL.md`](skills/playwright-e2e-verification/SKILL.md).
+
+### Tier 6 — Visual regression 🔵 mandatory on layout/typography changes (when baseline exists)
+
+Via `expect(locator).to_have_screenshot(...)` — not yet adopted as a
+standing baseline; first initiative to adopt it establishes the
+policy. See
+[`skills/visual-regression/SKILL.md`](skills/visual-regression/SKILL.md).
+
+### Tier 7 — Accessibility 🟡 mandatory on substantial UI changes
+
+Manual WCAG 2.2 A/AA quick-check per
+[`skills/accessibility-check/SKILL.md`](skills/accessibility-check/SKILL.md).
+axe-core optional.
+
+### Tier 8 — Performance 🟡 mandatory on data-heavy / export / visualization changes
+
+Input latency + re-render count + response time + payload size.
+See [`skills/performance-profiling/SKILL.md`](skills/performance-profiling/SKILL.md).
+
+## Per-change-type mandatory tiers
+
+| Change type | Required |
+|---|---|
+| Docs only (`.agent/*.md`, `README.md`, `CLAUDE.md`) | 0 |
+| Analysis-math edit | 1, 2 |
+| Figure builder | 1, 2 |
+| FastAPI route / schema / session | 1, 2, 3 |
+| I/O / extractor / ISP mode | 1, 2, 3 |
+| React component | 1, 2, 3, 4 |
+| Canvas / chart / export UI | 1, 2, 3, 4, 6 (when baseline exists), 8 |
+| New user flow | 1, 2, 3, 4, 5, 7 |
+| Visual refactor (tokens, typography) | 1, 2, 3, 4, 6 |
+| Accessibility work | 1, 2, 3, 4, 7 |
+| Data-heavy path | 1, 2, 3, 4, 8 |
+| Dependency add / upgrade | 0, 1, 2, 3 (or 4 if frontend dep) |
+| CI change | 0, 1 (workflow parses) |
+| Major feature initiative | all relevant tiers + reviewer pass + [`STOPPING_CRITERIA.md`](STOPPING_CRITERIA.md) |
+
+## Unit + headless + server tests
+
+```bash
+python -m pytest -q
+```
+
+Must be green on every push. 40+ tests as of 2026-04-24. New changes
+add tests, not just features.
 
 ## Lint
 
@@ -71,8 +138,7 @@ Areas tested:
 python -m ruff check mantisanalysis scripts tests
 ```
 
-Configured conservatively in `pyproject.toml`. Failures here should be
-fixed, but are not CI-blocking today.
+Conservative ruleset. Fix failures; not CI-blocking today.
 
 ## Type-check
 
@@ -80,31 +146,30 @@ fixed, but are not CI-blocking today.
 python -m mypy mantisanalysis
 ```
 
-Progressive — annotations exist throughout but the suite is not
-type-clean yet. Warnings expected; treat as informational, not blocking.
+Progressive. Warnings expected; informational, not blocking.
 
 ## CI
 
 GitHub Actions at `.github/workflows/smoke.yml`:
 
-- Tier 1 + `pytest -m "not gui"` on Ubuntu, macOS, Windows, Python
-  3.10 / 3.11 / 3.12 / 3.13.
+- Tier 1 + `pytest -m "not web_smoke"` on Ubuntu, macOS, Windows,
+  Python 3.10 / 3.11 / 3.12 / 3.13.
 - Tier 2 on Ubuntu (Agg backend; no display needed).
-- Tier 3 is **not** wired in CI yet (needs xvfb). Run locally.
+- Tier 3 runs in-process via TestClient.
+- Tier 0 docs-consistency ready to wire (small; runs in < 1 s).
+- Tier 4 (Playwright) not wired in CI — chromium install is ~300 MB
+  and needs a budget decision.
 
-## Acceptance checklist (use before claiming a change complete)
+## Acceptance checklist
 
-- [ ] Tier 1 passes.
-- [ ] Tier 2 passes.
-- [ ] If UI / theme / mode touched: Tier 3 passes locally.
-- [ ] `pytest tests/` is green.
-- [ ] Docs updated: whichever of `ARCHITECTURE.md`, `REPO_MAP.md`,
-      `WORKFLOWS.md`, `SETUP_AND_RUN.md`, `AGENT_RULES.md`,
-      `manifest.yaml` is affected.
-- [ ] `CHANGELOG_AGENT.md` has a one-line entry.
-- [ ] If a non-trivial decision was made: `DECISIONS.md` entry.
-- [ ] If a new risk discovered: `RISKS.md` entry.
-- [ ] If remaining work: `BACKLOG.md` entry.
-- [ ] Status bar is clean: no "[UNFINISHED]" hacks left behind.
-- [ ] Git history is coherent: small, meaningful commits preferred
-      over one giant commit.
+Before claiming any change complete, use
+[`STOPPING_CRITERIA.md`](STOPPING_CRITERIA.md). Summary:
+
+- [ ] Every mandatory tier for the change type green.
+- [ ] `pytest -q` green.
+- [ ] Docs synced per
+      [`skills/docs-sync/SKILL.md`](skills/docs-sync/SKILL.md).
+- [ ] Reviewer findings resolved (P0/P1) or deferred with BACKLOG
+      entry (P2/P3).
+- [ ] HANDOFF + Status + CHANGELOG updated.
+- [ ] Final response to user is honest about what was verified.

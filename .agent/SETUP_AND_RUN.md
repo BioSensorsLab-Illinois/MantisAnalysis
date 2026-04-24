@@ -4,9 +4,10 @@ Exact commands. Copy-paste, don't paraphrase.
 
 ## Supported platforms
 
-- Windows 10/11, macOS 12+, Linux (X11 or Wayland with XWayland).
-- Python **3.10, 3.11, 3.12, 3.13** (tested on 3.13 in this repo).
-- PySide6 ≥ 6.5.
+- Windows 10/11, macOS 12+, Linux (any modern distro with a browser).
+- Python **3.10, 3.11, 3.12, 3.13** (tested on 3.13).
+- Any modern browser (Chrome / Firefox / Safari / Edge — any that
+  can run React 18).
 
 ## First-time install (end user)
 
@@ -17,8 +18,13 @@ python -m pip install -e .
 python -m mantisanalysis
 ```
 
-The last line opens the GUI with no file loaded. Use **File → Open** to
-load a MantisCam raw-H5 recording or any PNG / TIFF / JPG.
+The last line boots the FastAPI server at `http://127.0.0.1:8765` and
+opens your default browser. Use the **⌘K** / **Ctrl+K** command
+palette to load a sample or navigate; or click **Load sample** in the
+top bar to fetch the bundled synthetic frame.
+
+No Node / npm required. React + Babel standalone are loaded from
+CDN by `web/index.html` and transpiled in the browser.
 
 ## First-time install (developer)
 
@@ -29,76 +35,108 @@ python -m venv .venv                  # optional but recommended
 source .venv/bin/activate             # macOS / Linux
 # or: .\.venv\Scripts\activate        # Windows PowerShell
 
-python -m pip install -e .[dev]       # installs runtime + pytest, ruff, mypy, pytest-qt
+python -m pip install -e .[dev]       # runtime + pytest + ruff + mypy + httpx
 ```
 
-## Run
+### Optional: Playwright browser smoke
 
 ```bash
-# With or without a file path argument:
-python -m mantisanalysis
-python -m mantisanalysis "path/to/recording.h5"
-python -m mantisanalysis --dark "path/to/image.png"
-
-# Legacy direct entry (identical behavior):
-python scripts/pick_lines_gui.py "path/to/recording.h5"
-
-# Windows double-click:
-MantisAnalysis.bat
+python -m pip install -e .[web-smoke]
+playwright install chromium
 ```
+
+~300 MB chromium download. Only needed if you'll run the opt-in
+Tier-4 browser smoke (`pytest -m web_smoke`).
+
+## Run the app
+
+```bash
+# Default — boot server, open browser:
+python -m mantisanalysis
+mantisanalysis                                 # same, via pip-installed entry point
+
+# Preload a recording:
+python -m mantisanalysis path/to/recording.h5
+python -m mantisanalysis --dark path/to/image.png
+
+# Server-only (no browser auto-open — useful for agents / tests):
+python -m mantisanalysis --no-browser
+
+# Custom port:
+python -m mantisanalysis --port 9001
+
+# Windows / macOS double-click launchers (in repo root):
+MantisAnalysis.bat        # Windows Explorer
+MantisAnalysis.command    # macOS Finder
+```
+
+After boot:
+
+- Root UI: `http://127.0.0.1:8765/`
+- FastAPI interactive docs: `http://127.0.0.1:8765/api/docs`
+- Health probe: `http://127.0.0.1:8765/api/health`
+
+Close with `Ctrl+C` in the launching terminal.
 
 ## Run the legacy Workflow A CLI (auto-strip FFT MTF)
 
 ```bash
-python scripts/run_usaf_resolution.py "path/to/h5" [out-dir]
+python scripts/run_usaf_resolution.py path/to/h5 [out-dir]
 ```
 
-This is orthogonal to the GUI and produces per-gain panel + overlay +
-summary PNGs. Decision re: long-term fate is pending — see
-`.agent/DECISIONS.md` D-0004.
+Orthogonal to the web app; produces per-gain panel + overlay +
+summary PNGs. Decision re: long-term fate pending — see
+[`DECISIONS.md`](DECISIONS.md) D-0004.
 
-## Inspect a recording
+## Inspect a recording from the shell
 
 ```bash
-python scripts/inspect_recording.py "path/to/h5" [out-dir]
+python scripts/inspect_recording.py path/to/h5 [out-dir]
 ```
 
-Dumps metadata to stdout + writes a preview PNG of HG/LG × R/G/B with a
-composite.
+Dumps metadata to stdout + writes a preview PNG of HG/LG × R/G/B
+with a composite.
 
 ## Test commands
 
 ```bash
-# Pure unit tests (no display, no Qt):
+# Pure unit tests (no display, no server):
 python -m pytest tests/unit/ -q
 
-# Headless figure-builder tests:
+# Headless figure-builder tests (matplotlib Agg):
 python -m pytest tests/headless/ -q
 
-# All tests:
-python -m pytest tests/ -q
+# All default tests:
+python -m pytest -q
+
+# Playwright browser smoke (opt-in, needs web-smoke extra):
+pytest -m web_smoke -q
 ```
 
 ## Smoke tiers
 
-The blessed gate before claiming any non-doc change complete. Tiers 1+2
-are mandatory; Tier 3 when display is available; Tier 4 is a placeholder.
+The blessed gate before claiming any non-doc change complete. See
+[`QUALITY_GATES.md`](QUALITY_GATES.md) for what each tier covers and
+which are mandatory per change type.
 
 ```bash
-python scripts/smoke_test.py --tier 1    # imports only, ~1 s, no display
-python scripts/smoke_test.py --tier 2    # headless figures, ~3-5 s, no display
-python scripts/smoke_test.py --tier 3    # Qt boot (opens window briefly), needs display
-python scripts/smoke_test.py --tier 4    # NOT IMPLEMENTED yet (see BACKLOG)
+python scripts/smoke_test.py --tier 0    # agent-doc consistency, ~0.5 s
+python scripts/smoke_test.py --tier 1    # imports, ~1 s
+python scripts/smoke_test.py --tier 2    # headless figures, ~3-5 s
+python scripts/smoke_test.py --tier 3    # FastAPI TestClient, ~2-4 s
+python scripts/smoke_test.py --tier 4    # pointer to the Playwright gate
 ```
 
 Tier 2 writes sample figure PNGs into `outputs/smoke/`.
+Tier 4 is wired via `pytest -m web_smoke` — see above.
 
 ## Lint, format, type-check
 
 ```bash
 python -m ruff check mantisanalysis scripts tests
-python -m ruff format mantisanalysis scripts tests   # auto-format
-python -m mypy mantisanalysis                         # progressive; expect warnings
+python -m ruff format mantisanalysis scripts tests    # rewrite
+python -m ruff format --check mantisanalysis scripts tests   # dry-run
+python -m mypy mantisanalysis                          # progressive; warnings expected
 ```
 
 Ruff config is conservative (see `pyproject.toml [tool.ruff]`) — it
@@ -108,8 +146,14 @@ does not auto-refactor existing code style.
 
 | Symptom | Fix |
 |---|---|
-| `ModuleNotFoundError: No module named 'mantisanalysis'` when running `python -m mantisanalysis` | You are not in the repo root; `cd` into `MantisAnalysis/`, or `pip install -e .`. |
-| Sidebar content overflows the window | Resize: the splitter is draggable; or report a regression of the Tier-3 fix recorded in `DECISIONS.md`. |
-| PySide6 errors about plugin loading on Linux | `apt install libxcb-cursor0 libxcb-xinerama0`. |
-| `qt.qpa.plugin: Could not find the Qt platform plugin` | Reinstall PySide6: `pip install --force-reinstall PySide6`. |
-| Tier-2 smoke writes but images look empty | Check matplotlib version ≥ 3.7. |
+| `ModuleNotFoundError: No module named 'mantisanalysis'` | `cd` into the repo root, or `pip install -e .`. |
+| Browser opens to a blank page | Check server log for Python errors. React mount needs `/api/health` to respond; test with `curl http://127.0.0.1:8765/api/health`. |
+| Port 8765 already in use | `python -m mantisanalysis --port 9001` (or kill the other process). |
+| `playwright` imports fail in tests/web | `pip install -e .[web-smoke]` + `playwright install chromium`. |
+| Tier-2 smoke writes but images look empty | Check matplotlib ≥ 3.7. |
+| Tier-0 smoke flags drift after your doc edit | Either fix the drift or enclose the historical reference in an `qt-allowed` HTML comment block pair. See [`scripts/check_agent_docs.py`](../scripts/check_agent_docs.py) for the exact marker syntax. |
+| `/api/*` returns 404 unexpectedly | The React app probably cached a stale `source_id` after a server restart. Reload the page. |
+| FastAPI session store LRU evicted a source | Reload the page; the React app re-registers sources after a fresh boot. Sources don't survive process restarts. |
+
+For React-layer issues, follow the
+[`UI_VERIFICATION.md`](UI_VERIFICATION.md) ladder.
