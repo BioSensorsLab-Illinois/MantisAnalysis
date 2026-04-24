@@ -39,6 +39,7 @@ const App = () => {
   const [showHelp, setShowHelp] = useStateApp(false);
   const [showAbout, setShowAbout] = useStateApp(false);
   const [showPalette, setShowPalette] = useStateApp(false);
+  const [showISP, setShowISP] = useStateApp(false);
   const [toast, setToast] = useStateApp(null);
 
   const [source, setSource] = useStateApp(null);
@@ -86,6 +87,9 @@ const App = () => {
       else if (e.key === '1') setMode('usaf');
       else if (e.key === '2') setMode('fpn');
       else if (e.key === '3') setMode('dof');
+      // ISP settings window — uppercase `I` (shift+i) avoids clashing with
+      // common text-insert patterns elsewhere in the app.
+      else if (e.key === 'I') { e.preventDefault(); setShowISP(v => !v); }
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
@@ -112,6 +116,7 @@ const App = () => {
     { id: 'mode.usaf', label: 'Switch to USAF mode', kbd: '1', icon: 'usaf', run: () => setMode('usaf') },
     { id: 'mode.fpn',  label: 'Switch to FPN mode',  kbd: '2', icon: 'fpn', run: () => setMode('fpn') },
     { id: 'mode.dof',  label: 'Switch to DoF mode',  kbd: '3', icon: 'dof', run: () => setMode('dof') },
+    { id: 'isp.settings', label: 'ISP settings…', kbd: 'I', icon: 'isp', run: () => setShowISP(true) },
     { id: 'theme.light', label: 'Theme · Light', icon: 'sun', run: () => setThemeName('light') },
     { id: 'theme.dark',  label: 'Theme · Dark',  icon: 'moon', run: () => setThemeName('dark') },
     ...Object.keys(ACCENTS).map(a => ({ id: `accent.${a}`, label: `Accent · ${a[0].toUpperCase() + a.slice(1)}`, icon: 'palette', run: () => setAccent(a) })),
@@ -140,6 +145,7 @@ const App = () => {
             source={source} serverOk={serverOk}
             onHelp={() => setShowHelp(true)} onAbout={() => setShowAbout(true)}
             onPalette={() => setShowPalette(true)}
+            onISP={() => setShowISP(true)}
             onOpen={() => fileInputRef.current?.click()} onSample={loadSample}
             fileFilter={fileFilter} setFileFilter={setFileFilter}
           />
@@ -158,6 +164,13 @@ const App = () => {
           {showHelp && <HelpOverlay mode={mode} onClose={() => setShowHelp(false)} />}
           {showAbout && <AboutOverlay onClose={() => setShowAbout(false)} />}
           {showPalette && <CommandPalette actions={actions} onClose={() => setShowPalette(false)} />}
+          {showISP && (
+            <ISPSettingsWindow
+              onClose={() => setShowISP(false)}
+              onApplied={(updated) => setSource(updated)}
+              say={say}
+            />
+          )}
           {toast && <Toast key={toast.id} msg={toast.msg} kind={toast.kind} onDone={() => setToast(null)} />}
         </div>
        </FileFilterCtx.Provider>
@@ -246,7 +259,7 @@ const LogoMark = ({ size = 26 }) => {
   );
 };
 
-const TopBar = ({ mode, themeName, setThemeName, source, serverOk, onHelp, onAbout, onPalette, onOpen, onSample, fileFilter, setFileFilter }) => {
+const TopBar = ({ mode, themeName, setThemeName, source, serverOk, onHelp, onAbout, onPalette, onISP, onOpen, onSample, fileFilter, setFileFilter }) => {
   const t = useTheme();
   const modeTitle = { usaf: 'USAF Resolution', fpn: 'FPN Analysis', dof: 'Depth of Field' }[mode];
   return (
@@ -303,6 +316,7 @@ const TopBar = ({ mode, themeName, setThemeName, source, serverOk, onHelp, onAbo
       <Button icon="search" size="sm" onClick={onPalette} title="Command palette (⌘K)">
         <span style={{ color: t.textFaint, fontSize: 10, fontFamily: 'ui-monospace,Menlo,monospace', marginLeft: 2 }}>⌘K</span>
       </Button>
+      <Button icon="isp" size="sm" onClick={onISP} title="ISP settings (Shift+I)" />
       <Button icon="keyboard" size="sm" onClick={onHelp} title="Keyboard shortcuts (?)" />
       <div style={{ display: 'flex', alignItems: 'center', background: t.chipBg, borderRadius: 6, padding: 2, border: `1px solid ${t.chipBorder}`, flexShrink: 0 }}>
         {[['light', 'sun'], ['dark', 'moon']].map(([v, ic]) => (

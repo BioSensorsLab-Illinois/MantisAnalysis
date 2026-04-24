@@ -98,6 +98,32 @@ def extract_channel(half: np.ndarray, channel: str,
     return half[row::4, col::4]
 
 
+def extract_by_spec(half: np.ndarray,
+                    loc: Tuple[int, int],
+                    origin: Tuple[int, int],
+                    sub_step: Tuple[int, int],
+                    outer_stride: Tuple[int, int]) -> np.ndarray:
+    """Generalized extractor used by the ISP-mode registry.
+
+    Formula (mirrors the legacy GS-RGB-NIR math when ``sub_step=(2,2)``
+    and ``outer_stride=(4,4)``)::
+
+        row = loc[0] * sub_step[0] + origin[0]
+        col = loc[1] * sub_step[1] + origin[1]
+        return half[row::outer_stride[0], col::outer_stride[1]]
+
+    Origin + sub-step + outer-stride are separate so a caller can describe
+    any super-pixel geometry: 1×1 bare, 2×2 classic Bayer, 4×4 GSense
+    dense, larger polarization / spectral blocks. Callers pass the raw
+    tuples from ``isp_modes.normalize_config``; validation lives there.
+    """
+    if half.ndim == 3 and half.shape[-1] == 1:
+        half = half[..., 0]
+    row = int(loc[0]) * int(sub_step[0]) + int(origin[0])
+    col = int(loc[1]) * int(sub_step[1]) + int(origin[1])
+    return half[row::int(outer_stride[0]), col::int(outer_stride[1])]
+
+
 def extract_rgb_nir(half: np.ndarray,
                     origin: Tuple[int, int] = ORIGIN) -> Dict[str, np.ndarray]:
     """Return {'R','G','B','NIR'} from one HG or LG half-frame."""

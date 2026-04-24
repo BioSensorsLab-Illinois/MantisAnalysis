@@ -16,10 +16,33 @@ The fixture is session-scoped so only one uvicorn boot is paid for.
 
 from __future__ import annotations
 
+import urllib.request
+import json
+
 import pytest
 
 playwright = pytest.importorskip("playwright")
 from playwright.sync_api import sync_playwright  # noqa: E402
+
+
+def test_isp_modes_api_reachable(web_server: str) -> None:
+    """ISP-modes-v1: /api/isp/modes returns the v1 mode set with
+    rgb_nir's documented defaults. Doesn't require a browser — plain
+    HTTP smoke so it stays fast and skippable under normal pytest runs.
+    """
+    with urllib.request.urlopen(f"{web_server}/api/isp/modes", timeout=5) as r:
+        data = json.loads(r.read().decode())
+    ids = {m["id"] for m in data}
+    assert {"bare_single", "bare_dualgain", "rgb_nir",
+            "polarization_single", "polarization_dual"}.issubset(ids)
+    rgb_nir = next(m for m in data if m["id"] == "rgb_nir")
+    # Locked defaults — match feedback_locked_constants.md.
+    assert tuple(rgb_nir["default_origin"]) == (0, 0)
+    assert tuple(rgb_nir["default_sub_step"]) == (2, 2)
+    assert tuple(rgb_nir["default_outer_stride"]) == (4, 4)
+    assert rgb_nir["supports_rgb_composite"] is True
+    nir_slot = next(c for c in rgb_nir["channels"] if c["slot_id"] == "nir")
+    assert nir_slot["renameable"] is True
 
 
 @pytest.mark.web_smoke

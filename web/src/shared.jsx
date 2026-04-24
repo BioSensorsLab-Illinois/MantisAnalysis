@@ -106,6 +106,24 @@ const CHANNEL_COLORS = {
   B: '#4a9eff',
   NIR: '#b06bff',
   Y: '#d0d4da',
+  // isp-modes-v1: bare pass-through + polarization analyzer hues.
+  // Kept visually distinct from R/G/B so multi-channel legends don't blur.
+  RAW:  '#9aa3af',
+  I0:   '#f04b4b',
+  I45:  '#e5a13a',
+  I90:  '#3aba5e',
+  I135: '#6b8df0',
+};
+
+// Pick default analysis channels for any source. Replaces the hardcoded
+// ['HG-R','HG-G','HG-B','HG-NIR'] defaults that used to live in each
+// mode file — works for any ISP mode (bare single/dual, rgb-nir,
+// polarization, image).
+const defaultAnalysisChannels = (available) => {
+  if (!Array.isArray(available) || available.length === 0) return [];
+  const hg = available.filter((c) => c.startsWith('HG-'));
+  if (hg.length > 0) return hg.slice(0, 4);
+  return available.slice(0, 4);
 };
 
 // USAF element overlay colors (matplotlib tab10 subset, but slightly tuned)
@@ -1515,7 +1533,7 @@ const apiUpload = async (path, file) => {
 };
 
 const channelPngUrl = (sourceId, channel, maxDim = 1600, isp = null, colormap = 'gray',
-                        vmin = null, vmax = null) => {
+                        vmin = null, vmax = null, rgbComposite = false) => {
   const q = new URLSearchParams({ max_dim: String(maxDim) });
   if (colormap && colormap !== 'gray') q.set('colormap', colormap);
   if (isp) {
@@ -1538,6 +1556,12 @@ const channelPngUrl = (sourceId, channel, maxDim = 1600, isp = null, colormap = 
     q.set('vmin', String(vmin));
     q.set('vmax', String(vmax));
   }
+  // ISP-modes-v1: RGB composite request — the server builds an R/G/B
+  // PNG from the mode's RGB slots. The URL's ``channel`` arg carries
+  // a HG-/LG- prefix hint so dual-gain sources can preview either gain.
+  // When the active mode doesn't support composites, the server quietly
+  // falls back to the single-channel grayscale path.
+  if (rgbComposite) q.set('rgb_composite', 'true');
   return `${API_BASE}/api/sources/${sourceId}/channel/${encodeURIComponent(channel)}/thumbnail.png?${q.toString()}`;
 };
 

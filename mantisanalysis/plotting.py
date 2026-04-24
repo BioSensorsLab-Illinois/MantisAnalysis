@@ -12,12 +12,22 @@ from __future__ import annotations
 
 
 CHANNEL_COLORS = {
+    # Colour + NIR + luminance — byte-identical to the pre-isp-modes-v1
+    # palette so existing plots don't shift hue.
     "R":   "#d62728",
     "G":   "#2ca02c",
     "B":   "#1f77b4",
     "NIR": "#7f7f7f",
     "Y":   "#000000",
     "L":   "#000000",
+    # isp-modes-v1 additions: bare pass-through + polarization analyzers.
+    # Polarization colours align with cv2 HSV breakpoints so the AoP
+    # colormap on-camera and the analysis legend read consistently.
+    "RAW":  "#444444",
+    "I0":   "#d62728",
+    "I45":  "#e0a400",
+    "I90":  "#2ca02c",
+    "I135": "#4a6fd6",
 }
 
 

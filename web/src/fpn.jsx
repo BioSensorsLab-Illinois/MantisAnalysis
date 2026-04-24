@@ -56,10 +56,11 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
 
   // ---- Source / channel ---------------------------------------------------
   const [activeChannel, setActiveChannel] = useStateF(defaultCh);
+  // ISP-modes-v1: channel defaults derive from the active mode via
+  // defaultAnalysisChannels() so switching ISP mode re-picks sensibly.
   const [analysisChannels, setAnalysisChannels] = useLocalStorageState('fpn/analysisChannels',
-    available.some(c => c.startsWith('HG-'))
-      ? ['HG-R', 'HG-G', 'HG-B', 'HG-NIR'].filter(c => available.includes(c))
-      : available.slice(0, 4));
+    defaultAnalysisChannels(available));
+  const [rgbCompositeDisplay] = useLocalStorageState('ispSettings/rgbComposite', false);
 
   // ---- Picking knobs ------------------------------------------------------
   const [driftOrder,   setDriftOrder]   = useLocalStorageState('fpn/driftOrder', 'none');
@@ -140,10 +141,12 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
       hot_pixel_thr:  hotPixThr,
       bilateral:      bilateral,
     } : null;
+    const rgbComposite = !!(rgbCompositeDisplay && source.rgb_composite_available);
     return channelPngUrl(source.source_id, activeChannel, 1600, isp, colormap,
-                         autoRange ? null : vmin, autoRange ? null : vmax);
+                         autoRange ? null : vmin, autoRange ? null : vmax,
+                         rgbComposite);
   }, [source, activeChannel, colormap, autoRange, vmin, vmax,
-      medianSize, gaussSigma, hotPixThr, bilateral]);
+      medianSize, gaussSigma, hotPixThr, bilateral, rgbCompositeDisplay]);
 
   // ---- Settings payload (shared across every server call) ----------------
   const settingsPayload = () => ({

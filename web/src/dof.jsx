@@ -59,10 +59,11 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
 
   // ---- Source / channel --------------------------------------------------
   const [activeChannel, setActiveChannel] = useStateD(defaultCh);
+  // ISP-modes-v1: channel defaults derive from the active mode via
+  // defaultAnalysisChannels() so switching ISP mode re-picks sensibly.
   const [analysisChannels, setAnalysisChannels] = useLocalStorageState('dof/analysisChannels',
-    available.some(c => c.startsWith('HG-'))
-      ? ['HG-R', 'HG-G', 'HG-B', 'HG-NIR'].filter(c => available.includes(c))
-      : available.slice(0, 4));
+    defaultAnalysisChannels(available));
+  const [rgbCompositeDisplay] = useLocalStorageState('ispSettings/rgbComposite', false);
 
   // ---- Focus-metric knobs ------------------------------------------------
   const [metric,    setMetric]    = useLocalStorageState('dof/metric', 'laplacian');
@@ -139,10 +140,12 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
   const imgSrc = useMemoD(() => {
     if (!source || !activeChannel) return null;
     const isp = buildIspPayload();
-    return channelPngUrl(source.source_id, activeChannel, 1600, isp, colormap);
+    const rgbComposite = !!(rgbCompositeDisplay && source.rgb_composite_available);
+    return channelPngUrl(source.source_id, activeChannel, 1600, isp, colormap,
+                         null, null, rgbComposite);
     // eslint-disable-next-line
   }, [source, activeChannel, colormap, ispEnabled, ispLive, ispMethod,
-       ispSharp, ispRadius, ispDenoise, ispBlackLvl]);
+       ispSharp, ispRadius, ispDenoise, ispBlackLvl, rgbCompositeDisplay]);
 
   // ---- Calibration -------------------------------------------------------
   // H / V refs are selected independently. Each ref carries an `axis`

@@ -37,10 +37,17 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
 
   // ---- Source / channel ---------------------------------------------------
   const [activeChannel, setActiveChannel] = useStateU(defaultCh);
+  // ISP-modes-v1: channel defaults now derive from the source's active
+  // ISP mode via defaultAnalysisChannels(), so switching modes or
+  // renaming the 4th slot (e.g. NIR → UV-650) flows through without
+  // edits here. Guard with filter() so any stale localStorage entry
+  // pointing at a now-removed channel is dropped on source switch.
   const [analysisChannels, setAnalysisChannels] = useLocalStorageState('usaf/analysisChannels',
-    available.some(c => c.startsWith('HG-'))
-      ? ['HG-R', 'HG-G', 'HG-B', 'HG-NIR'].filter(c => available.includes(c))
-      : available.slice(0, 4));
+    defaultAnalysisChannels(available));
+  // Read the global "RGB color composite on canvas" toggle that the ISP
+  // settings window writes to. Shared across all modes so the UX stays
+  // consistent when the user flips it once.
+  const [rgbCompositeDisplay] = useLocalStorageState('ispSettings/rgbComposite', false);
 
   // ---- Picking knobs ------------------------------------------------------
   const [group, setGroup] = useLocalStorageState('usaf/group', 0);
@@ -170,10 +177,16 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
       denoise_sigma: ispDenoise * 2.5,
       black_level: ispBlackLvl,
     } : null;
+    // ISP-modes-v1: when the active ISP mode exposes R/G/B and the user
+    // has enabled "RGB color composite" display in the ISP settings
+    // window, ask the server for the composite thumbnail. Falls back to
+    // grayscale server-side if the mode doesn't support it.
+    const rgbComposite = !!(rgbCompositeDisplay && source.rgb_composite_available);
     return channelPngUrl(source.source_id, activeChannel, 1600, isp, colormap,
-                         autoRange ? null : vmin, autoRange ? null : vmax);
+                         autoRange ? null : vmin, autoRange ? null : vmax,
+                         rgbComposite);
   }, [source, activeChannel, colormap, ispEnabled, ispLive, ispMethod, ispSharp,
-      ispRadius, ispDenoise, ispBlackLvl, autoRange, vmin, vmax]);
+      ispRadius, ispDenoise, ispBlackLvl, autoRange, vmin, vmax, rgbCompositeDisplay]);
 
   const threshold = thresholdPct / 100;
   const nextLpmm = usafLpmm(group, element);

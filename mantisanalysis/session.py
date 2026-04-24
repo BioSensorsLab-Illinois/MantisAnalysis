@@ -18,7 +18,8 @@ from typing import Dict, List, Optional, Tuple  # noqa: F401
 
 import numpy as np
 
-from .image_io import load_any
+from . import isp_modes as _isp
+from .image_io import extract_with_mode, load_any_detail, luminance_from_rgb
 
 
 @dataclass
@@ -41,6 +42,13 @@ class LoadedSource:
     dark_channels: Optional[Dict[str, np.ndarray]] = None
     dark_name: Optional[str] = None
     dark_path: Optional[str] = None
+    # ISP-modes-v1: cache the raw frame + active mode so the user can
+    # reconfigure extraction geometry / channel renames without re-reading
+    # from disk. ``raw_frame`` is the array *before* dual-gain split and
+    # Bayer extraction — exactly what load_any_detail returned.
+    raw_frame: Optional[np.ndarray] = None
+    isp_mode_id: str = "rgb_nir"
+    isp_config: Dict[str, object] = field(default_factory=dict)
 
     @property
     def channel_keys(self) -> list[str]:
@@ -61,7 +69,7 @@ class SessionStore:
 
     def load_from_path(self, path: str | Path, name: Optional[str] = None) -> LoadedSource:
         """Load a file from local disk and register it under a new source id."""
-        channels, attrs, kind = load_any(path)
+        channels, attrs, raw, mode_id, cfg, kind = load_any_detail(path)
         any_ch = next(iter(channels.values()))
         shape_hw = (int(any_ch.shape[0]), int(any_ch.shape[1]))
         src = LoadedSource(
@@ -72,6 +80,9 @@ class SessionStore:
             attrs=attrs,
             shape_hw=shape_hw,
             path=str(Path(path).expanduser().resolve()),
+            raw_frame=raw,
+            isp_mode_id=mode_id,
+            isp_config=cfg,
         )
         with self._lock:
             self._items[src.source_id] = src
@@ -164,6 +175,68 @@ class SessionStore:
         with self._lock:
             self._items.clear()
 
+    # ---- ISP reconfigure -----------------------------------------------
+    def reconfigure_isp(self, source_id: str, mode_id: str,
+                        overrides: Optional[Dict[str, object]] = None
+                        ) -> LoadedSource:
+        """Swap the ISP mode + overrides on an already-loaded source.
+
+        Re-runs channel extraction from the cached raw frame. The dark
+        frame is detached if its channel dict no longer matches the new
+        channel set — callers get a fresh source with ``has_dark=False``
+        in that case, and should re-attach. Returns the updated source.
+
+        Raises ``KeyError`` on unknown source_id or mode_id,
+        ``ValueError`` on config validation failures, and
+        ``RuntimeError`` when the source was created without a cached
+        raw frame (e.g. the synthetic sample — reconfigure isn't
+        meaningful there because the channels weren't derived from a
+        raw frame to begin with).
+        """
+        src = self.get(source_id)
+        if src.raw_frame is None:
+            raise RuntimeError(
+                f"source {source_id!r} has no cached raw frame; "
+                "reconfigure is only supported for loaded recordings"
+            )
+        mode = _isp.get_mode(mode_id)
+        cfg = _isp.normalize_config(mode, overrides)
+        new_channels = extract_with_mode(src.raw_frame, mode, cfg)
+        # Keep the HG-Y / LG-Y synthesized luminance invariant for rgb_nir,
+        # matching load_h5_channels. Other modes don't carry Y.
+        if mode.id == _isp.RGB_NIR.id:
+            hg = {k: new_channels[f"HG-{k}"] for k in ("R", "G", "B")}
+            lg = {k: new_channels[f"LG-{k}"] for k in ("R", "G", "B")}
+            new_channels["HG-Y"] = luminance_from_rgb(hg)
+            new_channels["LG-Y"] = luminance_from_rgb(lg)
+        elif src.source_kind == "image" and mode.id == _isp.RGB_IMAGE.id:
+            # RGB image path synthesizes Y too, for parity with
+            # load_image_channels default behaviour.
+            new_channels["Y"] = luminance_from_rgb(
+                {k: new_channels[k] for k in ("R", "G", "B")}
+            )
+        any_ch = next(iter(new_channels.values()))
+        new_shape = (int(any_ch.shape[0]), int(any_ch.shape[1]))
+        # Dark-frame compatibility: if any current dark channel doesn't
+        # exist under the new schema (or differs in shape), detach. The
+        # user gets a SourceSummary with has_dark=False and can re-attach.
+        drop_dark = False
+        if src.has_dark:
+            for k, v in src.dark_channels.items():
+                if k not in new_channels or new_channels[k].shape != v.shape:
+                    drop_dark = True
+                    break
+        with self._lock:
+            src.channels = new_channels
+            src.shape_hw = new_shape
+            src.isp_mode_id = mode.id
+            src.isp_config = cfg
+            if drop_dark:
+                src.dark_channels = None
+                src.dark_name = None
+                src.dark_path = None
+        return src
+
     def _evict_locked(self) -> None:
         """Drop oldest sources until we're under the cap. Caller holds the lock."""
         if len(self._items) <= self._max:
@@ -238,6 +311,22 @@ def subtract_dark(image: np.ndarray, dark: Optional[np.ndarray]) -> np.ndarray:
 
 def _summary_dict(s: LoadedSource) -> dict:
     """JSON-serializable summary of a LoadedSource (used by API + STORE.list)."""
+    try:
+        mode = _isp.get_mode(s.isp_mode_id)
+    except KeyError:
+        mode = _isp.get_mode(_isp.RGB_NIR.id)
+    # Build slot → active display name map so the UI can tell what the
+    # rename-eligible slots resolved to (e.g. "nir" → "UV-650").
+    names = dict((s.isp_config or {}).get("channel_name_overrides") or {})
+    isp_channel_map = {
+        spec.slot_id: _isp.resolved_channel_name(mode, spec, names)
+        for spec in mode.channels
+    }
+    # Serialize any per-slot loc overrides as plain [r, c] lists so the
+    # JSON payload stays strict-JSON (tuples from normalize_config would
+    # round-trip as lists anyway; being explicit here saves a surprise).
+    raw_loc_overrides = (s.isp_config or {}).get("channel_loc_overrides") or {}
+    loc_overrides = {k: list(v) for k, v in raw_loc_overrides.items()}
     return {
         "source_id": s.source_id,
         "name": s.name,
@@ -249,6 +338,21 @@ def _summary_dict(s: LoadedSource) -> dict:
         "has_dark": s.has_dark,
         "dark_name": s.dark_name,
         "dark_path": s.dark_path,
+        # ISP state — consumed by the React frontend to drive the ISP
+        # settings window and RGB-composite toggle.
+        "isp_mode_id": mode.id,
+        "isp_config": {
+            "origin": list(s.isp_config.get("origin",
+                                             mode.default_origin)),
+            "sub_step": list(s.isp_config.get("sub_step",
+                                               mode.default_sub_step)),
+            "outer_stride": list(s.isp_config.get("outer_stride",
+                                                    mode.default_outer_stride)),
+            "channel_name_overrides": names,
+            "channel_loc_overrides": loc_overrides,
+        },
+        "isp_channel_map": isp_channel_map,
+        "rgb_composite_available": bool(mode.supports_rgb_composite),
     }
 
 

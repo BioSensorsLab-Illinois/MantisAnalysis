@@ -23,6 +23,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import __version__
+from . import isp_modes as _isp
+from .image_io import rgb_composite as _rgb_composite
 from .dof_analysis import (
     DoFPoint,
     analyze_dof,
@@ -61,6 +63,50 @@ class SourceSummary(BaseModel):
     has_dark: bool = False           # True iff a dark frame is attached
     dark_name: Optional[str] = None  # display name (filename or 'load-path')
     dark_path: Optional[str] = None  # absolute disk path of dark, when known
+    # ISP-modes-v1: active mode + resolved geometry + rename map.
+    isp_mode_id: str = "rgb_nir"
+    isp_config: Dict[str, Any] = Field(default_factory=dict)
+    isp_channel_map: Dict[str, str] = Field(default_factory=dict)
+    rgb_composite_available: bool = False
+
+
+class ISPChannelSpecOut(BaseModel):
+    slot_id: str
+    default_name: str
+    loc: Tuple[int, int]
+    renameable: bool
+    color_hint: str
+
+
+class ISPModeOut(BaseModel):
+    id: str
+    display_name: str
+    description: str
+    dual_gain: bool
+    channels: List[ISPChannelSpecOut]
+    default_origin: Tuple[int, int]
+    default_sub_step: Tuple[int, int]
+    default_outer_stride: Tuple[int, int]
+    supports_rgb_composite: bool
+
+
+class ISPReconfigureRequest(BaseModel):
+    """Payload for PUT /api/sources/{source_id}/isp.
+
+    All fields are optional — omit to inherit the mode's defaults.
+    ``channel_name_overrides`` keys must match a renameable slot_id on
+    the target mode; other keys are dropped silently.
+    ``channel_loc_overrides`` maps slot_id → [row, col] to point an
+    individual channel at a different sub-tile (e.g. RGB-NIR's R slot
+    at (1,1) instead of the default (0,1)). Keys for unknown slot_ids
+    on the target mode are silently dropped.
+    """
+    mode_id: str
+    origin: Optional[Tuple[int, int]] = None
+    sub_step: Optional[Tuple[int, int]] = None
+    outer_stride: Optional[Tuple[int, int]] = None
+    channel_name_overrides: Optional[Dict[str, str]] = None
+    channel_loc_overrides: Optional[Dict[str, Tuple[int, int]]] = None
 
 
 class DarkLoadPathRequest(BaseModel):
@@ -452,6 +498,71 @@ def _mount_api(app: FastAPI) -> None:
             raise HTTPException(404, f"unknown source id: {source_id}")
         return _summary(src)
 
+    # ---- ISP modes -----------------------------------------------------
+
+    @app.get("/api/isp/modes", response_model=List[ISPModeOut])
+    def list_isp_modes():
+        """Static catalog of the ISP modes the analysis tool knows about.
+
+        Shape matches ``ISPModeOut``; the UI consumes this once at startup
+        and drives the settings-window dropdown off the result.
+        """
+        out: List[ISPModeOut] = []
+        for mode in _isp.ALL_MODES.values():
+            out.append(ISPModeOut(
+                id=mode.id,
+                display_name=mode.display_name,
+                description=mode.description,
+                dual_gain=mode.dual_gain,
+                channels=[ISPChannelSpecOut(
+                    slot_id=c.slot_id, default_name=c.default_name,
+                    loc=tuple(c.loc), renameable=c.renameable,
+                    color_hint=c.color_hint,
+                ) for c in mode.channels],
+                default_origin=tuple(mode.default_origin),
+                default_sub_step=tuple(mode.default_sub_step),
+                default_outer_stride=tuple(mode.default_outer_stride),
+                supports_rgb_composite=mode.supports_rgb_composite,
+            ))
+        return out
+
+    @app.get("/api/sources/{source_id}/isp", response_model=SourceSummary)
+    def get_source_isp(source_id: str):
+        """Current ISP mode + resolved geometry for a source."""
+        src = _must_get(source_id)
+        return _summary(src)
+
+    @app.put("/api/sources/{source_id}/isp", response_model=SourceSummary)
+    def reconfigure_source_isp(source_id: str, req: ISPReconfigureRequest):
+        """Switch ISP mode and/or override geometry; returns updated summary.
+
+        422 when mode_id is unknown or geometry tuples are malformed.
+        400 when the source was created without a cached raw frame
+        (e.g. the synthetic sample).
+        """
+        overrides = {}
+        if req.origin is not None:
+            overrides["origin"] = list(req.origin)
+        if req.sub_step is not None:
+            overrides["sub_step"] = list(req.sub_step)
+        if req.outer_stride is not None:
+            overrides["outer_stride"] = list(req.outer_stride)
+        if req.channel_name_overrides is not None:
+            overrides["channel_name_overrides"] = dict(req.channel_name_overrides)
+        if req.channel_loc_overrides is not None:
+            overrides["channel_loc_overrides"] = {
+                k: list(v) for k, v in req.channel_loc_overrides.items()
+            }
+        try:
+            src = STORE.reconfigure_isp(source_id, req.mode_id, overrides)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return _summary(src)
+
     @app.get(
         "/api/sources/{source_id}/channel/{channel}/thumbnail.png",
         responses={200: {"content": {"image/png": {}}}},
@@ -476,6 +587,10 @@ def _mount_api(app: FastAPI) -> None:
         bilateral: bool = Query(False),
         vmin: Optional[float] = Query(None),
         vmax: Optional[float] = Query(None),
+        rgb_composite: bool = Query(False,
+            description="Return an R/G/B composite PNG instead of a "
+                        "single-channel colormap. Only honored when the "
+                        "active ISP mode supports it."),
     ):
         """Serve a channel as a display-ready PNG. Optional ISP query params
         apply the same pipeline used by /api/usaf/measure so the live canvas
@@ -487,8 +602,23 @@ def _mount_api(app: FastAPI) -> None:
         default percentile-clip normalization and pin the colormap range to
         the user-specified DN window — so the live canvas matches whatever
         sweep / reference range the user wants displayed.
+
+        ``rgb_composite=true`` returns an RGB composite PNG sourced from
+        the mode's R/G/B slots. For dual-gain modes, the leading ``HG-``
+        or ``LG-`` prefix of the ``channel`` path parameter selects which
+        gain half's composite is built. Falls back to the single-channel
+        grayscale path when the active mode doesn't support composites.
         """
         src = _must_get(source_id)
+        if rgb_composite:
+            composite_png = _try_build_rgb_composite_png(
+                src, channel, max_dim=max_dim, vmin=vmin, vmax=vmax,
+            )
+            if composite_png is not None:
+                return Response(content=composite_png, media_type="image/png",
+                                headers={"Cache-Control": "no-store"})
+            # Falls through to grayscale when composite unavailable so the
+            # UI can optimistically request and gracefully degrade.
         # Use _channel_image so dark subtraction is applied transparently
         # before the colormap + percentile-clip thumbnail render.
         image = _channel_image(src, channel)
@@ -1000,6 +1130,73 @@ def _channel_image(src, channel: str, *, apply_dark: bool = True) -> np.ndarray:
         if dark is not None:
             return subtract_dark(src.channels[channel], dark)
     return src.channels[channel]
+
+
+def _try_build_rgb_composite_png(src, channel: str, *,
+                                 max_dim: int = 1600,
+                                 vmin: Optional[float] = None,
+                                 vmax: Optional[float] = None,
+                                 ) -> Optional[bytes]:
+    """Build an RGB composite PNG for sources whose active mode supports it.
+
+    Returns ``None`` when the mode doesn't support composites or when
+    the source is missing one of the required R/G/B slots (e.g. mid-
+    reconfigure). Callers fall back to the per-channel grayscale path.
+    """
+    try:
+        mode = _isp.get_mode(src.isp_mode_id)
+    except KeyError:
+        return None
+    if not mode.supports_rgb_composite:
+        return None
+    slot_map = {c.slot_id: c for c in mode.channels}
+    if not all(s in slot_map for s in ("r", "g", "b")):
+        return None
+    names = (src.isp_config or {}).get("channel_name_overrides") or {}
+    r_name = _isp.resolved_channel_name(mode, slot_map["r"], names)
+    g_name = _isp.resolved_channel_name(mode, slot_map["g"], names)
+    b_name = _isp.resolved_channel_name(mode, slot_map["b"], names)
+    # Dual-gain: respect the URL's channel prefix (HG-* or LG-*) so the
+    # canvas can flip between gains without the caller having to re-call
+    # /isp reconfigure. Single-gain: plain names.
+    if mode.dual_gain:
+        prefix = "HG-"
+        if isinstance(channel, str) and channel.startswith("LG-"):
+            prefix = "LG-"
+        r_key, g_key, b_key = f"{prefix}{r_name}", f"{prefix}{g_name}", f"{prefix}{b_name}"
+    else:
+        r_key, g_key, b_key = r_name, g_name, b_name
+    if not all(k in src.channels for k in (r_key, g_key, b_key)):
+        return None
+    # Dark-subtracted planes — the composite matches what analysis sees.
+    r = _channel_image(src, r_key).astype(np.float32, copy=False)
+    g = _channel_image(src, g_key).astype(np.float32, copy=False)
+    b = _channel_image(src, b_key).astype(np.float32, copy=False)
+
+    def _norm(a: np.ndarray) -> np.ndarray:
+        if vmin is not None and vmax is not None:
+            lo, hi = float(vmin), float(vmax)
+        else:
+            lo = float(np.percentile(a, 1.0))
+            hi = float(np.percentile(a, 99.5))
+        if hi <= lo:
+            hi = lo + 1.0
+        return np.clip((a - lo) / (hi - lo), 0.0, 1.0)
+
+    # Per-channel percentile-clip keeps each primary's dynamic range —
+    # sensor primaries usually have different native gains, and a shared
+    # clip would mute the weakest channel to invisibility.
+    stack = np.dstack([_norm(r), _norm(g), _norm(b)])
+    u8 = (stack * 255.0).astype(np.uint8)
+    from PIL import Image
+    im = Image.fromarray(u8, mode="RGB")
+    if max(im.size) > max_dim:
+        scale = max_dim / float(max(im.size))
+        new_size = (int(im.size[0] * scale), int(im.size[1] * scale))
+        im = im.resize(new_size, Image.Resampling.BILINEAR)
+    buf = io.BytesIO()
+    im.save(buf, format="PNG", optimize=False)
+    return buf.getvalue()
 
 
 def _synthetic_usaf_sample(w: int = 640, h: int = 480) -> Dict[str, np.ndarray]:
