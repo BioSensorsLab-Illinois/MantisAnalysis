@@ -144,3 +144,7 @@ tests/web/test_web_boot.py       +1 API smoke assertion
 - The `isp_settings.jsx` file writes `ISPSettingsWindow` to `window`
   so `app.jsx` can reference it across the in-browser Babel loader
   that has no ES-module scoping.
+
+## Final verification
+
+_Closed retroactively. This initiative shipped before the stopping-criteria protocol (D-0015, 2026-04-24). Per the existing Status + the 2026-04-24 CHANGELOG_AGENT entry: Tier 1 + 2 + 3 + pytest were green at close. Browser verification was not formalized at that time. Five regressions surfaced by `/ultrareview` post-close and were fixed in `isp-modes-v1-bugfixes-v1`._

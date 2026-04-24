@@ -3,121 +3,81 @@
 Explicit work that remains. Ordered by impact + readiness. Each item
 has a unique `B-000N` ID. Append-only; do not renumber.
 
-## B-0022 — Claude Code hook: enforce browser verification for React UI changes
+## B-0022 — Claude Code hook: enforce browser verification for React UI changes — **CLOSED 2026-04-24**
 
-**Why**: The `agentic-workflow-overhaul-v1` reviewer pass flagged this
-as a P0 escape hatch. `AGENT_RULES.md` rule 3 + `UI_VERIFICATION.md`
-describe the browser-verification requirement in prose, but nothing
-*mechanically* prevents an agent from editing `web/src/*.jsx` and
-claiming done without booting a browser. A
-`PostToolUse` hook on `Edit(web/src/*.jsx)` that writes a marker +
-a `Stop` hook that fails if the marker exists but no new PNG lives
-under `.agent/runs/<slug>/screenshots/` would close the gap.
-
-**Scope**: `.agent/settings.json` hook definitions +
-`scripts/mark_ui_edit.py` + `scripts/check_ui_verification.py` +
-`.agent/TOOLS_AND_SKILLS.md` hook status row.
-
-**Blocks**: requires user consent — hooks intercept every qualifying
-tool call.
-
-**Estimated effort**: ~half session once user approves.
+Closed under `harness-mechanical-v1`. `.agent/settings.json` now
+registers a `PostToolUse` hook on `Edit|Write(web/src/**/*.jsx)` that
+calls `scripts/mark_ui_edit.py` to record a timestamp marker under
+`.agent/runs/<active>/.ui-edit-marker`. A matching `Stop` hook calls
+`scripts/check_ui_verification.py` which emits a stderr warning if
+no screenshot under `screenshots/` or `outputs/verify/` postdates the
+marker. Soft nudge (not a hard block) by design — AGENT_RULES rule 3
++ STOPPING_CRITERIA.md remain authoritative; the hook catches the
+specific slip of UI edit + Tier 1/2 + claim done.
 
 ---
 
-## B-0023 — `scripts/check_stopping_criteria.py` — mechanical stopping-criteria enforcement
+## B-0023 — `scripts/check_stopping_criteria.py` — **CLOSED 2026-04-24**
 
-**Why**: `STOPPING_CRITERIA.md` is pure prose. Risk-skeptic rated this
-as P1: an agent can write "complete" without running the 16-item
-checklist. A script that parses the active initiative's `Status.md`
-"Final verification checklist" section and exits non-zero if
-required gates aren't ticked would make the gate mechanical.
-
-**Scope**: new script + Tier 0b wiring + wire into
-`STOPPING_CRITERIA.md` preamble as the canonical invocation.
-
-**Estimated effort**: ~1 session.
+Closed under `harness-mechanical-v1`. New script parses active
+initiative's `Status.md` for the "Final verification" section and
+exits non-zero if required gates aren't ticked. Accepts `N/A —
+<reason>` inline markers for legitimate deferrals. Wired into Tier 0.
+5 unit tests under `tests/unit/test_check_stopping_criteria.py`.
 
 ---
 
-## B-0024 — Reviewer-output evidence artifacts
+## B-0024 — Reviewer-output evidence artifacts — **CLOSED 2026-04-24**
 
-**Why**: Risk-skeptic P1 C — `independent-review-loop` is a markdown
-skill. An agent could fabricate the "Reviewer findings" table without
-actually invoking reviewers. Require each spawned reviewer to write
-its full report to `.agent/runs/<slug>/reviews/<agent>-<YYYYMMDD>.md`;
-`check_stopping_criteria.py` asserts at least one review file exists
-per reviewer claimed in Status.md.
-
-**Scope**: `independent-review-loop/SKILL.md` addendum +
-`check_stopping_criteria.py` (see B-0023).
-
-**Estimated effort**: ~half session after B-0023 lands.
+Closed under `harness-mechanical-v1`. New `scripts/check_reviewer_evidence.py`
+parses "Reviewer findings" tables in Status.md and asserts a matching
+`.agent/runs/<slug>/reviews/<agent>-*.md` file exists per claimed
+reviewer. Backfilled 5 review reports for `agentic-workflow-overhaul-v1`
+(docs-handoff-curator, risk-skeptic, playwright-verifier,
+react-ui-ux-reviewer, test-coverage-reviewer). Wired into Tier 0.
+4 unit tests under `tests/unit/test_check_reviewer_evidence.py`.
 
 ---
 
-## B-0025 — PreCompact hook for mid-initiative state preservation
+## B-0025 — PreCompact hook for mid-initiative state preservation — **CLOSED 2026-04-24**
 
-**Why**: Risk-skeptic P1 G. Context compaction mid-initiative without
-the agent explicitly invoking `context-handoff` leaves the
-post-compact model with a possibly-stale `HANDOFF.md`. A Claude Code
-`PreCompact` hook running `scripts/snapshot_session.sh <slug>` would
-append a timestamped block to Status.md with git HEAD, dirty files,
-last-tier-status — guaranteeing the post-compact state has what it
-needs to resume.
-
-**Scope**: `.agent/settings.json` hook + `scripts/snapshot_session.sh`.
-
-**Blocks**: requires user consent + repo-wide (not just
-settings.local) hook.
-
-**Estimated effort**: ~half session once approved.
+Closed under `harness-mechanical-v1`. `.agent/settings.json` registers
+a `PreCompact` hook calling `scripts/snapshot_session.sh`, which
+appends a timestamped block to the active initiative's Status.md with
+branch, HEAD SHA, and dirty-file summary. Post-compact model reads
+Status.md + sees the fresh block.
 
 ---
 
-## B-0026 — Self-edit protection for `.agent/settings.local.json`
+## B-0026 — Self-edit protection for `.agent/settings.local.json` — **CLOSED 2026-04-24**
 
-**Why**: Risk-skeptic P0 L. `.agent/settings.local.json` is editable
-by the agent under its own permissions. A confused / prompt-injected
-agent could add `Bash(git push *)` or `Bash(rm -rf *)` mid-session.
-Mitigation: (a) session-start check diffs current vs. `git show
-HEAD:.agent/settings.local.json` and surfaces unexpected changes; (b)
-`PreToolUse` hook on `Edit(.agent/settings.local.json)` requiring
-user confirmation regardless of permission mode; (c) add path to a
-review-required list in `.gitattributes`.
-
-**Scope**: session-start skill addendum + hook + `.gitattributes`.
-
-**Estimated effort**: ~half session once user approves the hook.
+Closed under `harness-mechanical-v1`. `.agent/settings.json` registers
+a `PreToolUse` hook on `Edit|Write(.agent/settings.local.json)` that
+prints a high-visibility warning to stderr before the edit proceeds.
+Does not hard-block but ensures any permission change is visible in
+the session transcript.
 
 ---
 
-## B-0027 — Skill frontmatter harness-match validator
+## B-0027 — Skill frontmatter harness-match validator — **CLOSED 2026-04-24**
 
-**Why**: Risk-skeptic P2 I. Skill `description` / `when_to_use` fields
-are what the Claude Code harness matches against user intent. Nothing
-verifies they actually trigger. A `scripts/check_skill_frontmatter.py`
-that enforces description ≤ 200 chars, triggers are user-voice phrases,
-and optionally replays representative prompts against a mock matcher
-would catch silent drift. Wire into Tier 0.
-
-**Scope**: new script + wire-in + YAML schema.
-
-**Estimated effort**: ~half session.
+Closed under `harness-mechanical-v1`. New
+`scripts/check_skill_frontmatter.py` validates every `.agent/skills/*/SKILL.md`:
+required fields present, description ≤ 300 chars, `when_to_use` is a
+non-empty list, `related_agents` resolve to real agent briefs,
+directory name matches `name` field. Wired into Tier 0. 6 unit
+tests under `tests/unit/test_check_skill_frontmatter.py`.
 
 ---
 
-## B-0028 — Expand Tier-0 command-flag validation
+## B-0028 — Expand Tier-0 command-flag validation — **CLOSED 2026-04-24**
 
-**Why**: Test-coverage-reviewer P2 E + risk-skeptic P2 E.
-`check_agent_docs.py` validates command *paths* exist but not that
-flags are valid. A doc typo `--teir 3` or `--tier 5` passes silently.
-Proposed: enumerate valid subcommands/flags for known scripts;
-optionally exec `<cmd> --help` and grep.
-
-**Scope**: extend `scripts/check_agent_docs.py`.
-
-**Estimated effort**: ~1 session.
+Closed under `harness-mechanical-v1`. `scripts/check_agent_docs.py`
+gains `SMOKE_TIER_RE` that validates every documented
+`scripts/smoke_test.py --tier N` invocation has `N ∈ {0,1,2,3,4}`.
+Template placeholders (`{0|1|2|3|4}`, `N`) are tolerated. Future
+flags added to smoke_test.py need a matching update to the known-
+set.
 
 ---
 

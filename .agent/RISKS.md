@@ -184,33 +184,48 @@ removal when the next math change touches the module.
 
 ## New risks added during agentic-workflow-overhaul-v1
 
-### R-0014 — Prose-only enforcement leaves escape hatches (severity: medium)
+### R-0014 — Prose-only enforcement leaves escape hatches (severity: medium — **MITIGATED 2026-04-24**)
 
 **Where**: `AGENT_RULES.md` rule 3 (browser verification),
 rule 14 (independent review), rule 15 (stopping criteria);
 `STOPPING_CRITERIA.md`; `UI_VERIFICATION.md`;
 `skills/independent-review-loop/SKILL.md`.
 
-**Symptom**: every enforcement in the new harness is a *convention
-documented in markdown* — not a mechanical hook or CI gate. The only
-mechanical gates today are `scripts/check_agent_docs.py` (Tier 0) +
-the four smoke tiers. An agent that doesn't read the docs (or reads
-them and decides to skip) can:
+**Symptom**: every enforcement in the new harness was originally a
+*convention documented in markdown* — not a mechanical hook or CI
+gate. An agent that doesn't read the docs could edit `web/src/*.jsx`
+and declare done without a browser render, write "STOPPING_CRITERIA
+satisfied" without running the checklist, or self-edit
+`.agent/settings.local.json`.
 
-- Edit `web/src/*.jsx` and declare done without a browser render.
-- Declare an initiative complete without invoking reviewer subagents.
-- Write "STOPPING_CRITERIA satisfied" without running the 16-item
-  checklist.
-- Self-edit `.agent/settings.local.json` to add permissive entries.
+**Mitigation (2026-04-24 via `harness-mechanical-v1`)**:
 
-**Mitigation today**: `docs-handoff-curator` review at close catches
-most of these post-hoc; `risk-skeptic` adversarial pass surfaces the
-rest. The Tier 0 scanner catches stale docs.
+- **Tier 0 extended** with three new scanners:
+  `check_stopping_criteria.py` (parses "Final verification" blocks
+  in Status.md and fails on untied gates),
+  `check_reviewer_evidence.py` (requires `.agent/runs/<slug>/reviews/*.md`
+  files to back every "Reviewer findings" table entry), and
+  `check_skill_frontmatter.py`.
+- **Claude Code hooks** in `.agent/settings.json`:
+  - `PostToolUse` on `Edit|Write(web/src/**/*.jsx)` writes a marker;
+    `Stop` hook nudges if no screenshot postdates it (B-0022).
+  - `PreCompact` hook runs `snapshot_session.sh` to append branch /
+    HEAD / dirty-file snapshot to the active Status.md (B-0025).
+  - `PreToolUse` on `Edit|Write(.agent/settings.local.json)` warns
+    before any permission edit (B-0026).
 
-**Trigger to reconsider**: if any of the above is observed in
-practice → install the hooks tracked in `B-0022` / `B-0023` /
-`B-0024` / `B-0025` / `B-0026`. Those convert prose gates into
-mechanical ones.
+**Residual gap**: hooks are soft nudges + markers, not hard blocks.
+A determined agent can still ignore stderr warnings and skip the
+browser. The nudge makes silent bypass visible in the session
+transcript, which is enough friction to surface the issue at review
+time but doesn't physically prevent it. A harder-blocking hook model
+is tracked as a future enhancement — raise severity back to medium
+if silent bypass is ever observed in practice.
+
+**Trigger to reconsider**: if any agent in practice silently bypasses
+the new gates → promote the Stop hook from nudge to block,
+or require reviewer evidence files as a prerequisite to tool
+invocation.
 
 ### R-0015 — Reviewers run in the same context as the implementer (severity: low)
 

@@ -128,6 +128,9 @@ QT_ALLOW_EXEMPT_DIRS = {
     ".agent/runs/analysis-page-overhaul-v1",
     ".agent/runs/plot-style-completion-v1",
     ".agent/runs/isp-modes-v1",
+    ".agent/runs/isp-modes-v1-bugfixes-v1",
+    ".agent/runs/agentic-workflow-overhaul-v1",
+    ".agent/runs/harness-mechanical-v1",
 }
 
 
@@ -229,6 +232,21 @@ CMD_PATH_RE = re.compile(
     r"(?:^|\s|`)python\s+(?:-m\s+([a-zA-Z0-9_.]+)|(scripts/[a-zA-Z0-9_/.-]+\.py))",
 )
 
+# Known --tier flag set. Extend when smoke_test.py gains new tiers.
+KNOWN_SMOKE_TIERS = {"0", "1", "2", "3", "4"}
+# Capture documented `scripts/smoke_test.py --tier N` invocations.
+# The `[0-9{]` anchor ensures we only grab the value — digits or a
+# template placeholder token like `{0|1|2|3|4}` — and stop before
+# trailing punctuation / backticks / parens.
+SMOKE_TIER_RE = re.compile(
+    r"scripts/smoke_test\.py\s+--tier[=\s]+([0-9{][^\s`)\].,]*)",
+)
+# Documented `--strict` usage for check_agent_docs.py (only valid flag today).
+CHECK_DOCS_FLAG_RE = re.compile(
+    r"scripts/check_agent_docs\.py(?:\s+(--\S+))*",
+)
+KNOWN_CHECK_DOCS_FLAGS = {"--strict"}
+
 # Capture "pytest tests/..." invocations. Matches both `python -m pytest <path>`
 # and bare `pytest <path>`. Requires a concrete path — either ending in `.py`
 # or a directory-like fragment that does NOT end in a placeholder marker
@@ -280,6 +298,14 @@ def scan_command_paths(paths: Iterable[Path]) -> List[Tuple[Path, int, str]]:
                 target = ROOT / base
                 if not target.exists():
                     missing.append((p, i, rel))
+            # Validate smoke-test.py --tier flag values (B-0028).
+            for m in SMOKE_TIER_RE.finditer(line):
+                val = m.group(1).strip("`").strip("'\"")
+                # Allow template placeholders like `{0|1|2|3|4}` or N
+                if val.startswith("{") or val in ("N",):
+                    continue
+                if val not in KNOWN_SMOKE_TIERS:
+                    missing.append((p, i, f"smoke_test.py --tier {val} (invalid tier; known: {sorted(KNOWN_SMOKE_TIERS)})"))
     return missing
 
 

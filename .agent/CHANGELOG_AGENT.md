@@ -4,6 +4,119 @@ Append-only log of agent sessions. One bullet per session, newest at top.
 
 ---
 
+## 2026-04-24 — isp-modes-v1-bugfixes-v1 + harness-mechanical-v1 (Claude Opus 4.7, 1M context)
+
+User: "finish all bug fixes and backlogged items" (following a
+/ultrareview pass on the isp-modes-v1 shipment that surfaced 5
+regressions).
+
+Two initiatives shipped in one session:
+
+### isp-modes-v1-bugfixes-v1
+
+Fixed the 5 /ultrareview findings on commit 5608074:
+
+- **merged_bug_002 (P0)** — `attach_dark_from_path/_from_bytes` in
+  session.py called `load_any` which was dropped from the import
+  during isp-modes-v1. Every dark attach 500'd. Fixed by routing
+  through `load_any_detail` with the source's currently-active ISP
+  mode + config (closes the sibling gap where dark was always
+  loaded under the source-kind default mode).
+- **bug_001 (P0)** — reconfigure_isp on an RGB image produced 3-D
+  (H,W,3) channel arrays. Thumbnail + analysis endpoints broke.
+  Fixed by adding an RGB_IMAGE plane-split fast path mirroring
+  load_image_channels.
+- **bug_004 (P1)** — normalize_config accepted colliding channel
+  renames (e.g. NIR→"R" silently overwrote real R). Fixed by
+  rejecting collisions with a ValueError → FastAPI 422.
+- **bug_008 (P1)** — test_isp_modes_api_reachable never ran under
+  documented invocations. Fixed by moving module-scope
+  importorskip into test body.
+- **bug_003 (P2)** — GeomRow accepted 0 for sub_step/outer_stride;
+  server 422'd. Fixed by adding min prop + passing min=1.
+
+6 regression tests added: test_rgb_image_reconfigure_produces_2d_channels,
+test_attach_dark_from_path_after_reconfigure_works,
+test_attach_dark_from_bytes_works,
+test_rename_collision_with_default_rejected,
+test_rename_to_distinct_name_accepted,
+test_rename_collision_with_another_override_rejected.
+
+Browser-verified: ISP settings modal GeomRow Sub-step + Outer
+stride now enforce min=1 (typing "0" clamps to "1"); Origin stays
+min=0; no console errors.
+
+### harness-mechanical-v1
+
+Closed BACKLOG B-0022 through B-0028. R-0014 moved from "medium,
+open" to "medium, MITIGATED".
+
+- **B-0023** — `scripts/check_stopping_criteria.py`: parses
+  Status.md "Final verification" block; fails non-zero on untied
+  gates. N/A deferrals allowed via inline marker. 5 unit tests.
+- **B-0024** — `scripts/check_reviewer_evidence.py`: asserts every
+  reviewer in a "Reviewer findings" table has a matching
+  `reviews/<agent>-*.md` file. 4 unit tests. Backfilled 5 reviewer
+  reports for agentic-workflow-overhaul-v1 from the actual reviewer
+  outputs at M8.
+- **B-0027** — `scripts/check_skill_frontmatter.py`: validates
+  every SKILL.md has proper frontmatter (required fields,
+  description ≤ 300 chars, when_to_use non-empty, related_agents
+  resolve, dir name matches). 6 unit tests.
+- **B-0028** — `scripts/check_agent_docs.py` extended with
+  `SMOKE_TIER_RE` validating `--tier N` values are in {0,1,2,3,4}.
+- **Tier 0** (`smoke_test.py::tier0`) now runs all 4 scanners.
+- **B-0022 + B-0025 + B-0026** — `.agent/settings.json` registers
+  four Claude Code hooks:
+  - `PostToolUse(Edit|Write, web/src/**/*.jsx)` →
+    `scripts/mark_ui_edit.py` writes `.ui-edit-marker`.
+  - `PreToolUse(Edit|Write, .agent/settings.local.json)` → stderr
+    warning before permission edit.
+  - `PreCompact` → `scripts/snapshot_session.sh` appends branch +
+    HEAD + dirty-file snapshot to active Status.md.
+  - `Stop` → `scripts/check_ui_verification.py` nudges if UI was
+    edited without a screenshot (soft; not a hard block).
+- Added retroactive "Final verification" blocks to closed
+  initiatives that predated the stopping-criteria protocol
+  (gui-rewrite-v1, isp-modes-v1, isp-modes-v1-bugfixes-v1).
+
+D-0016 records the design decision (soft-nudge hooks + mechanical
+Tier-0 gates vs hard-block hooks).
+
+### Gates (final)
+
+- ✅ Tier 0 — agent-doc consistency + skill frontmatter + stopping
+  criteria + reviewer evidence all pass.
+- ✅ Tier 1 — 15 modules imported.
+- ✅ Tier 2 — figures written.
+- ✅ Tier 3 — FastAPI endpoints exercised.
+- ✅ pytest — 96/96 green (75 previous + 6 bugfix regressions +
+  15 scanner tests).
+
+Files (two commits):
+- Commit A (bugfixes): 8 files (session.py, isp_modes.py,
+  isp_settings.jsx, test_web_boot.py, 2 regression test files,
+  Status + ExecPlan).
+- Commit B (harness-mechanical): ~12 files (4 scanners + 3 hook
+  helpers + settings.json + 3 scanner test files + BACKLOG +
+  DECISIONS + RISKS + Status + ExecPlan + reviews/ + 3 Status.md
+  retroactive finals).
+
+Status: both initiatives closed. Next session picks up either
+H5-inspector (the originally-deferred feature) or
+analysis-page-overhaul-v1 Phase 3 under the now-mechanical harness.
+
+Deferred with explicit rationale in HANDOFF:
+- B-0010 (git push) — per-event user consent.
+- B-0014 (Vite bundler) — architectural migration, own initiative.
+- B-0015 extended (per-mode Playwright tests) — substantial, own
+  initiative.
+- B-0018 (real-sample validation) — blocked on H5 captures.
+- B-0006, B-0007, B-0012 (small pre-existing items) — untouched,
+  available for H5-inspector session.
+
+---
+
 ## 2026-04-24 — agentic-workflow-overhaul-v1 full shipment (Claude Opus 4.7, 1M context)
 
 User: "Substantially improve the repository's agentic operating layer

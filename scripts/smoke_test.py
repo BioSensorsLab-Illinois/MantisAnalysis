@@ -43,32 +43,55 @@ sys.path.insert(0, str(ROOT))
 # Tier 0 — agent-doc consistency
 
 def tier0() -> Tuple[bool, str]:
-    """Run scripts/check_agent_docs.py as a subprocess and mirror its result."""
+    """Run the four agent-harness consistency checks as subprocesses.
+
+    - check_agent_docs.py       — Qt drift + dead commands + manifest + xrefs.
+    - check_skill_frontmatter.py — every SKILL.md frontmatter is valid.
+    - check_stopping_criteria.py — active initiatives are coherent; closed
+                                   initiatives have a Final verification block.
+    - check_reviewer_evidence.py — reviewer findings tables have matching
+                                   report files under .agent/runs/<slug>/reviews/.
+
+    Mirrors each exit status; any fails are printed.
+    """
     import subprocess
 
-    script = ROOT / "scripts" / "check_agent_docs.py"
-    if not script.is_file():
-        return False, f"check_agent_docs.py missing at {script.relative_to(ROOT)}"
-    try:
-        proc = subprocess.run(
-            [sys.executable, str(script)],
-            cwd=str(ROOT),
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=30,
-        )
-    except subprocess.TimeoutExpired:
-        return False, "check_agent_docs.py timed out after 30 s"
-    if proc.returncode != 0:
-        return False, proc.stdout + ("\n" + proc.stderr if proc.stderr else "")
-    # Return concise OK + first+last output lines (keeps noise low).
-    lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
-    head = lines[0] if lines else "OK"
-    tail = lines[-1] if lines else ""
-    if head == tail:
-        return True, head
-    return True, f"{head}\n{tail}"
+    checks = [
+        ("check_agent_docs", ["scripts/check_agent_docs.py"]),
+        ("check_skill_frontmatter", ["scripts/check_skill_frontmatter.py"]),
+        ("check_stopping_criteria", ["scripts/check_stopping_criteria.py", "--all"]),
+        ("check_reviewer_evidence", ["scripts/check_reviewer_evidence.py", "--all"]),
+    ]
+    outputs: List[str] = []
+    failed = False
+    for name, argv in checks:
+        script = ROOT / argv[0]
+        if not script.is_file():
+            outputs.append(f"{name}: missing at {script.relative_to(ROOT)}")
+            failed = True
+            continue
+        try:
+            proc = subprocess.run(
+                [sys.executable, *argv],
+                cwd=str(ROOT),
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            outputs.append(f"{name}: timed out after 30 s")
+            failed = True
+            continue
+        if proc.returncode != 0:
+            outputs.append(f"[{name}] FAIL:\n{proc.stdout}{proc.stderr}")
+            failed = True
+            continue
+        # Collect the last non-empty line as a concise status.
+        lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
+        outputs.append(f"[{name}] {lines[-1] if lines else 'OK'}")
+    summary = "\n".join(outputs)
+    return (not failed), summary
 
 
 # ---------------------------------------------------------------------------

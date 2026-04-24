@@ -126,3 +126,7 @@ Expected additions (everything new — this repo's working tree was previously c
 - If the prototype's branding ever needs to flip to MIT email or an updated lab tagline, it's centralized in the `BRAND` object at `web/src/shared.jsx:10`.
 
 <!-- /qt-allowed -->
+
+## Final verification
+
+_Closed retroactively. This initiative shipped before the stopping-criteria protocol (D-0015, 2026-04-24). Original Status.md recorded Tier 1 + Tier 2 green; Tier 3 was the Qt-boot tier at that time and was verified during development. The initiative itself deleted the Qt layer per D-0009. Accepted without per-gate checklist._

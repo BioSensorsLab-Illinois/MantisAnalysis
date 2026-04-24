@@ -8,7 +8,7 @@ when_to_use:
 outputs:
   - a consolidated findings list with severity + disposition
   - Status.md section: "Reviewer findings"
-related_agents: all ten
+related_agents: planner-architect, react-ui-ux-reviewer, frontend-react-engineer, fastapi-backend-reviewer, playwright-verifier, accessibility-reviewer, performance-reviewer, test-coverage-reviewer, risk-skeptic, docs-handoff-curator
 ---
 
 # independent-review-loop

@@ -481,3 +481,97 @@ change because no gate would stop it.
 - When H5 recording-inspection feature begins, verify the new
   harness supports it end-to-end: open an initiative, run the full
   reviewer loop, observe whether the gaps in R-0014 re-surface.
+
+---
+
+## D-0016 — Convert agent-harness prose gates to mechanical ones (2026-04-24)
+
+**Context**: `agentic-workflow-overhaul-v1` (D-0015) shipped a
+documented workflow but left enforcement prose-only. `risk-skeptic`
+flagged this as R-0014: an agent can silently bypass UI
+verification, stopping criteria, and reviewer invocation just by
+not reading the docs. A `/ultrareview` pass on the isp-modes-v1
+commit surfaced 5 regressions that the new reviewer loop would have
+caught had it been mechanical. Following a user directive to
+"finish all backlogged items", close B-0022..B-0028 in one pass.
+
+**Options considered**:
+  (a) Hard-block hooks — fail the Stop event if UI was edited and
+      no screenshot exists. Pro: airtight. Con: breaks small /
+      trivial UI tweaks; false positives when screenshots live
+      elsewhere; friction during debugging.
+  (b) Soft-nudge hooks — stderr warning + markers; rely on the
+      implementing agent + docs-handoff-curator pass at close to
+      catch the skip. Pro: zero false positives, visible in
+      transcript. Con: requires discipline; determined bypass still
+      possible.
+  (c) Mechanical gates only at Tier 0 (scanners) — no hooks at all.
+      Pro: simplest. Con: doesn't catch edit-and-claim-done without
+      re-running Tier 0.
+
+**Decision**: (b) — soft-nudge hooks + mechanical Tier-0 gates.
+
+**Rationale**:
+- Tier 0 scanners (check_stopping_criteria / check_reviewer_evidence /
+  check_skill_frontmatter / flag-validation in check_agent_docs)
+  convert the previously-prose "final verification", "reviewer
+  findings", and "skill matching" gates into hard fails when they
+  run. Session-start runs Tier 0 by convention; closing without
+  re-running Tier 0 is itself a protocol violation.
+- Hooks catch the specific slip of editing web/src + running
+  Tier 1/2 + calling it done without ever booting a browser. A soft
+  nudge to stderr is enough friction to surface the issue at the
+  docs-handoff-curator review that closes every initiative — without
+  blocking legitimate work.
+- A harder hook (blocking Stop) is tracked as a future escalation
+  in R-0014 residual-gap.
+
+**What shipped**:
+- `scripts/check_stopping_criteria.py` — parses Status.md "Final
+  verification" block; fails on untied gates (N/A deferrals
+  allowed via inline marker). 5 unit tests.
+- `scripts/check_skill_frontmatter.py` — validates every SKILL.md
+  frontmatter: required fields, description ≤ 300 chars, when_to_use
+  non-empty, related_agents resolve, dir name matches. 6 unit tests.
+- `scripts/check_reviewer_evidence.py` — asserts each reviewer in a
+  Status.md findings table has a matching `reviews/<agent>-*.md`
+  file. 4 unit tests.
+- `scripts/check_agent_docs.py` extended with `SMOKE_TIER_RE`
+  validating documented `--tier N` values.
+- `smoke_test.py::tier0()` — runs all 4 scanners; first fail exits.
+- `.agent/settings.json` with 4 hooks:
+  - `PostToolUse(Edit|Write, web/src/**/*.jsx)` → `mark_ui_edit.py`.
+  - `PreToolUse(Edit|Write, .agent/settings.local.json)` → stderr
+    warning before permission edit proceeds.
+  - `PreCompact` → `snapshot_session.sh` appends branch / HEAD /
+    dirty-file snapshot to active Status.md.
+  - `Stop` → `check_ui_verification.py` nudges if UI was edited
+    without a screenshot.
+- 5 reviewer reports backfilled for agentic-workflow-overhaul-v1
+  (docs-handoff-curator, risk-skeptic, playwright-verifier,
+  react-ui-ux-reviewer, test-coverage-reviewer) to satisfy the new
+  evidence check.
+
+**Consequences**:
+- Future initiatives must include a "Final verification" section in
+  Status.md to close (enforced mechanically by Tier 0).
+- Reviewer findings in Status.md tables require matching evidence
+  files under `reviews/` (enforced mechanically).
+- UI edits without screenshots trigger a stderr warning at Stop
+  (soft enforcement; can be ignored but visible).
+- Compaction automatically snapshots state to Status.md (if the
+  harness supports PreCompact; graceful fallback via
+  skills/context-handoff).
+- Permission edits to settings.local.json are always visible in
+  the transcript via the PreToolUse warning.
+
+**Revisit**:
+- If an agent is observed bypassing the stderr nudge in practice,
+  promote the Stop hook from nudge to block.
+- If PreCompact is not supported by the harness, document an
+  alternative trigger (e.g., periodic ScheduleWakeup) or drop the
+  hook.
+- When reviewer-evidence files become burdensome (e.g., agents
+  writing minimal stubs just to pass the check), tighten the
+  validator to require substantive content (word count, findings
+  structure).

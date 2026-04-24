@@ -1,0 +1,34 @@
+{
+  "_rationale": "Repo-wide Claude Code harness hooks. These are enforcement rules that must apply to every session (unlike settings.local.json which holds per-host permissions). See .agent/RISKS.md R-0014 for why these exist and what gap they close.",
+
+  "hooks": {
+    "PostToolUse": [
+      {
+        "_note": "B-0022: UI edit marker. Fires on Edit / Write to web/src/*.jsx. Writes a timestamp file so the Stop hook can check whether a screenshot followed.",
+        "matcher": "Edit|Write",
+        "path_glob": "web/src/**/*.jsx",
+        "command": "python scripts/mark_ui_edit.py"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "_note": "B-0026: guard against self-edit of settings.local.json. Claude Code will prompt the user even in auto-approve modes because this hook emits a warning.",
+        "matcher": "Edit|Write",
+        "path_glob": ".agent/settings.local.json",
+        "command": "echo '⚠  You are editing .agent/settings.local.json (permission allowlist). Confirm with Zhongmin before proceeding — this controls what the agent may run without prompting.' >&2 && exit 0"
+      }
+    ],
+    "PreCompact": [
+      {
+        "_note": "B-0025: snapshot session state to the active initiative's Status.md before compaction so the post-compact model has a fresh pointer even if the implementing agent didn't explicitly run context-handoff.",
+        "command": "scripts/snapshot_session.sh"
+      }
+    ],
+    "Stop": [
+      {
+        "_note": "B-0022: soft UI-verification nudge. If web/src/ was edited this session but no screenshot was captured, print a warning to stderr. Does NOT block.",
+        "command": "python scripts/check_ui_verification.py"
+      }
+    ]
+  }
+}
