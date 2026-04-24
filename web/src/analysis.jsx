@@ -2325,6 +2325,11 @@ const DoFAnalysisModal = ({ run, onClose, onToast }) => {
   // rebuilt against the new metric, not just the Metric-compare tab.
   const [metricFilter, setMetricFilter] = useStateA(run.response?.settings?.metric || run.metric || 'laplacian');
   const [unitPref, setUnitPref] = useStateA('auto'); // B-0020
+  // Tab-body background — shared with USAF / FPN via the `analysis/bgColor`
+  // key so the user's preset (theme / white / black / transparent / custom
+  // hex) carries across all three modals.
+  const [bgColor, setBgColor] = useLocalStorageState('analysis/bgColor', null);
+  const effectiveBg = bgColor || t.panelAlt;
   // B-0021 — live tilt-angle override. Seeded from the run payload. Clamped
   // to [0, 89]° in the input. tiltFactor = 1 / cos(θ·π/180); 1 when θ=0 so
   // uncalibrated / opted-out runs stay unaffected.
@@ -2459,10 +2464,10 @@ const DoFAnalysisModal = ({ run, onClose, onToast }) => {
     try {
       onToast?.('Rendering…');
       const res = await mantisExport(node, `mantis-dof-${tab}-${Date.now()}`,
-                                      plotStyleState.style, t.panelAlt);
+                                      plotStyleState.style, effectiveBg);
       onToast?.(`Exported ${tab} as ${res.format.toUpperCase()} (${res.scale}×)`, 'success');
     } catch (err) { onToast?.(`Export failed: ${err.message}`, 'danger'); }
-  }, [tab, t.panelAlt, onToast, plotStyleState.style]);
+  }, [tab, effectiveBg, onToast, plotStyleState.style]);
 
   return (
     <PlotStyleCtx.Provider value={plotStyleState}>
@@ -2577,6 +2582,7 @@ const DoFAnalysisModal = ({ run, onClose, onToast }) => {
                           opacity: anyCalibrated ? 1 : 0.55 }} />
           <span style={{ fontSize: 10, color: t.textFaint,
                          fontFamily: 'ui-monospace,Menlo,monospace' }}>°</span>
+          <BgColorPicker bgColor={bgColor} setBgColor={setBgColor} />
         </div>
 
         <div style={{ display: 'flex', borderBottom: `1px solid ${t.border}`,
@@ -2593,11 +2599,13 @@ const DoFAnalysisModal = ({ run, onClose, onToast }) => {
           ))}
         </div>
 
-        <div ref={tabBodyRef} style={{ flex: 1, minHeight: 0, overflow: 'auto',
-                                        padding: 16,
-                                        background: style.cardBackground === 'white'       ? '#ffffff'
-                                                   : style.cardBackground === 'transparent' ? 'transparent'
-                                                   : t.panelAlt }}>
+        <div ref={tabBodyRef} style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 16,
+                                        background: bgColor === 'transparent' ? 'transparent' : effectiveBg,
+                                        backgroundImage: bgColor === 'transparent'
+                                          ? 'linear-gradient(45deg, #d8dbe0 25%, transparent 25%), linear-gradient(-45deg, #d8dbe0 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #d8dbe0 75%), linear-gradient(-45deg, transparent 75%, #d8dbe0 75%)'
+                                          : undefined,
+                                        backgroundSize: bgColor === 'transparent' ? '16px 16px' : undefined,
+                                        backgroundPosition: bgColor === 'transparent' ? '0 0, 0 8px, 8px -8px, -8px 0px' : undefined }}>
           {tab === 'summary' && <DoFSummaryTab channels={visibleChannels} results={results}
                                                 visibleLineIdx={visibleLineIdx}
                                                 lineLabel={lineLabel} pointLabel={pointLabel}

@@ -343,7 +343,41 @@ class DoFStabilityRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-WEB_DIR = REPO_ROOT / "web"
+
+
+def _resolve_web_dir() -> Path:
+    """Locate the bundled ``web/`` SPA tree.
+
+    Resolution order:
+      1. ``MANTIS_WEB_DIR`` env override (tests, custom deployments).
+      2. PyInstaller onefile extraction dir (``sys._MEIPASS``).
+      3. PyInstaller onedir sibling (``<exe_dir>/web``).
+      4. Source checkout (``<repo_root>/web``).
+    """
+    import os
+    import sys
+
+    override = os.environ.get("MANTIS_WEB_DIR")
+    if override:
+        p = Path(override).expanduser().resolve()
+        if p.exists():
+            return p
+
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        p = Path(meipass) / "web"
+        if p.exists():
+            return p
+
+    if getattr(sys, "frozen", False):
+        p = Path(sys.executable).resolve().parent / "web"
+        if p.exists():
+            return p
+
+    return REPO_ROOT / "web"
+
+
+WEB_DIR = _resolve_web_dir()
 
 
 def create_app() -> FastAPI:

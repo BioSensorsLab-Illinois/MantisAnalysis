@@ -1,0 +1,203 @@
+name: auto-fix
+
+# Fires when `smoke` or `release` fail. The workflow:
+#   1. Checks out the commit that failed.
+#   2. Runs deterministic auto-fixes (ruff --fix, ruff format).
+#   3. If ANTHROPIC_API_KEY is configured, hands the failure log to
+#      Claude Code and lets it attempt a smarter fix.
+#   4. Re-runs the cheap smoke tier (imports + unit tests).
+#   5. If anything was fixed and tests pass, opens a PR targeting the
+#      failing branch. Otherwise opens an Issue with the log excerpt so
+#      a human can jump in.
+#
+# Safe-by-default: never force-pushes, always opens a PR for review, and
+# is gated to the repo's own branches (skips forks).
+
+on:
+  workflow_run:
+    workflows: [smoke, release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "workflow run ID to react to"
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: read
+
+jobs:
+  diagnose-and-fix:
+    # Only run on real failures, not cancellations, and not for PRs from forks
+    # (fork PRs can't receive a push from this workflow).
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'failure' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+
+    env:
+      FAILED_WORKFLOW: ${{ github.event.workflow_run.name || 'manual' }}
+      FAILED_RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+      FAILED_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      FAILED_BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+
+    steps:
+      - name: Checkout failing commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.FAILED_SHA }}
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install project + dev deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .[dev]
+
+      - name: Download failing workflow logs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p .auto-fix
+          gh run view "$FAILED_RUN_ID" --log-failed > .auto-fix/failure.log 2>&1 || true
+          # Truncate to the last ~400 lines so downstream steps (and any
+          # Claude prompt) stay within reasonable size limits.
+          tail -n 400 .auto-fix/failure.log > .auto-fix/failure.tail.log || true
+          wc -l .auto-fix/failure.log || true
+
+      - name: Run deterministic auto-fixes (ruff)
+        id: ruff
+        continue-on-error: true
+        run: |
+          python -m ruff check --fix --unsafe-fixes . || true
+          python -m ruff format . || true
+          if ! git diff --quiet; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git diff --stat
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Probe Anthropic secret
+        id: probe
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "$ANTHROPIC_API_KEY" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Invoke Claude Code for smarter fix (if configured)
+        id: claude
+        if: steps.probe.outputs.available == 'true'
+        continue-on-error: true
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python -m pip install "anthropic>=0.34"
+          python .github/auto-fix/claude_fix.py \
+              --log .auto-fix/failure.tail.log \
+              --workflow "$FAILED_WORKFLOW" \
+              --branch "$FAILED_BRANCH" \
+              --commit "$FAILED_SHA"
+
+      - name: Re-run smoke tier 1 after fixes
+        id: verify
+        continue-on-error: true
+        run: |
+          python scripts/smoke_test.py --tier 1
+          python -m pytest tests/unit -q
+
+      - name: Detect any changes produced
+        id: diff
+        run: |
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open auto-fix PR
+        if: steps.diff.outputs.changed == 'true' && steps.verify.outcome == 'success'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: auto-fix/${{ env.FAILED_WORKFLOW }}-${{ env.FAILED_RUN_ID }}
+          base: ${{ env.FAILED_BRANCH }}
+          title: "auto-fix: ${{ env.FAILED_WORKFLOW }} failure on ${{ env.FAILED_BRANCH }}"
+          commit-message: |
+            auto-fix: repair ${{ env.FAILED_WORKFLOW }} failures
+
+            Run: ${{ env.FAILED_RUN_ID }}
+            Commit: ${{ env.FAILED_SHA }}
+          body: |
+            Automated attempt to fix the failing **${{ env.FAILED_WORKFLOW }}** workflow.
+
+            - Failed run: https://github.com/${{ github.repository }}/actions/runs/${{ env.FAILED_RUN_ID }}
+            - Head commit: `${{ env.FAILED_SHA }}`
+            - Branch: `${{ env.FAILED_BRANCH }}`
+
+            ### Fixes applied
+            - `ruff check --fix --unsafe-fixes`
+            - `ruff format`
+            ${{ steps.claude.outcome == 'success' && '- Claude Code touch-up pass' || '' }}
+
+            ### Verification
+            - `scripts/smoke_test.py --tier 1` → passed
+            - `pytest tests/unit` → passed
+
+            Review carefully before merging — automated fixes are a starting
+            point, not a guarantee of correctness.
+          labels: |
+            auto-fix
+            ci
+
+      - name: Open issue if no fix was possible
+        if: steps.diff.outputs.changed == 'false' || steps.verify.outcome != 'success'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            let tail = '';
+            try { tail = fs.readFileSync('.auto-fix/failure.tail.log', 'utf8'); } catch (_) {}
+            const title = `CI failure on ${process.env.FAILED_BRANCH}: ${process.env.FAILED_WORKFLOW}`;
+            const body = [
+              `The **${process.env.FAILED_WORKFLOW}** workflow failed and the auto-fix bot couldn't repair it.`,
+              '',
+              `- Failed run: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${process.env.FAILED_RUN_ID}`,
+              `- Head commit: \`${process.env.FAILED_SHA}\``,
+              `- Branch: \`${process.env.FAILED_BRANCH}\``,
+              '',
+              '### Failure tail',
+              '```',
+              tail.slice(-12000),
+              '```',
+            ].join('\n');
+            // Dedupe: reuse an open issue with the same title instead of spamming.
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'auto-fix',
+            });
+            const match = existing.data.find(i => i.title === title);
+            if (match) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: match.number, body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title, body, labels: ['auto-fix', 'ci'],
+              });
+            }
