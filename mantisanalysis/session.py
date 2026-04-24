@@ -62,10 +62,29 @@ class LoadedSource:
 class SessionStore:
     """Process-wide session store. Thread-safe for the single-user case."""
 
-    def __init__(self, max_entries: int = 12):
+    def __init__(self, max_entries: int = 12, evicted_memory: int = 64):
         self._lock = threading.RLock()
         self._items: Dict[str, LoadedSource] = {}
         self._max = max_entries
+        # Remember recently-evicted source IDs (FIFO) so we can surface
+        # 410 Gone instead of 404 when the frontend holds a stale
+        # cached id. Capped to a fixed size so memory stays bounded.
+        # See R-0009.
+        self._evicted: "list[str]" = []
+        self._evicted_max = evicted_memory
+
+    def was_evicted(self, source_id: str) -> bool:
+        """True if `source_id` was once loaded here but got LRU-evicted."""
+        with self._lock:
+            return source_id in self._evicted
+
+    def _remember_evicted_locked(self, source_id: str) -> None:
+        """Record an eviction. Caller holds the lock."""
+        if source_id in self._evicted:
+            self._evicted.remove(source_id)
+        self._evicted.append(source_id)
+        if len(self._evicted) > self._evicted_max:
+            self._evicted = self._evicted[-self._evicted_max:]
 
     def load_from_path(self, path: str | Path, name: Optional[str] = None) -> LoadedSource:
         """Load a file from local disk and register it under a new source id."""
@@ -275,11 +294,17 @@ class SessionStore:
         return src
 
     def _evict_locked(self) -> None:
-        """Drop oldest sources until we're under the cap. Caller holds the lock."""
+        """Drop oldest sources until we're under the cap. Caller holds the lock.
+
+        Records each dropped id in ``self._evicted`` so a follow-up
+        ``was_evicted(sid)`` lets the server return 410 Gone (distinct
+        from 404 for never-existed ids). See R-0009.
+        """
         if len(self._items) <= self._max:
             return
         ordered = sorted(self._items.values(), key=lambda s: s.loaded_at)
         for s in ordered[: len(self._items) - self._max]:
+            self._remember_evicted_locked(s.source_id)
             del self._items[s.source_id]
 
 

@@ -76,6 +76,44 @@ const App = () => {
     document.documentElement.style.setProperty('--thumb', t.accent);
   }, [t]);
 
+  // R-0009: listen for 410 Gone from apiFetch; drop cached source id
+  // and auto-restore via load-sample. The event is dispatched by
+  // shared.jsx::apiFetch when the server returns 410 for an evicted id.
+  useEffectApp(() => {
+    const onEvicted = async (ev) => {
+      const sid = ev.detail?.source_id;
+      if (sid && source && sid !== source.source_id) return; // not ours
+      say('Source evicted from server cache — reloading sample…', 'warning');
+      try {
+        const s = await apiFetch('/api/sources/load-sample', { method: 'POST' });
+        setSource(s);
+        setAnalysis(null);                      // the stale modal cache goes too
+      } catch (err) {
+        say(`Recovery failed: ${err.message}`, 'danger');
+      }
+    };
+    window.addEventListener('mantis:source-evicted', onEvicted);
+    return () => window.removeEventListener('mantis:source-evicted', onEvicted);
+  }, [source, say]);
+
+  // R-0010: invalidate the cached analysis run whenever the source's
+  // ISP mode or config changes — the channel set + extraction geometry
+  // has shifted under the modal's feet, so its numbers are no longer
+  // trustworthy. The user re-opens Analyze to get a fresh run.
+  const ispEpoch = source
+    ? `${source.isp_mode_id}::${JSON.stringify(source.isp_config || {})}`
+    : null;
+  useEffectApp(() => {
+    if (analysis && analysis.source && ispEpoch && source
+        && analysis.source.source_id === source.source_id) {
+      const cachedEpoch = `${analysis.source.isp_mode_id}::${JSON.stringify(analysis.source.isp_config || {})}`;
+      if (cachedEpoch !== ispEpoch) {
+        setAnalysis(null);
+        say('ISP reconfigured — analysis cache cleared; re-run Analyze for fresh results.', 'warning');
+      }
+    }
+  }, [ispEpoch]);   // intentional single-dep: react to ISP change only
+
   useEffectApp(() => {
     const h = (e) => {
       const tgt = e.target;

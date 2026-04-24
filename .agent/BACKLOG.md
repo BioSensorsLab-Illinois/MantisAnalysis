@@ -378,7 +378,18 @@ in both `fpn_render.py` and `dof_render.py`.
 
 ---
 
-## B-0006 — Test for the legacy Workflow A CLI
+## B-0006 — Test for the legacy Workflow A CLI — **CLOSED 2026-04-24**
+
+Closed under `correctness-sweep-v1`. Added
+`tests/unit/test_legacy_resolution.py` with 4 tests covering
+`mantisanalysis.resolution` core surface: `rotate_180` invariant,
+`analyze_channel` returns well-formed `ChannelResult` + `DirectionResult`,
+image dims don't exceed input, spectrum amplitudes are non-negative.
+Uses a synthetic striped-image fixture — no real H5 captures needed.
+
+---
+
+## B-0006 (orig) — Test for the legacy Workflow A CLI
 
 **Why**: D-0004 keeps `mantisanalysis/resolution.py` +
 `scripts/run_usaf_resolution.py` alive. Add a smoke that they don't
@@ -392,7 +403,23 @@ Tier-2 case in `smoke_test.py`.
 
 ---
 
-## B-0007 — Warn on rotate-clears-picks; offer coordinate remap
+## B-0007 — Warn on rotate-clears-picks; offer coordinate remap — **CLOSED 2026-04-24**
+
+Closed under `correctness-sweep-v1` as architecturally obsolete.
+The React SPA uses a CSS `transform: rotate()` on the canvas container,
+so picks stored in image-pixel coordinates stay co-located with the
+image under rotation — the picks and the image rotate in the same
+transformed frame. The original Qt-era concern about pixel-level
+rotation invalidating coords no longer applies.
+
+Config-load atomically restores `rotation`, `flipH`, `flipV`, and
+`lines` together, so saved / loaded configs round-trip cleanly.
+
+See R-0006 (RISKS.md) marked CLOSED with the same rationale.
+
+---
+
+## B-0007 (orig) — Warn on rotate-clears-picks; offer coordinate remap
 
 **Why**: Risk R-0006.
 
@@ -483,7 +510,19 @@ command, requirements.txt is redundant.
 
 ---
 
-## B-0012 — Onboarding helper script
+## B-0012 — Onboarding helper script — **CLOSED 2026-04-24**
+
+Closed under `correctness-sweep-v1`. Added `scripts/doctor.py` — runs
+9 environment checks (Python version, repo root, runtime deps, dev
+deps, optional web-smoke deps, editable install, harness scripts,
+agent layer + .claude symlink, Tier 0 gate) and prints colourised
+OK / WARN / FAIL with an actionable fix line per check. `--strict`
+promotes WARN to a non-zero exit for CI. 3 unit tests under
+`tests/unit/test_doctor.py`.
+
+---
+
+## B-0012 (orig) — Onboarding helper script
 
 **Why**: New developer flow is currently several manual commands.
 

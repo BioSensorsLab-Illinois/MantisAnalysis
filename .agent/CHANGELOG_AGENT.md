@@ -4,6 +4,106 @@ Append-only log of agent sessions. One bullet per session, newest at top.
 
 ---
 
+## 2026-04-24 — correctness-sweep-v1 (Claude Opus 4.7, 1M context)
+
+User: "now work on all unfinished bug fixes and improvement other
+than the h5 recording viewer".
+
+Closed 5 RISKS entries + 3 BACKLOG entries in one initiative.
+
+- **R-0004** — dead `split_and_extract` removed from
+  `mantisanalysis/extract.py`; test removed from
+  `tests/unit/test_bayer.py`. The ISP-mode `extract_by_spec`
+  supersedes it.
+- **R-0005** — `measure_modulation_5pt` now clamps to [0, 1] to
+  match `michelson()` and `measure_modulation_fft`. Aggressive
+  Unsharp-mask overshoot can no longer produce unphysical > 1
+  Michelson readings.
+- **R-0006 / B-0007** — closed as architecturally obsolete. The
+  React SPA uses CSS `transform: rotate()` on the canvas
+  container, so picks stored in image-pixel coords rotate with
+  the image and never misalign. The Qt-era pixel-level rotation
+  concern no longer applies. No code change; documented.
+- **R-0009** — `SessionStore._evicted` now tracks the last 64
+  LRU-evicted source_ids. `server.py::_must_get` returns 410 Gone
+  for known-evicted ids (distinct from 404 for never-existed).
+  `shared.jsx::apiFetch` dispatches a `mantis:source-evicted`
+  custom event on 410; `app.jsx` listens, clears cached source +
+  analysis, auto-reloads the sample, and shows a warning toast.
+- **R-0010** — `app.jsx` derives a stable `ispEpoch` from the
+  source's `isp_mode_id` + serialized `isp_config` and clears the
+  `<AnalysisModal>` cache via `useEffect` when the epoch changes;
+  user sees a warning toast directing them to re-run Analyze.
+  No polling needed — the existing `setSource(updated)` triggers
+  the effect.
+- **B-0006** — added `tests/unit/test_legacy_resolution.py` with
+  4 tests covering the `mantisanalysis.resolution` surface
+  (rotate_180 invariant, analyze_channel returns well-formed
+  ChannelResult + DirectionResult, image dims within bounds,
+  spectrum non-negativity). Synthetic striped-image fixture; no
+  real H5 captures needed.
+- **B-0012** — added `scripts/doctor.py` — 9-check env-sanity
+  helper (Python version, repo root, runtime deps, dev deps,
+  optional web-smoke, editable install, harness scripts, `.agent/`
+  + `.claude` symlink, Tier 0 gate). Colour-coded OK / WARN / FAIL
+  output + actionable fix line per check. `--strict` promotes WARN
+  to non-zero exit. 3 unit tests.
+
+### Gates (final)
+
+- ✅ Tier 0 — 4 scanners pass
+- ✅ Tier 1 — 15 modules imported
+- ✅ Tier 2 — headless figures
+- ✅ Tier 3 — FastAPI endpoints
+- ✅ pytest — 107/107 green (96 previous + 11 new regressions)
+
+### Browser verification
+
+React mounts clean after reload; no console errors; the
+`mantis:source-evicted` custom event handler fires on synthetic
+dispatch; nonexistent source id returns 404 (not 410) — the 410
+path is evicted-only.
+
+Not exercised: full real 410 → auto-recovery chain (requires > 12
+sources loaded in one session to trigger LRU eviction). Each half
+of the chain is unit-tested independently.
+
+### Files
+
+8 modified, 5 new:
+- M `mantisanalysis/extract.py` (R-0004)
+- M `mantisanalysis/usaf_groups.py` (R-0005)
+- M `mantisanalysis/session.py` (R-0009)
+- M `mantisanalysis/server.py` (R-0009)
+- M `web/src/shared.jsx` (R-0009)
+- M `web/src/app.jsx` (R-0009 + R-0010)
+- M `tests/unit/test_bayer.py` (R-0004)
+- M `tests/unit/test_michelson.py` (R-0005 tests)
+- M `.agent/BACKLOG.md` + `RISKS.md` + `HANDOFF.md`
+- A `tests/unit/test_session_eviction.py` (3 tests)
+- A `tests/unit/test_legacy_resolution.py` (4 tests)
+- A `tests/unit/test_doctor.py` (3 tests)
+- A `scripts/doctor.py`
+- A `.agent/runs/correctness-sweep-v1/{ExecPlan,Status}.md`
+
+### Deferred (explicitly, not forgotten)
+
+- **B-0014** Vite bundler — architectural; own initiative.
+- **B-0015 extended** per-mode Playwright — depends on
+  analysis-page-overhaul-v1 Phase 3.
+- **B-0018** real-sample validation — blocked on H5 captures
+  (user action).
+- **R-0011** Playwright font diffs — blocks on visual-regression
+  baseline adoption.
+- **R-0014 residual** — hook hard-block promotion.
+- **R-0015** same-context reviewers — harness change.
+- **R-0016** qt-allowed budget — scanner cap mitigates.
+- **analysis-page-overhaul-v1 Phase 3+** — paused; own initiative.
+- **H5 recording-inspection viewer** — user exclusion for this
+  sweep.
+
+---
+
 ## 2026-04-24 — isp-modes-v1-bugfixes-v1 + harness-mechanical-v1 (Claude Opus 4.7, 1M context)
 
 User: "finish all bug fixes and backlogged items" (following a

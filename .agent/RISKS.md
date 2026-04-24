@@ -7,72 +7,61 @@ mitigation. Append new risks as discovered.
 
 ## Open risks
 
-### R-0005 — Sharpen-to-analysis can produce unphysical Michelson > 1  (severity: low)
+### R-0005 — Sharpen-to-analysis can produce unphysical Michelson > 1 (severity: low — **CLOSED 2026-04-24 via correctness-sweep-v1**)
 
-**Where**: `mantisanalysis/image_processing.py` (Unsharp mask /
-Laplacian / High-pass) + `mantisanalysis/usaf_groups.py:measure_modulation`.
+**Where**: `mantisanalysis/usaf_groups.py::measure_modulation_5pt`
+was the last path without the [0,1] clamp; `michelson()` and
+`measure_modulation_fft` already clamped.
 
-**Symptom**: enabling `Apply sharpening to analysis` with Unsharp Amount
-≥ 2 produces percentile-based Michelson values like `1.947` (LG-R smoke).
-Mathematically the kernel makes the profile non-positive in spots, so
-percentile values can give >1 ratios.
-
-**Mitigation today**: status bar prints a heads-up when the toggle
-flips on; values reported as-is to avoid hiding the user's choice.
-
-**Trigger to reconsider**: if the user wants this clamped + warned,
-record a DECISIONS entry and add the clamp to `measure_modulation`.
+**Resolution**: added `m = max(0.0, min(1.0, m))` to the 5-point
+estimator at the end. All four Michelson-variant estimators now
+clamp consistently. Regression tests at
+`tests/unit/test_michelson.py::test_five_point_michelson_clamped_to_unit_interval`
+and `test_five_point_michelson_non_negative_profile_unchanged`.
 
 ---
 
-### R-0006 — Rotate / flip silently invalidates picks (severity: low)
+### R-0006 — Rotate / flip silently invalidates picks (severity: low — **CLOSED 2026-04-24 via correctness-sweep-v1**)
 
-**Where**: USAF / FPN / DoF mode panels in `web/src/*.jsx` —
-each clears ROI / lines / points on rotation or flip; there is no
-coordinate remap.
+**Where**: USAF / FPN / DoF mode panels in `web/src/*.jsx`.
 
-**Symptom**: a user who saves USAF lines JSON, re-opens later at a
-different rotation, sees misaligned picks.
-
-**Mitigation**: TBD. Could either (a) re-map coordinates through
-the rotation automatically, or (b) refuse to load a JSON whose
-`transform.rotation` doesn't match the current view. `B-0007`.
+**Resolution**: investigation showed the React SPA uses
+`transform: rotate(...)` as a CSS-level canvas transform — picks
+stored in image-pixel coords stay co-located with the image across
+rotation because both rotate in the same transformed frame. The
+original concern predated the Qt→React rewrite (Qt did pixel-level
+rotation that genuinely invalidated coords). Closed alongside
+B-0007 with no code change required.
 
 ---
 
-### R-0009 — `session.STORE` LRU eviction is silent to the frontend  (severity: medium)
+### R-0009 — `session.STORE` LRU eviction is silent to the frontend (severity: medium — **CLOSED 2026-04-24 via correctness-sweep-v1**)
 
 **Where**: `mantisanalysis/session.py` — `STORE` is an LRU(12).
-When the 13th source is loaded, the oldest is evicted.
 
-**Symptom**: the React frontend keeps a cached `source_id` in
-localStorage. After eviction, any `/api/*/compute|measure|analyze`
-call with that id returns 404, but the React layer has no
-notification channel to flush caches.
-
-**Mitigation today**: reload the page recovers. Users don't often
-load > 12 sources per session in practice.
-
-**Trigger to reconsider**: if users report "my session lost sources"
-frequently, surface 410 Gone on the server + frontend listener that
-drops the cached id.
+**Resolution**: `SessionStore` now tracks evicted ids in a bounded
+FIFO buffer (`_evicted`, cap 64). `server.py::_must_get` returns
+**410 Gone** for known-evicted ids and **404 Not Found** for never-
+existed ids. `web/src/shared.jsx::apiFetch` dispatches a
+`mantis:source-evicted` custom event on 410; `app.jsx` listens,
+clears the cached source + analysis, and auto-loads the sample.
+Regression tests: `tests/unit/test_session_eviction.py` (3 tests).
 
 ---
 
-### R-0010 — ISP reconfigure mid-analysis can strand results  (severity: low)
+### R-0010 — ISP reconfigure mid-analysis can strand results (severity: low — **CLOSED 2026-04-24 via correctness-sweep-v1**)
 
 **Where**: `session.reconfigure_isp(...)` auto-detaches incompatible
-dark frames and re-extracts `raw_frame` → new channel dict. Any
-open analysis modal that was computing against the previous
-channels has stale results.
+dark frames; the React analysis modal cached a run under the
+pre-reconfigure channel dict.
 
-**Symptom**: the modal shows "detection limit ≥ 11.3 lp/mm" based on
-channels that no longer exist.
-
-**Mitigation today**: modal close + re-run is the user recovery.
-
-**Trigger to reconsider**: add an event-channel (SSE / WebSocket
-or poll) so React can invalidate mode state on reconfig.
+**Resolution**: `app.jsx` now derives a stable `ispEpoch` from the
+source's `isp_mode_id` + serialized `isp_config` and clears the
+`analysis` state (the cache behind `<AnalysisModal>`) via `useEffect`
+when the epoch changes. User sees a warning toast: "ISP reconfigured
+— analysis cache cleared; re-run Analyze for fresh results." No
+polling or SSE needed — the reconfigure flow already calls
+`setSource(updated)` which drives the effect.
 
 ---
 
@@ -170,15 +159,12 @@ User to delete manually; not repo-visible.
 
 ---
 
-### R-0004 — Dead code import path: `mantisanalysis/extract.py:split_and_extract` (severity: low)
+### R-0004 — Dead code import path: `mantisanalysis/extract.py:split_and_extract` (severity: low — **CLOSED 2026-04-24 via correctness-sweep-v1**)
 
-**Where**: `mantisanalysis/extract.py:112-117`.
-
-**Symptom**: function is exported but never called. Harmless, but a
-fresh agent can spend time tracing why it exists.
-
-**Mitigation**: covered by ruff (`F841` etc.) in CI. Slated for
-removal when the next math change touches the module.
+**Resolution**: function removed from `extract.py`; the single
+test (`test_split_and_extract_returns_hg_lg_tuple`) removed from
+`tests/unit/test_bayer.py`. No production callers existed; the
+ISP-mode machinery (`extract_by_spec`) subsumed the use case.
 
 ---
 

@@ -55,3 +55,42 @@ def test_fft_estimator_low_for_noise_only() -> None:
     noise = 100.0 + rng.normal(0, 0.5, size=60)
     m, _, _ = measure_modulation_fft(noise, n_cycles_expected=2.5)
     assert 0.0 <= m < 1.0
+
+
+# ---------------------------------------------------------------------------
+# R-0005 regression — 5-point Michelson stays in [0, 1]
+# ---------------------------------------------------------------------------
+
+
+def test_five_point_michelson_clamped_to_unit_interval():
+    """R-0005 regression: aggressive sharpening can push bar / gap
+    means to opposite signs (e.g. mean_gaps < 0 from Unsharp overshoot).
+    The textbook formula then yields Michelson > 1 — unphysical. The
+    clamp in measure_modulation_5pt must keep the return in [0, 1].
+    """
+    import numpy as np
+
+    from mantisanalysis.usaf_groups import measure_modulation_5pt
+
+    # Synthetic profile: 5 samples = 3 bars (positive) + 2 gaps (negative).
+    # (bars_bright=True; gaps negative simulates sharpening overshoot.)
+    profile = np.array([500.0, -300.0, 500.0, -300.0, 500.0])
+    m, _bi, _gi, _bv, _gv, _bright = measure_modulation_5pt(
+        profile, bar_indices=[0, 2, 4], gap_indices=[1, 3],
+    )
+    assert 0.0 <= m <= 1.0, f"Michelson {m} outside [0,1] (R-0005 regression)"
+
+
+def test_five_point_michelson_non_negative_profile_unchanged():
+    """Positive signal still reports the normal Michelson value,
+    not crushed to zero by the clamp."""
+    import numpy as np
+
+    from mantisanalysis.usaf_groups import measure_modulation_5pt
+
+    profile = np.array([500.0, 100.0, 500.0, 100.0, 500.0])  # clean bars
+    m, _, _, _, _, _ = measure_modulation_5pt(
+        profile, bar_indices=[0, 2, 4], gap_indices=[1, 3],
+    )
+    # (500 - 100) / (500 + 100) ≈ 0.6667
+    assert 0.6 < m < 0.7, f"expected ~0.667, got {m}"

@@ -9,7 +9,6 @@ from mantisanalysis.extract import (
     ORIGIN,
     extract_channel,
     extract_rgb_nir,
-    split_and_extract,
     split_dual_gain,
 )
 
@@ -53,12 +52,6 @@ def test_extract_rgb_nir_returns_all_channels_with_quarter_size() -> None:
     assert set(out.keys()) == {"R", "G", "B", "NIR"}
     for ch_img in out.values():
         assert ch_img.shape == (8, 8)
-
-
-def test_split_and_extract_returns_hg_lg_tuple() -> None:
-    full = _synthetic_half(32, 64)  # 32 rows, 64 cols (halves are 32×32)
-    hg, lg = split_and_extract(full)
-    assert set(hg.keys()) == set(lg.keys()) == {"R", "G", "B", "NIR"}
 
 
 def test_unknown_channel_raises() -> None:

@@ -1144,6 +1144,16 @@ def _must_get(source_id: str):
     try:
         return STORE.get(source_id)
     except KeyError:
+        # Distinguish evicted (410 Gone) from never-existed (404 Not Found)
+        # so the frontend can react specifically: 410 → drop cached id +
+        # auto-load sample, 404 → inform user the id was never valid.
+        # See R-0009.
+        if STORE.was_evicted(source_id):
+            raise HTTPException(
+                410,
+                f"source id {source_id!r} was evicted from the LRU; reload the page "
+                "to re-register. See .agent/RISKS.md R-0009.",
+            )
         raise HTTPException(404, f"unknown source id: {source_id}")
 
 

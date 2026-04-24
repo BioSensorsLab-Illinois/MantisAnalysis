@@ -133,11 +133,3 @@ def extract_rgb_nir(half: np.ndarray,
 def make_rgb_image(channels: Dict[str, np.ndarray]) -> np.ndarray:
     """Stack R/G/B channels into an (H,W,3) uint16 image."""
     return np.dstack([channels["R"], channels["G"], channels["B"]])
-
-
-def split_and_extract(frame: np.ndarray,
-                      origin: Tuple[int, int] = ORIGIN
-                      ) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray]]:
-    """Convenience: returns (HG_channels, LG_channels) for one dual-gain frame."""
-    hg, lg = split_dual_gain(frame)
-    return extract_rgb_nir(hg, origin), extract_rgb_nir(lg, origin)

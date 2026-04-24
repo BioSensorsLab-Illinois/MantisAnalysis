@@ -1522,6 +1522,17 @@ const apiFetch = async (path, init = {}) => {
     err.status = r.status;
     err.detail = detail;        // always a string now — safe to interpolate
     err.rawDetail = rawDetail;  // callers that want the structured form still have it
+    // R-0009: 410 Gone means the backing source was LRU-evicted on the
+    // server. Broadcast a window event so SourceCtx (or any listener)
+    // can flush the cached source_id and auto-recover via load-sample.
+    if (r.status === 410 && typeof window !== 'undefined') {
+      try {
+        const sidMatch = path.match(/\/api\/sources\/([a-z0-9]+)/i);
+        window.dispatchEvent(new CustomEvent('mantis:source-evicted', {
+          detail: { path, source_id: sidMatch ? sidMatch[1] : null, detail },
+        }));
+      } catch { /* non-DOM environments (tests) are fine */ }
+    }
     throw err;
   }
   return data;

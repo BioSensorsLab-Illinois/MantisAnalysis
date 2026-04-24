@@ -377,6 +377,11 @@ def measure_modulation_5pt(
     I_hi, I_lo = max(mean_bars, mean_gaps), min(mean_bars, mean_gaps)
     denom = I_hi + I_lo
     m = float((I_hi - I_lo) / denom) if denom > 0 else 0.0
+    # Clamp to physically meaningful [0, 1] to match michelson() and
+    # measure_modulation_fft. Aggressive sharpening (Unsharp mask amount
+    # ≥ 2) can produce negative DN values, which without this clamp
+    # inflates m past 1.0. See R-0005.
+    m = max(0.0, min(1.0, m))
     return m, bi, gi, bar_vals, gap_vals, bool(mean_bars > mean_gaps)
 
 
