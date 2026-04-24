@@ -16,6 +16,13 @@ import { resolve } from 'node:path';
 export default defineConfig({
   root: resolve(import.meta.dirname, 'web'),
   publicDir: false,
+  // FastAPI mounts `web/` at `/` in production, so the built dist
+  // lives at `/dist/`. Emitting asset paths under `/dist/assets/...`
+  // keeps the prod HTML self-consistent when served via the Python
+  // server. Dev mode (vite) serves at `/` so this doesn't matter
+  // there. Phase 3 may revisit if FastAPI starts serving `web/dist/`
+  // as root.
+  base: '/dist/',
   plugins: [react()],
   server: {
     port: 5173,

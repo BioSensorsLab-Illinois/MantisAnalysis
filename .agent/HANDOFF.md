@@ -1,36 +1,53 @@
 # HANDOFF — current live state pointer
 
-Last updated: **2026-04-24**, end of `bundler-migration-v1 Phase 1`
+Last updated: **2026-04-24**, end of `bundler-migration-v1 Phase 2`
 (Claude Opus 4.7, 1M context).
 
 ## Current state of the working tree
 
 - Branch: `main`.
-- Today's shipment (pushed): 6 commits — `isp-modes-v1`,
+- Today's shipment: 7 commits already pushed (`isp-modes-v1`,
   `agentic-workflow-overhaul-v1`, `isp-modes-v1-bugfixes-v1`,
   `harness-mechanical-v1`, upstream `release` merge,
-  `correctness-sweep-v1`. Pending push:
-  `bundler-migration-v1` Phase 1.
+  `correctness-sweep-v1`, `bundler-migration-v1 Phase 1`). Pending
+  push: `bundler-migration-v1` Phase 2.
 
 ## What just shipped
 
+**bundler-migration-v1 Phase 2** — pivoted + closed. Original plan
+called for dual-pathing `shared.jsx` with `export const X` +
+`window.X = X`. Babel-standalone `<script type="text/babel">` can't
+execute ES `export` statements, so that approach would break the
+CDN path. Pivoted to a parallel ES-module subset:
+
+- `web/src/shared-esm.js` (new) — constants (`BRAND`, `IMAGE_DIMS`),
+  hooks (`useViewport`, `useLocalStorageState`, `useDebounced`),
+  API helpers (`API_BASE`, `formatApiDetail`, `apiFetch`,
+  `apiUpload`, `channelPngUrl`), contexts (`SourceCtx`, `useSource`)
+  — the strategic subset with no JSX + no shared-primitive deps.
+  Mirrors `shared.jsx` byte-identically in behavior.
+- `web/src/main.jsx` expanded — `<PhaseTwoShell>` imports from
+  shared-esm, makes live `/api/health` + `/api/sources` calls,
+  renders the real response.
+- `vite.config.js` — `base: '/dist/'` so FastAPI's `web/` static
+  mount serves the built bundle at `/dist/index-vite.html`.
+
+Browser-verified end-to-end: Vite-built page rendered under
+FastAPI, `/api/health` returned `{"ok": true, "version": "0.2.0",
+"sources": 1}`, real source_id shown, no console errors.
+Screenshot captured.
+
+Phase 3 (next session) is the atomic cutover: full shared.jsx
+migration + 6 mode files migrated to ES imports + CDN + Babel
+path deleted.
+
+Previous-ship summary (today, earlier):
+
 **bundler-migration-v1 Phase 1** — closed. Vite + React 18
 toolchain installed alongside the existing CDN + Babel-standalone
-path:
-
-- `package.json` + `vite.config.js` + `web/index-vite.html` +
-  `web/src/main.jsx` (minimal Vite-compatible entry).
-- `npm run build` emits `web/dist/` (30 modules, 143 KB → 46 KB gz,
-  320 ms).
-- `npm run dev` serves on `:5173` with HMR (ready in 136 ms).
-- `scripts/doctor.py` new Node/npm check (WARN-level until Phase 3).
-- `.gitignore` + docs updated.
-
-The real CDN-served app at `web/index.html` + `web/src/*.jsx` is
-byte-identical; the production surface is unchanged. Phases 2–8
-migrate the real app to ES modules + add ESLint/Prettier/
-TypeScript/axe-core/Storybook in follow-up sessions. Full plan in
-`.agent/runs/bundler-migration-v1/ExecPlan.md`.
+path. `package.json` + `vite.config.js` + `web/index-vite.html` +
+minimal `main.jsx`; `scripts/doctor.py` Node/npm check at WARN
+level. Production surface (`web/index.html`) byte-identical.
 
 Previous-ship summary (today, earlier):
 

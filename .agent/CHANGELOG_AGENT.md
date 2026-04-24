@@ -4,6 +4,78 @@ Append-only log of agent sessions. One bullet per session, newest at top.
 
 ---
 
+## 2026-04-24 — bundler-migration-v1 Phase 2 (Claude Opus 4.7, 1M context)
+
+User: "continue" (resume bundler-migration-v1 from Phase 1 close).
+
+Phase 2 pivot: the original plan proposed dual-pathing shared.jsx
+(`export const X` for Vite + `window.X` for CDN). Inspection showed
+this is infeasible under Babel-standalone's `<script type="text/babel">`
+classic-script loading — adding `export` to shared.jsx would break
+the CDN path. Cleanest alternative: **parallel ES-module file** with
+a strategic subset of shared primitives. The CDN path stays
+byte-identical; the Vite path gets real value (live API calls);
+Phase 3 becomes the atomic cutover that lands the original intent.
+
+### What shipped
+
+- `web/src/shared-esm.js` (new) — ES-module subset of shared.jsx
+  primitives with no JSX / no shared-primitive dependencies:
+  constants (`BRAND`, `IMAGE_DIMS`), hooks (`useViewport`,
+  `useLocalStorageState`, `useDebounced`), API helpers
+  (`API_BASE`, `formatApiDetail`, `apiFetch`, `apiUpload`,
+  `channelPngUrl`), and `SourceCtx` / `useSource`. Mirrors
+  shared.jsx byte-identically in behavior so Phase 3 can drop the
+  CDN path without surprises.
+- `web/src/main.jsx` (expanded) — `<PhaseTwoShell>` that imports
+  from shared-esm, calls `/api/health` + `/api/sources`
+  (falling back to `load-sample` on empty), and renders a real
+  live-connected status panel.
+- `vite.config.js` — added `base: '/dist/'` so the built output at
+  `web/dist/assets/...` resolves correctly under FastAPI's `web/`
+  static mount at `/dist/index-vite.html`.
+
+### Build verification
+
+- `npm run build` — 31 modules transformed in 353 ms; `dist/index-vite.html`
+  + `dist/assets/index-vite-FaYWaQRv.js` 147.53 KB (gzip 47.87 KB)
+  + source map 368 KB.
+
+### Browser verification (captured)
+
+At `/dist/index-vite.html` via Preview MCP against the running
+FastAPI server:
+
+- React mounted (1 child under `#root`).
+- H1 "MantisAnalysis · Vite" rendered.
+- Both sections rendered — "Server health" showed
+  `{"ok": true, "version": "0.2.0", "sources": 1}`; "Active
+  source" showed `source_id = 4ebf90addf67` with the synthetic
+  USAF target metadata.
+- No console errors; no failed network requests from the Phase 2
+  shell.
+- Screenshot captured and referenced in Status.md.
+
+### Gates
+
+- ✅ Tier 0 (4 scanners)
+- ✅ Tier 1 (15 modules imported)
+- ✅ Tier 2 (figures)
+- ✅ Tier 3 (FastAPI endpoints)
+- ✅ pytest 107/107 green
+- ✅ `npm run build` clean
+
+The production CDN-served app at `web/index.html` is byte-identical.
+
+### Next
+
+Phase 3 — atomic cutover: full shared.jsx migration + 6 mode files
+migrated to ES-module imports + CDN + Babel-standalone path deleted
++ FastAPI adjusted to serve `web/dist/` (or redirect `/` →
+`/dist/index-vite.html`). Its own session.
+
+---
+
 ## 2026-04-24 — bundler-migration-v1 Phase 1 (Claude Opus 4.7, 1M context)
 
 User picked "deep" scope for the B-0014 Vite decision — full 8-phase
