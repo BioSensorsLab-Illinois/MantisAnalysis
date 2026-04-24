@@ -41,7 +41,25 @@ No Node / npm — the frontend is React 18 + Babel standalone, loaded from CDN b
 
 ## Run
 
-### Double-click (recommended for non-developers)
+### Standalone executable — no Python install required
+
+Pre-built, dependency-free binaries are published from every `main` push and attached to each tag release:
+
+- **Windows** — download `MantisAnalysis-windows-x86_64.zip` from the
+  [Releases page](https://github.com/BioSensorsLab-Illinois/MantisAnalysis/releases),
+  extract, and double-click `MantisAnalysis.exe`.
+- **macOS (Apple Silicon / Intel)** — download the matching
+  `MantisAnalysis-macos-<arch>.tar.gz`, double-click to extract, then right-click
+  `MantisAnalysis.app` → **Open** → **Open** (Gatekeeper's unsigned-binary
+  prompt, once).
+
+A console window shows the local server log; your browser opens to
+`http://127.0.0.1:8765/`. Closing the console stops the server.
+
+Build the executable yourself with `python packaging/build.py` — see
+[`packaging/README.md`](packaging/README.md).
+
+### Double-click with your own Python (developer shortcut)
 
 - **macOS**: double-click [`MantisAnalysis.command`](MantisAnalysis.command) in Finder. If Gatekeeper blocks the first launch, right-click → **Open** once.
 - **Windows**: double-click [`MantisAnalysis.bat`](MantisAnalysis.bat) in Explorer.
@@ -162,9 +180,17 @@ MantisAnalysis/
 │   ├── inspect_recording.py ← one-shot H5 inspector
 │   ├── run_usaf_resolution.py  ← legacy Workflow A CLI
 │   └── smoke_test.py        ← tiered smoke harness
+├── packaging/               ← PyInstaller spec + standalone-exe build
+│   ├── entry.py
+│   ├── mantisanalysis.spec
+│   ├── build.py
+│   ├── smoke_frozen.py
+│   └── README.md
 ├── tests/                   ← unit + headless
 ├── .agent/                  ← agent operating layer
-├── .github/workflows/       ← CI
+├── .github/
+│   ├── workflows/           ← CI (smoke, release, auto-fix)
+│   └── auto-fix/            ← Claude-powered CI repair bot
 ├── pyproject.toml
 ├── README.md
 └── LICENSE                  ← MIT
