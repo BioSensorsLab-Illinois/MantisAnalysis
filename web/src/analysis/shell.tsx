@@ -1,7 +1,8 @@
-// analysis-page-overhaul-v1 Phase 3 — unified <AnalysisShell>.
-// Type-clean. Replaces three near-duplicate modal functions
-// (USAFAnalysisModal / FPNAnalysisModal / DoFAnalysisModal) in
-// analysis.tsx. Mounted under `?newshell=1` for incremental cutover.
+// analysis-page-overhaul-v1 — unified <AnalysisShell>.
+// Type-clean. Replaces the three near-duplicate modal functions retired
+// in Phase 8 final. The only mount path post-cutover; mounted from
+// `app.tsx` with `key={run.mode}` so per-mode hook compositions stay
+// stable across mode swaps (Rules of Hooks).
 //
 // Owns: modal chrome (backdrop + panel + header), filter-bar shared
 // chunks (channels + gain + BgColorPicker), tab rail, tab body w/
@@ -12,8 +13,7 @@
 // + CSV/JSON shape lives inside each ModeSpec.useModeView hook.
 //
 // PNG export goes through `renderChartToPng` (Phase 1 primitive),
-// not `mantisExport` — Phase 3 partially advances Phase 5 since
-// the new shell is born clean.
+// not `mantisExport` (Phase 5 collapsed both paths onto one pipeline).
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as _shared from '../shared.tsx';

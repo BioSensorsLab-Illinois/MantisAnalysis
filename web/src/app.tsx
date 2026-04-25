@@ -411,7 +411,19 @@ const App = () => {
               onPalette={() => setShowPalette(true)}
             />
             {analysis && (
-              <AnalysisShell run={analysis} onClose={() => setAnalysis(null)} onToast={say} />
+              // key={analysis.mode} — analysis-page-overhaul-v1 ultrareview
+              // fix (bug_003): the per-mode `useModeView` hooks have
+              // different hook compositions (DoF adds a useEffect, FPN uses
+              // useLocalStorageState). If `analysis` were ever mutated to a
+              // different mode without first clearing to null, React would
+              // throw "Rendered more/fewer hooks". Keying on mode forces a
+              // fresh remount per mode and makes the contract explicit.
+              <AnalysisShell
+                key={analysis.mode}
+                run={analysis}
+                onClose={() => setAnalysis(null)}
+                onToast={say}
+              />
             )}
             {showHelp && <HelpOverlay mode={mode} onClose={() => setShowHelp(false)} />}
             {showAbout && <AboutOverlay onClose={() => setShowAbout(false)} />}

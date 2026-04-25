@@ -3942,9 +3942,27 @@ const renderChartToPng = async (node, opts = {}) => {
   try {
     const svgs = [...node.querySelectorAll('svg')];
     const canvases = [...node.querySelectorAll('canvas')];
-    // Path 1: single SVG, no canvas → direct serialize.
-    if (svgs.length === 1 && canvases.length === 0) {
-      const { xml, w, h } = _serializeSvg(svgs[0]);
+    // Path-selection — analysis-page-overhaul-v1 ultrareview fix
+    // (merged_bug_009): the previous Path 1 / Path 2 selectors fired when
+    // the *node* contained exactly one SVG (or any canvas), without
+    // considering whether that node ALSO contained HTML chrome (the
+    // `<Chart>` title row + footer). They silently dropped the channel
+    // label, sub label, per-chart stats footer, etc., from per-card
+    // PNGs, and Path 2 sized the output canvas from the visible viewport
+    // (`getBoundingClientRect`), clipping cards scrolled out of an
+    // `overflow: auto` tab body.
+    //
+    // The new selector takes the publication-grade SVG-direct fast path
+    // ONLY when the node IS a bare `<svg>` (`<Chart>` body export passes
+    // the SVG element itself in that case). Otherwise we delegate to
+    // `renderNodeToPng`, which uses `node.scrollWidth`/`scrollHeight`
+    // and dom-to-image, capturing HTML chrome AND scrolled-out content.
+    // dom-to-image walks `<canvas>` elements via `toDataURL`, so the
+    // heatmap composite tabs still rasterize correctly.
+    const tag = (node.tagName || '').toLowerCase();
+    if (tag === 'svg') {
+      // Path 1 — bare SVG, direct serialize. No HTML chrome to capture.
+      const { xml, w, h } = _serializeSvg(node);
       const img = await _loadSvgAsImage(xml);
       const out = document.createElement('canvas');
       out.width = Math.round(w * scale);
@@ -3957,47 +3975,11 @@ const renderChartToPng = async (node, opts = {}) => {
       ctx.drawImage(img, 0, 0, out.width, out.height);
       return await _canvasToPng(out, filename);
     }
-    // Path 2: any canvas present, or multiple SVGs → composite by
-    // bounding-rect position relative to `node`.
-    if (canvases.length > 0 || svgs.length > 1) {
-      const rect = node.getBoundingClientRect();
-      const W = Math.max(1, Math.round(rect.width * scale));
-      const H = Math.max(1, Math.round(rect.height * scale));
-      const out = document.createElement('canvas');
-      out.width = W;
-      out.height = H;
-      const ctx = out.getContext('2d');
-      if (bg) {
-        ctx.fillStyle = bg;
-        ctx.fillRect(0, 0, W, H);
-      }
-      // Paint canvases first (the heatmap raster layer).
-      for (const c of canvases) {
-        const r = c.getBoundingClientRect();
-        const dx = Math.round((r.left - rect.left) * scale);
-        const dy = Math.round((r.top - rect.top) * scale);
-        const dw = Math.max(1, Math.round(r.width * scale));
-        const dh = Math.max(1, Math.round(r.height * scale));
-        try {
-          ctx.drawImage(c, dx, dy, dw, dh);
-        } catch {
-          /* tainted canvas */
-        }
-      }
-      // Paint SVGs on top, in document order.
-      for (const s of svgs) {
-        const r = s.getBoundingClientRect();
-        const dx = Math.round((r.left - rect.left) * scale);
-        const dy = Math.round((r.top - rect.top) * scale);
-        const dw = Math.max(1, Math.round(r.width * scale));
-        const dh = Math.max(1, Math.round(r.height * scale));
-        const { xml } = _serializeSvg(s);
-        const img = await _loadSvgAsImage(xml);
-        ctx.drawImage(img, dx, dy, dw, dh);
-      }
-      return await _canvasToPng(out, filename);
-    }
-    // Path 3: no SVG and no canvas → HTML-only card. Fall back to dom-to-image.
+    // Single-SVG node with no canvas: still delegate to renderNodeToPng
+    // because the node likely has surrounding HTML chrome (`<Chart>` title
+    // row + footer). dom-to-image preserves that chrome.
+    void svgs;
+    void canvases;
     return await renderNodeToPng(node, { filename, style, themeFallbackBg });
   } finally {
     hidden.forEach((n, i) => {

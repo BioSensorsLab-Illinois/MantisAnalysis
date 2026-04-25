@@ -135,7 +135,16 @@ let _plotlyPromise = null;
 const loadPlotly = () => {
   if (!_plotlyPromise) {
     _plotlyPromise = import(/* webpackChunkName: "plotly" */ 'plotly.js-dist-min').then(
-      (mod) => mod.default || mod
+      (mod) => mod.default || mod,
+      // Ultrareview fix (bug_001): if the chunk fetch ever fails (post-
+      // deploy hash mismatch in an old tab, transient network blip, CSP
+      // block), clear the cache so the next mount can retry. Without this
+      // the rejected promise sticks for the page lifetime and every
+      // re-open of the FFT tab is permanently stuck on "Loading…".
+      (err) => {
+        _plotlyPromise = null;
+        throw err;
+      }
     );
   }
   return _plotlyPromise;
@@ -145,11 +154,22 @@ const PlotlyChart = ({ data, layout, config, style }) => {
   const ref = useRefA(null);
   const t = useTheme();
   const [Plotly, setPlotly] = useStateA(null);
+  const [loadErr, setLoadErr] = useStateA(null);
   useEffectA(() => {
     let alive = true;
-    loadPlotly().then((P) => {
-      if (alive) setPlotly(() => P);
-    });
+    setLoadErr(null);
+    loadPlotly().then(
+      (P) => {
+        if (alive) setPlotly(() => P);
+      },
+      (err) => {
+        // Ultrareview fix (bug_001 consumer side): surface the failure
+        // instead of leaking an unhandled promise rejection. Pairs with
+        // the cache-clear in `loadPlotly` so a retry (close + reopen, or
+        // mode switch) refetches the chunk.
+        if (alive) setLoadErr(err instanceof Error ? err.message : String(err));
+      }
+    );
     return () => {
       alive = false;
     };
@@ -207,15 +227,38 @@ const PlotlyChart = ({ data, layout, config, style }) => {
           width: '100%',
           minHeight: 280,
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          color: t.textFaint,
+          gap: 6,
+          color: loadErr ? t.danger : t.textFaint,
           fontSize: 12,
+          textAlign: 'center',
+          padding: 16,
           ...style,
         }}
-        aria-busy="true"
+        aria-busy={loadErr ? 'false' : 'true'}
+        role={loadErr ? 'alert' : undefined}
       >
-        Loading chart engine…
+        {loadErr ? (
+          <>
+            <div>Chart engine failed to load.</div>
+            <div
+              style={{
+                fontSize: 10.5,
+                color: t.textMuted,
+                fontFamily: 'ui-monospace,Menlo,monospace',
+              }}
+            >
+              {loadErr}
+            </div>
+            <div style={{ fontSize: 10.5, color: t.textMuted }}>
+              Close + reopen the analysis modal, or refresh, to retry.
+            </div>
+          </>
+        ) : (
+          'Loading chart engine…'
+        )}
       </div>
     );
   }

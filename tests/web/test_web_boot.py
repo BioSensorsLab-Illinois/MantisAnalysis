@@ -200,19 +200,21 @@ def test_analysis_modal_plotly_renders(web_server: str) -> None:
 
 
 @pytest.mark.web_smoke
-def test_new_shell_boots_under_flag(web_server: str) -> None:
-    """analysis-page-overhaul-v1 Phase 7 — the new `<AnalysisShell>` is
-    mounted when the URL carries `?newshell=1`. This test:
+def test_analysis_shell_module_imports_clean(web_server: str) -> None:
+    """analysis-page-overhaul-v1 — guard the `<AnalysisShell>` module
+    chain (web/src/analysis/{shell,registry,types,filterbar}.tsx +
+    modes/{usaf,fpn,dof}.tsx) against import-time regressions.
 
-      1. Loads the SPA at `?newshell=1`.
-      2. Asserts the page boots cleanly (React mounts; no console errors).
-      3. Asserts the per-mode `useModeView` registry resolves at runtime.
+    `app.tsx` imports `AnalysisShell` at module top, which transitively
+    pulls every mode spec, the registry, and the typed filter primitives.
+    A throw inside any of those modules during evaluation crashes the
+    whole React tree; this test catches that as a non-zero `#root` child
+    count + console-error check after networkidle.
 
-    A full interaction test (open modal → click every tab → assert each
-    chart's per-card PNG button → trigger Esc-to-close) requires picking
-    a line via canvas drag, which is too brittle for headless smoke.
-    Storybook stories cover the visual chrome; this test guards the
-    bootstrap path so a registry-import regression fails CI.
+    Phase 8 final retired the `?newshell` flag (now unconditional);
+    deeper interaction coverage (per-tab navigation, per-card PNG export,
+    Esc-to-close) needs a synthetic-line-pick fixture and is tracked in
+    the deferred follow-ups list in HANDOFF.md.
     """
     pytest.importorskip("playwright")
     from playwright.sync_api import sync_playwright  # noqa: E402
@@ -233,26 +235,20 @@ def test_new_shell_boots_under_flag(web_server: str) -> None:
         )
         page.on("pageerror", lambda exc: errors.append(str(exc)))
 
-        page.goto(f"{web_server}/?newshell=1", wait_until="networkidle", timeout=15_000)
+        page.goto(web_server, wait_until="networkidle", timeout=15_000)
 
-        # React mounted.
+        # React mounted — proves the `AnalysisShell` import chain didn't
+        # throw during module evaluation.
         root_children = page.evaluate(
             "() => document.querySelector('#root')?.children?.length ?? 0"
         )
         assert root_children >= 1
 
-        # Mode-rail buttons render — same boot smoke as the legacy path.
+        # Mode-rail still renders (regression guard equivalent to the
+        # baseline boot test, kept here so a registry-only failure that
+        # crashes only the analysis import surface still trips this test).
         for label in ("USAF", "FPN", "DoF"):
             assert page.get_by_role("button", name=label).first.is_visible()
-
-        # Confirm the flag is honored: query the URL the app sees + verify
-        # AnalysisShell module evaluated (window.location.search check is
-        # the cheapest non-mounted-modal probe; AnalysisShell registers
-        # at module-eval time, so a successful boot proves the import).
-        flag_seen = page.evaluate(
-            "() => /[?&]newshell=1\\b/.test(window.location.search)"
-        )
-        assert flag_seen, "`?newshell=1` flag not found in window URL"
 
         page.wait_for_timeout(1500)
         browser.close()
@@ -262,4 +258,6 @@ def test_new_shell_boots_under_flag(web_server: str) -> None:
         if "in-browser Babel transformer" not in e
         and "React DevTools" not in e
     ]
-    assert not errors, f"console errors during ?newshell=1 boot: {errors}"
+    assert not errors, (
+        f"console errors during AnalysisShell import-chain boot: {errors}"
+    )
