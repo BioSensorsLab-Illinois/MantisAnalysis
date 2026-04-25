@@ -8,12 +8,23 @@ see `[project.optional-dependencies].web-smoke` in pyproject.toml).
 
 from __future__ import annotations
 
+import os
 import socket
 import threading
 import time
 from typing import Iterator
 
 import pytest
+
+# recording-inspection-implementation-v1 risk-skeptic P1-I:
+# The /api/playback/recordings/load-sample (and dark / stream) test-only
+# routes are gated by MANTIS_PLAYBACK_TEST=1, read at FastAPI app
+# construction time. The conftest module imports
+# `mantisanalysis.server` once per session — the env var must be set
+# *before* that import or the test routes never mount. Setting it here
+# (before any fixture body runs) ensures every web_smoke test file
+# sees the gate as enabled.
+os.environ.setdefault("MANTIS_PLAYBACK_TEST", "1")
 
 
 def _free_port() -> int:

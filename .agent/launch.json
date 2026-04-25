@@ -5,7 +5,8 @@
       "name": "mantisanalysis",
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "mantisanalysis", "--port", "8773", "--no-browser"],
-      "port": 8773
+      "port": 8773,
+      "env": { "MANTIS_PLAYBACK_TEST": "1" }
     },
     {
       "name": "storybook",

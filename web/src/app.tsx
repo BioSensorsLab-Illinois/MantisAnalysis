@@ -33,6 +33,7 @@ import {
 } from './shared.tsx';
 import { USAFMode } from './usaf.tsx';
 import { FPNMode } from './fpn.tsx';
+import { PlaybackMode, playbackEnabled } from './playback';
 import { DoFMode } from './dof.tsx';
 import { AnalysisShell } from './analysis/shell';
 import { ISPSettingsWindow } from './isp_settings.tsx';
@@ -157,6 +158,12 @@ const App = () => {
   // shared.jsx::apiFetch when the server returns 410 for an evicted id.
   useEffectApp(() => {
     const onEvicted = async (ev) => {
+      // recording-inspection-implementation-v1 risk-skeptic P0-B + P3-W:
+      // single canonical event with `detail.kind`. USAF/FPN/DoF only
+      // recover from `source` evictions; Playback (`stream`/`recording`/
+      // `dark`/`job` kinds) is handled by the Playback reducer.
+      const kind = ev.detail?.kind ?? 'source';
+      if (kind !== 'source') return;
       const sid = ev.detail?.source_id;
       if (sid && source && sid !== source.source_id) return; // not ours
       say('Source evicted from server cache — reloading sample…', 'warning');
@@ -220,6 +227,10 @@ const App = () => {
       } else if (e.key === '1') setMode('usaf');
       else if (e.key === '2') setMode('fpn');
       else if (e.key === '3') setMode('dof');
+      // recording-inspection-implementation-v1 M5 — Playback rail tile
+      // is feature-flag-gated (mantis/playback/enabled = '1'). Default
+      // OFF until M11 close per risk-skeptic P1-K.
+      else if (e.key === '4' && playbackEnabled()) setMode('play');
       // ISP settings window — uppercase `I` (shift+i) avoids clashing with
       // common text-insert patterns elsewhere in the app.
       else if (e.key === 'I') {
@@ -281,6 +292,19 @@ const App = () => {
         icon: 'dof',
         run: () => setMode('dof'),
       },
+      // recording-inspection-implementation-v1 M5 — Playback palette entry,
+      // flag-gated.
+      ...(playbackEnabled()
+        ? [
+            {
+              id: 'mode.play',
+              label: 'Switch to Playback (Recording Inspection)',
+              kbd: '4',
+              icon: 'film',
+              run: () => setMode('play'),
+            },
+          ]
+        : []),
       {
         id: 'isp.settings',
         label: 'ISP settings…',
@@ -401,6 +425,12 @@ const App = () => {
                     onOpenFile={() => fileInputRef.current?.click()}
                   />
                 )}
+                {/* recording-inspection-implementation-v1 M5 — Playback
+                    has its own PlaybackStore, so it does NOT gate on
+                    `source`. Rail tile + key `4` are flag-gated. */}
+                {playbackEnabled() && mode === 'play' && (
+                  <PlaybackMode say={say} onOpenFile={() => fileInputRef.current?.click()} />
+                )}
               </div>
             </div>
             <StatusBar
@@ -520,6 +550,11 @@ const ModeRail = ({ mode, setMode }) => {
     { id: 'usaf', label: 'USAF', title: 'USAF Resolution (1)', icon: 'usaf' },
     { id: 'fpn', label: 'FPN', title: 'FPN Analysis (2)', icon: 'fpn' },
     { id: 'dof', label: 'DoF', title: 'Depth of Field (3)', icon: 'dof' },
+    // recording-inspection-implementation-v1 M5 — gated behind
+    // mantis/playback/enabled localStorage flag (default OFF until M11).
+    ...(playbackEnabled()
+      ? [{ id: 'play', label: 'Play', title: 'Playback / Recording Inspection (4)', icon: 'film' }]
+      : []),
   ];
   return (
     <div
@@ -541,6 +576,7 @@ const ModeRail = ({ mode, setMode }) => {
             key={m.id}
             onClick={() => setMode(m.id)}
             title={m.title}
+            data-mode-tile={m.id}
             style={{
               width: 42,
               height: 42,
