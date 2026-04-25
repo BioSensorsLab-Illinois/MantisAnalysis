@@ -22,6 +22,14 @@ Tracked under `.agent/runs/bundler-migration-v1/`. 8-phase plan:
   3. `npm run lint` (0 errors, 224 warnings), `npm run format`,
   `scripts/check_frontend_lint.py` as a Tier 0 scanner, doctor
   check for config presence, pre-commit hook documented.
+- **Phase 5a** (CLOSED 2026-04-24) — TypeScript infrastructure +
+  seed file. `tsconfig.json` (allowJs + checkJs:false + strict),
+  `typescript-eslint` plugin, `tsc --noEmit` wired into the Tier 0
+  scanner, `npm run typecheck` script, `main.jsx` → `main.tsx`
+  seed (proves the pipeline).
+- **Phase 5b** — ONGOING, multi-session. File migrations
+  (shared.jsx first). Tracked in
+  `.agent/runs/bundler-migration-v1/ExecPlan.md`.
 - Phase 5 — gradual TypeScript (`.jsx` and `.tsx` side-by-side).
 - Phase 6 — axe-core integration under `pytest -m web_smoke`.
 - Phase 7 — Storybook with component stories.

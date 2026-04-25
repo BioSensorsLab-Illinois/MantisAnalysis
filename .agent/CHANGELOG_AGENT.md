@@ -4,6 +4,79 @@ Append-only log of agent sessions. One bullet per session, newest at top.
 
 ---
 
+## 2026-04-24 — bundler-migration-v1 Phase 5a (Claude Opus 4.7, 1M context)
+
+User: "continue" (resume bundler-migration-v1 after Phase 4 close).
+
+Phase 5a is the TypeScript infrastructure pass: install TS + types +
+typescript-eslint, write `tsconfig.json` with `allowJs: true` +
+`checkJs: false` so existing `.jsx` stays unchecked, extend the ESLint
+config to lint `.ts`/`.tsx`, wire `tsc --noEmit` into the Tier 0 gate,
+and migrate a single seed file (`main.jsx` → `main.tsx`) to prove the
+pipeline end-to-end. Actual file-by-file migrations (shared.jsx etc.)
+are Phase 5b, a multi-session follow-up.
+
+### What shipped
+
+- `package.json` — 5 new devDeps: `typescript@^5`,
+  `@types/react@^18`, `@types/react-dom@^18`, `@types/node@^20`,
+  `typescript-eslint@^8`. New script: `typecheck`.
+- `tsconfig.json` — `allowJs: true`, `checkJs: false`, `strict: true`,
+  `jsx: react-jsx`, `module: ESNext`, `moduleResolution: bundler`,
+  `noEmit: true`. Scoped to `web/src/**/*` + `vite.config.js`.
+- `eslint.config.js` — imports `typescript-eslint` and spreads
+  `tseslint.configs.recommended`. Extended the React block's `files`
+  glob to `web/src/**/*.{js,jsx,ts,tsx}`. Demoted
+  `@typescript-eslint/no-unused-vars` to warn (matches the core rule)
+  and `@typescript-eslint/no-unused-expressions` with
+  `{ allowShortCircuit, allowTernary }`.
+- `scripts/check_frontend_lint.py` — runs `tsc --noEmit` after
+  prettier + eslint when both the `tsc` binary and `tsconfig.json`
+  exist. Pre-Phase-5 checkouts skip silently.
+- `scripts/doctor.py` — updated `check_frontend_lint_config` to also
+  verify `tsconfig.json` + `typescript` + `typescript-eslint` +
+  `@types/react` devDeps.
+- `web/src/main.jsx` → `web/src/main.tsx` (seed migration). Zero
+  logic change — proves the pipeline. `web/index.html` now points
+  the entry script at `/src/main.tsx`.
+- `.agent/manifest.yaml` — module entry updated.
+- ExecPlan.md — Phase 5 split into 5a (shipped) + 5b (ongoing).
+  File-migration order documented.
+
+### Verification
+
+- Tier 0 — 5 scanners PASS (`check_frontend_lint` now runs
+  prettier + eslint + tsc)
+- Tier 1 — 15 modules PASS
+- Tier 2 — headless figures PASS
+- Tier 3 — FastAPI endpoints PASS
+- pytest — 108/108 (3/3 web_smoke — the root-page boot test
+  exercises the .tsx entry)
+- `npm run typecheck` — 0 errors
+- `npm run lint` — 0 errors, 390 warnings (224 Phase 4 + ~166 new
+  `@typescript-eslint/no-unused-vars` warnings on the existing
+  `.jsx` tree; not blocking)
+- `npm run build` — 41 modules, 5.35 MB (unchanged)
+
+### Honesty
+
+- **Only one file migrated this session** — `main.tsx` is a
+  21-line entry point. The 7 real `.jsx` files (shared, app, usaf,
+  fpn, dof, analysis, isp_settings) stay `.jsx` and are NOT
+  type-checked (checkJs: false is intentional — strict-mode TS on
+  15 000 lines of untyped React would be multi-session noise).
+- **Phase 5b is ongoing** — a dedicated session per major file.
+  The natural first one is `shared.jsx` → `shared.tsx`; the hub's
+  typed signatures propagate outward.
+- **Warnings count went from 224 → 390** because typescript-eslint
+  adds its own `no-unused-vars` that fires on .jsx too. Tier 0
+  gate is still errors-only, so this is tracked not blocking.
+- **No type-aware ESLint rules enabled** — `recommendedTypeChecked`
+  is 5×-10× slower and the existing tree has no `.tsx` to benefit
+  from it. Promote once Phase 5b has typed shared.jsx.
+
+---
+
 ## 2026-04-24 — bundler-migration-v1 Phase 4 (Claude Opus 4.7, 1M context)
 
 User: "continue phase 4" (resume bundler-migration-v1 after Phase 3

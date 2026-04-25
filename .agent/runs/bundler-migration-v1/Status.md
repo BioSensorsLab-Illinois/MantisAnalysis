@@ -85,11 +85,69 @@ after the Phase 3 commit was pushed. Findings + dispositions:
 - [x] Phase 1 — infrastructure (shipped 2026-04-24, commit e5bab0e)
 - [x] Phase 2 — parallel `shared-esm.js` (shipped 2026-04-24)
 - [x] Phase 3 — atomic cutover (2026-04-24, commits cb3cbaf + febb365)
-- [x] Phase 4 — ESLint + Prettier (**this commit**)
-- [ ] Phase 5 — TypeScript gradual migration
+- [x] Phase 4 — ESLint + Prettier (2026-04-24, commit cd560d7)
+- [x] Phase 5a — TypeScript infrastructure + seed (**this commit**)
+- [ ] Phase 5b — TypeScript file migrations (ONGOING, multi-session)
 - [ ] Phase 6 — axe-core integration
 - [ ] Phase 7 — Storybook + initial stories
 - [ ] Phase 8 — docs + close
+
+## Phase 5a shipment (2026-04-24)
+
+- `package.json` — 5 new devDeps: `typescript@^5`, `@types/react@^18`,
+  `@types/react-dom@^18`, `@types/node@^20`, `typescript-eslint@^8`.
+  New script: `typecheck` (`tsc --noEmit`).
+- `tsconfig.json` — `allowJs: true`, `checkJs: false`, `strict: true`,
+  `jsx: react-jsx`, `moduleResolution: bundler`, `noEmit: true`.
+  Existing `.jsx` files compile unchanged; only `.ts`/`.tsx` are
+  strictly type-checked.
+- `eslint.config.js` — added `typescript-eslint` to the flat-config
+  array. Targets extended to `web/src/**/*.{js,jsx,ts,tsx}`. Demoted
+  `@typescript-eslint/no-unused-vars` to warn (matching the core
+  rule) and `@typescript-eslint/no-unused-expressions` with
+  `allowShortCircuit`/`allowTernary` to tolerate React conditional-
+  render patterns.
+- `scripts/check_frontend_lint.py` — runs `tsc --noEmit` after
+  prettier + eslint, gated on the tsc binary + `tsconfig.json`
+  existing (degrades gracefully pre-Phase-5).
+- `scripts/doctor.py::check_frontend_lint_config` — verifies
+  `tsconfig.json` + `typescript` + `typescript-eslint` + `@types/react`
+  devDeps alongside ESLint + Prettier.
+- **Seed file**: `web/src/main.jsx` → `web/src/main.tsx`. Zero logic
+  change — proves tsc + typescript-eslint + Vite esbuild + Playwright
+  all green on a `.tsx` file. `web/index.html` updated to point the
+  entry script at `/src/main.tsx`.
+- `.agent/manifest.yaml` — module entry updated from `main.jsx` →
+  `main.tsx`.
+
+## Phase 5a final verification (2026-04-24)
+
+- [x] Tier 0 — 5 scanners PASS (new `tsc --noEmit` inside check_frontend_lint)
+- [x] Tier 1 — PASS (15 modules)
+- [x] Tier 2 — PASS (headless figures)
+- [x] Tier 3 — PASS (FastAPI endpoints)
+- [x] pytest — 108/108 green (3/3 web_smoke)
+- [x] `npm run typecheck` — 0 errors
+- [x] `npm run lint` — 0 errors, 390 warnings (224 from Phase 4 +
+      ~166 new typescript-eslint/no-unused-vars warnings on the
+      existing .jsx tree; both ignored at Tier 0).
+- [x] `npm run format:check` — clean
+- [x] `npm run build` — 41 modules, 5.35 MB (unchanged)
+
+## Phase 5b plan (multi-session, not ship-blocking)
+
+File-migration order:
+1. `shared.jsx` → `shared.tsx` — 2800-line hub. Biggest.
+2. `isp_settings.jsx` — smallest, self-contained.
+3. `analysis.jsx` — Plotly-heavy, large.
+4. `usaf.jsx` / `fpn.jsx` / `dof.jsx` — one at a time.
+5. `app.jsx` — last.
+6. Drop `allowJs` + `checkJs: false`; promote ESLint TS rules to
+   `typescript-eslint/recommendedTypeChecked`.
+
+Each file gets a dedicated session or small batch. `main.tsx` already
+proves the pipeline; each migration is a typed rewrite of the
+primitives' signatures, not a logic change.
 
 ## Phase 4 shipment (2026-04-24)
 

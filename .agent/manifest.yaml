@@ -54,9 +54,9 @@ major_modules:
   - path: mantisanalysis/resolution.py
     role: "LEGACY auto-strip FFT MTF (kept per D-0004)"
   - path: web/index.html
-    role: "React 18 SPA entry — Vite root; loads /src/main.jsx as ES module"
-  - path: web/src/main.jsx
-    role: "Vite entry — mounts <App /> via createRoot"
+    role: "React 18 SPA entry — Vite root; loads /src/main.tsx as ES module"
+  - path: web/src/main.tsx
+    role: "Vite entry — mounts <App /> via createRoot (TypeScript seed file, bundler-migration-v1 Phase 5)"
   - path: web/src/shared.jsx
     role: "BRAND, THEMES, icons, hooks, chart primitives (Chart, Page, useChartGeom, tokens, renderChartToPng)"
   - path: web/src/app.jsx

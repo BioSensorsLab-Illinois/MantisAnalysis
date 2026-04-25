@@ -11,8 +11,9 @@
     "clean": "rm -rf web/dist node_modules/.vite",
     "lint": "eslint web/src",
     "lint:fix": "eslint web/src --fix",
-    "format": "prettier --write \"web/src/**/*.{js,jsx,json,css,html}\"",
-    "format:check": "prettier --check \"web/src/**/*.{js,jsx,json,css,html}\""
+    "format": "prettier --write \"web/src/**/*.{js,jsx,ts,tsx,json,css,html}\"",
+    "format:check": "prettier --check \"web/src/**/*.{js,jsx,ts,tsx,json,css,html}\"",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "dom-to-image-more": "^3.7.2",
@@ -22,6 +23,9 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@types/node": "^20.19.39",
+    "@types/react": "^18.3.28",
+    "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^4.3.4",
     "eslint": "^9.39.4",
     "eslint-config-prettier": "^9.1.2",
@@ -29,6 +33,8 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.26",
     "prettier": "^3.8.3",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.59.0",
     "vite": "^5.4.11"
   },
   "engines": {

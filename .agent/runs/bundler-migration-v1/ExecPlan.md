@@ -133,13 +133,49 @@ returns to the Phase 2 dual-path state.
 
 ### Phase 5 — Gradual TypeScript migration
 
-- `tsconfig.json` with `allowJs: true`, `checkJs: false`, strict
-  mode.
-- Migrate `shared.jsx` → `shared.tsx` first (typed primitives +
-  hooks make the whole tree more grounded).
-- Follow with mode files one at a time; `.jsx` and `.tsx`
-  co-exist during transition.
-- Update `tests/web/` to use TypeScript-aware Playwright types.
+Split into 5a (infrastructure — shipped 2026-04-24) + 5b (file
+migrations — multi-session, ongoing).
+
+#### Phase 5a — infrastructure + seed (CLOSED 2026-04-24)
+
+- [x] `tsconfig.json` with `allowJs: true`, `checkJs: false`,
+      `strict: true`, `jsx: react-jsx`, `moduleResolution: bundler`,
+      `noEmit: true`. Existing `.jsx` files compile unchanged;
+      only `.ts`/`.tsx` are strictly type-checked.
+- [x] Installed devDeps: `typescript@^5`, `@types/react@^18`,
+      `@types/react-dom@^18`, `@types/node@^20`,
+      `typescript-eslint@^8`.
+- [x] Wired `typescript-eslint` into `eslint.config.js` so both
+      `.jsx` and `.tsx` share the React/Hooks rule set. Demoted
+      `@typescript-eslint/no-unused-vars` to warn to match the
+      core rule.
+- [x] New npm script: `typecheck` (`tsc --noEmit`).
+- [x] `scripts/check_frontend_lint.py` runs `tsc --noEmit` when
+      `node_modules/.bin/tsc` + `tsconfig.json` are present —
+      Tier 0 gate extended.
+- [x] `scripts/doctor.py::check_frontend_lint_config` now also
+      verifies `tsconfig.json` + `typescript` + `typescript-eslint`
+      + `@types/react` are present.
+- [x] **Seed file**: `web/src/main.jsx` → `web/src/main.tsx`.
+      Zero logic change; proves the pipeline end-to-end
+      (tsc + eslint + Vite esbuild + Playwright all green).
+
+#### Phase 5b — file migrations (multi-session, ONGOING)
+
+Strategy: move files from the dependency hub outward.
+
+- [ ] `shared.jsx` → `shared.tsx` — 2800-line hub with ~85 exports;
+      likely 2-3 sessions. Type every primitive + hook, pay down
+      the worst `exhaustive-deps` and `any`-propagating cases
+      as we encounter them.
+- [ ] `isp_settings.jsx` → `.tsx` — smaller, self-contained.
+- [ ] `analysis.jsx` → `.tsx` — big, Plotly-heavy.
+- [ ] `usaf.jsx` / `fpn.jsx` / `dof.jsx` → `.tsx` — one at a time.
+- [ ] `app.jsx` → `.tsx` — last, once every import is typed.
+- [ ] Cleanup: drop `allowJs` + `checkJs: false` once zero `.jsx`
+      remain. Promote lint rule set to
+      `typescript-eslint/recommendedTypeChecked`.
+- [ ] Update `tests/web/` to use TypeScript-aware Playwright types.
 
 ### Phase 6 — axe-core integration
 

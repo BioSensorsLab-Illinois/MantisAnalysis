@@ -44,8 +44,11 @@ roles, see [`agents/`](agents/).
 | **Vite + @vitejs/plugin-react** | ✅ | `package.json`, `vite.config.js` | Bundler. `npm run build` emits `web/dist/`. Vite 5.4; Node ≥ 20 required. The CDN + Babel-standalone path was retired in `bundler-migration-v1` Phase 3 (2026-04-24). |
 | **Plotly.js** | ✅ | `analysis.jsx` (`plotly.js-dist-min` npm) | Native vector charts in the analysis modal. |
 | **dom-to-image-more** | ✅ | `shared.jsx` + `analysis.jsx` (npm) | Export path: rasterizes inline SVG/HTML cards to PNG. |
-| **ESLint 9 (flat config)** | ✅ | `eslint.config.js`, `npm run lint` | React + React Hooks rules; errors block Tier 0, warnings tracked. `bundler-migration-v1` Phase 4 (2026-04-24). |
+| **ESLint 9 (flat config)** | ✅ | `eslint.config.js`, `npm run lint` | React + React Hooks + typescript-eslint. Errors block Tier 0, warnings tracked. Phase 4 (2026-04-24). |
 | **Prettier 3** | ✅ | `.prettierrc.json`, `npm run format[:check]` | Auto-format `web/src/` at 100-col, single quotes, es5 trailing commas. Phase 4 (2026-04-24). |
+| **TypeScript 5** | ✅ | `tsconfig.json`, `npm run typecheck` | Gradual migration (Phase 5a infra shipped 2026-04-24; Phase 5b file migrations ongoing). `main.tsx` is the seed; all other files still `.jsx` under `allowJs: true`. |
+| **@types/react, @types/react-dom, @types/node** | ✅ | `package.json` devDeps | TypeScript ambient types for React 18 + Node. |
+| **typescript-eslint** | ✅ | `eslint.config.js` | Adds TS-aware parsing + rules for `.ts`/`.tsx`. `recommendedTypeChecked` gated on meaningful Phase 5b progress. |
 | **Storybook + Chromatic** | 🔵 | — | Phase 7 of `bundler-migration-v1`. Component-level docs + interaction tests + a11y + visual regression. |
 | **React DevTools** | 🟡 | Browser extension (manual install) | Used for performance review. |
 

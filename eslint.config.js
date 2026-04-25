@@ -1,10 +1,14 @@
-// eslint.config.js — bundler-migration-v1 Phase 4.
+// eslint.config.js — bundler-migration-v1 Phase 4 (+ Phase 5 additions).
 //
-// ESLint 9 flat config. Targets web/src/**/*.jsx under Vite. Keeps rules
-// tight enough to catch real bugs (react-hooks/rules-of-hooks, no-undef,
-// no-unused-vars) but lenient on stylistic concerns — Prettier handles
-// style, and the existing 5000-line files pre-date any linter, so
+// ESLint 9 flat config. Targets web/src/**/*.{js,jsx,ts,tsx} under Vite.
+// Keeps rules tight enough to catch real bugs (react-hooks/rules-of-hooks,
+// no-undef, no-unused-vars) but lenient on stylistic concerns — Prettier
+// handles style, and the existing 5000-line files pre-date any linter, so
 // cosmetic warnings would drown out the signal.
+//
+// Phase 5 (2026-04-24) added typescript-eslint for .ts/.tsx. TS files
+// use the typescript-eslint parser; JS files keep the default parser.
+// Both share the same React / Hooks / Refresh rule set.
 //
 // To run:  npx eslint web/src/
 // Wire in: npm run lint  (see package.json scripts).
@@ -13,6 +17,7 @@ import reactPlugin from 'eslint-plugin-react';
 import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 import prettierConfig from 'eslint-config-prettier';
+import tseslint from 'typescript-eslint';
 
 export default [
   // Ignore build artifacts, dependencies, and output trees that aren't
@@ -29,9 +34,17 @@ export default [
 
   js.configs.recommended,
 
+  // typescript-eslint recommended — applies to .ts/.tsx only, adds a
+  // parser + a set of TS-aware rules. Type-aware rules (requires the
+  // whole-program type checker) are NOT enabled yet — they're 5×-10×
+  // slower and the tree has no .tsx files to benefit from them today.
+  // Promote to `recommendedTypeChecked` once a meaningful fraction of
+  // the tree is .tsx.
+  ...tseslint.configs.recommended,
+
   // React flat-config — plugin ships its own, but we customize below.
   {
-    files: ['web/src/**/*.{js,jsx}'],
+    files: ['web/src/**/*.{js,jsx,ts,tsx}'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',
@@ -128,6 +141,24 @@ export default [
           varsIgnorePattern: '^_',
           caughtErrors: 'none',
         },
+      ],
+      // typescript-eslint ships its own no-unused-vars that runs as an
+      // error by default. Demote to warn + match core's ignore pattern
+      // so .ts/.tsx files behave like .js/.jsx. Also turn OFF core's
+      // copy on TS files so we don't double-report.
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrors: 'none',
+        },
+      ],
+      // Allow `a && b()` / `a ? b() : c()` expression statements — common
+      // in React conditional-render code.
+      '@typescript-eslint/no-unused-expressions': [
+        'warn',
+        { allowShortCircuit: true, allowTernary: true },
       ],
       // Reassigning the iteration variable in a for-of is rare; flag it
       // but don't break on it.

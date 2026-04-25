@@ -1,6 +1,6 @@
 # HANDOFF — current live state pointer
 
-Last updated: **2026-04-24**, end of `bundler-migration-v1 Phase 4`
+Last updated: **2026-04-24**, end of `bundler-migration-v1 Phase 5a`
 (Claude Opus 4.7, 1M context).
 
 ## Current state of the working tree
@@ -15,33 +15,36 @@ Last updated: **2026-04-24**, end of `bundler-migration-v1 Phase 4`
 
 ## What just shipped
 
-**bundler-migration-v1 Phase 4 — ESLint + Prettier** (this session;
-push pending).
+**bundler-migration-v1 Phase 5a — TypeScript infrastructure + seed**
+(this session; push pending).
 
-- `eslint.config.js` (flat config) + `.prettierrc.json` +
-  `.prettierignore`.
-- `package.json` — 7 new devDeps (eslint, @eslint/js, 3 react
-  plugins, prettier, eslint-config-prettier); 4 new scripts
-  (`lint`, `lint:fix`, `format`, `format:check`).
-- Prettier-formatted every `.jsx` under `web/src/` (whitespace-
-  only; build + tests stay green).
-- Fixed 9 real ESLint errors caught by the first pass — notably
-  `analysis.jsx::DetectionHeatmapTab` rules-of-hooks violation +
-  `MarkerShape`'s `style` variable bound to no scope.
-- `scripts/check_frontend_lint.py` — new Tier 0 scanner that runs
-  prettier-check + eslint; degrades gracefully when `node_modules/`
-  is absent so Python-only checkouts still pass.
-- `scripts/doctor.py` — new "Frontend lint/format" row.
-- `.agent/TOOLS_AND_SKILLS.md` — ESLint + Prettier added to the
-  tooling matrix; pre-commit config proposal updated.
-- `.agent/runs/bundler-migration-v1/reviews/` — checked in Phase 3
-  risk-skeptic + frontend-react-engineer review findings as
-  required by `check_reviewer_evidence`.
+- `package.json` — 5 new devDeps: `typescript@^5`, `@types/react@^18`,
+  `@types/react-dom@^18`, `@types/node@^20`, `typescript-eslint@^8`.
+  New script: `typecheck` (`tsc --noEmit`).
+- `tsconfig.json` — `allowJs: true` + `checkJs: false` so every
+  existing `.jsx` stays unchecked; `strict: true` + `jsx: react-jsx`
+  for new `.ts`/`.tsx`. `noEmit: true` — Vite still does transpile.
+- `eslint.config.js` — typescript-eslint flat-config merged in;
+  globs extended to include `.ts`/`.tsx`; tsdef's `no-unused-vars`
+  demoted to warn to match the core rule.
+- `scripts/check_frontend_lint.py` — now also runs `tsc --noEmit`
+  when a tsconfig exists. Tier 0 gate stays green.
+- `scripts/doctor.py::check_frontend_lint_config` — expanded to
+  verify `tsconfig.json` + `typescript` + `typescript-eslint` +
+  `@types/react`.
+- **Seed file**: `web/src/main.jsx` → `web/src/main.tsx`. Zero
+  logic change. `web/index.html` entry script updated.
+- `.agent/manifest.yaml`, BACKLOG, TOOLS_AND_SKILLS, ExecPlan,
+  Status — all updated to mark 5a closed + Phase 5b as the
+  multi-session follow-up for shared/usaf/fpn/dof/analysis/app/
+  isp_settings migrations.
 
-**Previous session** (already pushed):
-bundler-migration-v1 Phase 3 atomic cutover (`cb3cbaf`) + Phase 3
-follow-up (`febb365`) — ES modules across the board, FastAPI serves
-`web/dist/`, PyInstaller pipeline rebuilt, docs swept.
+**Previous sessions** (already pushed):
+
+- `cd560d7` — bundler-migration-v1 Phase 4 (ESLint + Prettier).
+- `febb365` — Phase 3 follow-up fixes (isp_settings useSource,
+  PyInstaller pipeline, 10 `.agent/` docs refreshed).
+- `cb3cbaf` — Phase 3 atomic CDN→ESM cutover.
 
 Phase 3 itself (already pushed):
 
@@ -95,7 +98,7 @@ Follow-up cleanup this session (pending push):
 ## Smoke status, last verified 2026-04-24
 
 - ✅ Tier 0 — 5 scanners pass (docs, skills, stopping-criteria,
-  reviewer-evidence, frontend-lint [new in Phase 4])
+  reviewer-evidence, frontend-lint — now with prettier + eslint + tsc)
 - ✅ Tier 1 — PASS (15 modules imported)
 - ✅ Tier 2 — PASS (figures written)
 - ✅ Tier 3 — PASS (FastAPI endpoints exercised)
@@ -126,10 +129,12 @@ python -m mantisanalysis --no-browser --port 8773
 
 ## Active initiative
 
-**`bundler-migration-v1`** — Phases 1, 2, 3, **4** closed. Phases
-5–8 remain (multi-session):
+**`bundler-migration-v1`** — Phases 1, 2, 3, 4, **5a** closed.
+Phases 5b–8 remain (multi-session):
 
-- Phase 5 — TypeScript gradual migration (`.jsx` and `.tsx`)
+- Phase 5b — TypeScript FILE migrations (shared.jsx first, then
+  isp_settings, analysis, usaf, fpn, dof, app). Each is a
+  dedicated session. Pipeline already proven by the `main.tsx` seed.
 - Phase 6 — axe-core integration under `pytest -m web_smoke`
 - Phase 7 — Storybook with component stories
 - Phase 8 — docs + close
@@ -141,26 +146,25 @@ be built ES-modules-native from the start.
 
 ## Where to pick up next
 
-1. **bundler-migration-v1 Phase 5** — TypeScript gradual migration.
-   Start with `tsconfig.json` (`allowJs: true`, `checkJs: false`)
-   then move `shared.jsx` → `shared.tsx` first (it's the dependency
-   hub).
-2. **Warning-cleanup pass** — 224 ESLint warnings to triage:
-   `react-refresh/only-export-components` dominates (cleaning
-   requires splitting shared.jsx primitives from hook exports),
-   plus a dozen `react-hooks/exhaustive-deps` + a few
-   `no-unused-vars`. Pair well with Phase 5.
+1. **bundler-migration-v1 Phase 5b** — migrate `shared.jsx` →
+   `shared.tsx`. The hub has ~85 exports; typing them propagates
+   type info outward to every consumer. Budget: 1-3 sessions.
+2. **Warning-cleanup pass** — 390 ESLint warnings to triage
+   (224 Phase 4 + ~166 Phase 5 typescript-eslint). Many dissolve
+   automatically once files migrate to .tsx (strict mode drops
+   `no-unused-vars` noise that currently fires on .jsx).
 3. **analysis-page-overhaul-v1 Phase 3** — paused; unified
    `<AnalysisModal>` shell refactor. Now safe to do ES-modules-
    native + typed.
 4. **H5 recording-inspection feature** — originally-deferred
    product work; now safe under the hardened harness + Vite +
-   linter stack. Open via `skills/execplan-large-feature/SKILL.md`.
+   linter + typechecker stack. Open via
+   `skills/execplan-large-feature/SKILL.md`.
 
 ## Deferred with explicit rationale
 
-- **B-0014** — Vite bundler migration. **Phases 1–4 SHIPPED**
-  (2026-04-24). Phases 5–8 upcoming.
+- **B-0014** — Vite bundler migration. **Phases 1–4 + 5a SHIPPED**
+  (2026-04-24). Phase 5b (file migrations) + 6–8 upcoming.
 - **B-0015 extended** — per-mode Playwright interaction suites
   (USAF / FPN / DoF analysis modals). Substantial; depends on
   analysis-page-overhaul-v1 Phase 3 landing.
