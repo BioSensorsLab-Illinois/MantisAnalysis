@@ -19,37 +19,56 @@ user consent (AGENT_RULES rule 16).
 
 ## Current milestone
 
-**M0 — Audit + plan.** Plan documents authored; awaiting user review
-before `M1 — Backend: H5 inspection + flexible detection` starts.
+**M5 closed; M6 next** — file loading UI + Stream Builder + Dark
+Manager + warning banners (per spec.md W3 + W4 + flows F3/F4/F5/F14).
 
 ## Current focus
 
-Authoring the six planning documents:
+M5 close (this commit set):
 
-- `ExecPlan.md` ✅
-- `API_DESIGN.md` ✅
-- `DATA_MODEL.md` ✅
-- `UI_IMPLEMENTATION_NOTES.md` ✅
-- `TEST_PLAN.md` ✅
-- `Status.md` ✅ (this file)
+- Rail tile + empty state + Sources skeleton + Stream header all
+  shipped behind the `mantis/playback/enabled` localStorage feature
+  flag (default OFF until M11 close per risk-skeptic P1-K).
+- Eviction kind-routing fixed in `shared.tsx::apiFetch` and
+  `app.tsx::onEvicted` (risk-skeptic P0-B).
+- 4 new Tier 4 Playwright tests, all green; total 220 unit + 8
+  web_smoke.
+- Browser-verified in Claude Preview MCP: flag-off (no rail tile),
+  flag-on (rail + empty state + Sources panel + Stream header all
+  render with no console errors).
 
-Surface the plan via `ExitPlanMode` and request user approval.
+Next concrete actions for M6:
+
+1. Wire `web/src/playback/api.ts::loadRecordingByPath` /
+   `loadDarkByPath` to file picker (`onOpenFile` already plumbed).
+2. Build `web/src/playback/StreamBuilder.tsx` (modal, W3 spec) —
+   ordered file list with continuity badges, gap/overlap/exposure
+   chips, threshold slider, Apply button.
+3. Build `web/src/playback/DarkFrameRow.tsx` + dark-frame manager
+   section in `SourcesPanel.tsx` — list, strategy picker, exposure
+   match indicator.
+4. Add inline warning banner (shows W-GAP / W-OVERLAP /
+   W-EXP-MISMATCH chips on each FilePill, plus a "1 gap / 1
+   exposure mismatch" summary in the SourcesPanel footer).
+5. Tier 4 Playwright: load 3 synthetic recordings → Stream Builder
+   auto-opens → Apply → workspace placeholder shows the new
+   stream's totals.
 
 ## Progress
 
-- [x] **M0** — Audit + plan (this document).
-- [ ] **M1** — Backend: H5 inspection + flexible detection.
-- [ ] **M2** — Backend: dark-frame averaging + exposure matching.
-- [ ] **M3** — Backend: multi-file stream + global frame mapping.
-- [ ] **M4** — Backend: extraction pipeline + preview endpoint.
-- [ ] **M5** — Frontend: mode shell + empty state + sources skeleton.
+- [x] **M0** — Audit + plan (commit `005a355`).
+- [x] **M1** — Backend: H5 inspection + flexible detection (commit `e2130fd`).
+- [x] **M2** — Backend: dark-frame averaging + exposure matching (commit `17cb57d`); revert rehearsal logged in `14bd361` → `14ae6c8` per risk-skeptic P1-F.
+- [x] **M3** — Backend: multi-file stream + global frame mapping (commit `588e342`).
+- [x] **M4** — Backend: render pipeline + `/api/playback/*` preview (commit `3c75851`).
+- [x] **M5** — Frontend: rail tile + empty state + Sources skeleton (commit `cb612ce`); shared.tsx + app.tsx eviction kind-routing fixed (risk-skeptic P0-B).
 - [ ] **M6** — Frontend: file loading, dark manager, stream builder UI.
 - [ ] **M7** — Frontend: ViewerGrid + ViewerCard + TimelineStrip.
-- [ ] **M8** — Frontend: per-view Inspector with all six tabs wired.
+- [ ] **M8** — Frontend: 9-section Inspector (incl. CCM editor + presets).
 - [ ] **M9** — Overlay system end-to-end.
-- [ ] **M10** — Export system: image + video.
-- [ ] **M11** — Polish, a11y, responsive, perf.
-- [ ] **M12** — Final verification + docs + handoff.
+- [ ] **M10** — Export system: image + video (parallelized ProcessPool).
+- [ ] **M11** — Polish, a11y, responsive, perf, handoff routing, Storybook.
+- [ ] **M12** — Final verification + visual-regression baselines + CI wiring.
 
 ## Modified files
 
@@ -73,6 +92,16 @@ M1+ work touches those files.
 | Date | Command | Result | Wall time |
 |---|---|---|---|
 | 2026-04-24 | initiative scaffold (planning) | n/a | n/a |
+| 2026-04-25 | M1 close — `pytest tests/unit/test_recording_inspect.py` | 22 PASS | 0.18s |
+| 2026-04-25 | M2 close — `pytest tests/unit/test_dark_frame.py` | 17 PASS | 0.18s |
+| 2026-04-25 | M2 close — revert rehearsal (P1-F) | PASS | ~10s |
+| 2026-04-25 | M3 close — `pytest tests/unit/test_playback_stream.py` | 26 PASS | 0.27s |
+| 2026-04-25 | M4 close — `pytest tests/unit/test_playback_pipeline.py` | 23 PASS | 0.15s |
+| 2026-04-25 | M4 close — `pytest tests/headless/test_playback_api.py` | 18 PASS | 1.38s |
+| 2026-04-25 | M4 close — Tier 3 (smoke_test.py) | PASS | ~3s |
+| 2026-04-25 | M5 close — `pytest -m web_smoke` | 8 PASS (was 4) | 26s |
+| 2026-04-25 | M5 close — full `pytest -q` | 220 PASS | 36s |
+| 2026-04-25 | M5 close — Tier 0/1/2/3 ladder | all PASS | ~5s |
 
 Smoke + unit + Playwright runs begin at M1. The expected ladder is
 documented in [`TEST_PLAN.md`](TEST_PLAN.md).
