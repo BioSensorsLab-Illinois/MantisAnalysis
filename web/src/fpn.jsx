@@ -272,7 +272,6 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
       } catch (err) {
         return { __error: err.detail || err.message };
       }
-      // eslint-disable-next-line
     },
     [
       source?.source_id,
@@ -317,7 +316,6 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
     return () => {
       alive = false;
     };
-    // eslint-disable-next-line
   }, [activeChannel, dSettings]);
 
   // ---- Rich fetch for the selected ROI (row/col profiles + PSDs) ---------
@@ -354,7 +352,6 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
     return () => {
       alive = false;
     };
-    // eslint-disable-next-line
   }, [source?.source_id, activeChannel, selectedLine?.id, dSettings]);
 
   // ---- Stability curve for selected ROI ---------------------------------
@@ -384,7 +381,6 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
     return () => {
       alive = false;
     };
-    // eslint-disable-next-line
   }, [stabEnabled, source?.source_id, activeChannel, selectedLine?.id, dSettings]);
 
   // ---- ROI mutation helpers ----------------------------------------------

@@ -441,7 +441,6 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
     return () => {
       alive = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     ispEnabled,
     ispLive,

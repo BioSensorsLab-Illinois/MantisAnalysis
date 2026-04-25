@@ -1768,7 +1768,6 @@ const StatBlock = ({ items, emphasis }) => {
 // HUD — floating badge (positioned by parent)
 // ---------------------------------------------------------------------------
 const HUD = ({ children, style }) => {
-  const t = useTheme();
   return (
     <div
       style={{
@@ -1796,7 +1795,6 @@ const HUD = ({ children, style }) => {
 // Canvas Chrome — toolbar overlay (rotation, flip, zoom reset, etc.)
 // ---------------------------------------------------------------------------
 const CanvasToolbar = ({ children, position = 'top-right' }) => {
-  const t = useTheme();
   const positions = {
     'top-right': { top: 10, right: 10 },
     'top-left': { top: 10, left: 10 },

@@ -9,14 +9,12 @@ import React from 'react';
 import Plotly from 'plotly.js-dist-min';
 import domtoimage from 'dom-to-image-more';
 import {
-  CHANNEL_COLORS,
   useTheme,
   Icon,
   Row,
   Button,
   ChannelChip,
   Segmented,
-  parseChannel,
   Tip,
   useLocalStorageState,
   exportJSON,
@@ -28,7 +26,6 @@ import {
   usePlotStyle,
   usePlotStyleState,
   scaled,
-  plotPaletteColor,
   cardChromeFor,
   PlotStylePanel,
   HeatmapCanvas,
@@ -155,7 +152,6 @@ const PlotlyChart = ({ data, layout, config, style }) => {
         /* noop */
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, layout, config, t.text, t.panel, t.panelAlt, t.border]);
   return <div ref={ref} style={{ width: '100%', height: '100%', minHeight: 280, ...style }} />;
 };
@@ -314,7 +310,6 @@ const measurementToRow = (ch, spec, m) => {
 // ---------------------------------------------------------------------------
 const BgColorPicker = ({ bgColor, setBgColor }) => {
   const t = useTheme();
-  const { style } = usePlotStyle();
   const presets = [
     { id: null, label: 'Theme', swatch: t.panelAlt, title: 'Match the current app theme' },
     {
@@ -410,7 +405,6 @@ const AnalysisModal = ({ run, onClose, onToast }) => {
 // ---------------------------------------------------------------------------
 const USAFAnalysisModal = ({ run, onClose, onToast }) => {
   const t = useTheme();
-  const { style } = usePlotStyle();
   const plotStyleState = usePlotStyleState();
   const [styleOpen, setStyleOpen] = useStateA(false);
   const { response = {} } = run;
@@ -418,7 +412,6 @@ const USAFAnalysisModal = ({ run, onClose, onToast }) => {
   const allSpecs = response.specs || [];
   const measurements = response.measurements || {};
   const thumbnails = response.channel_thumbnails || {};
-  const channelShape = response.channel_shape || [100, 100];
   const perChLim = response.per_channel_detection_limit || {};
   const serverThreshold = Number(response.threshold ?? 0.3);
 
@@ -1471,7 +1464,6 @@ const MiniMTFChart = ({
 // ===========================================================================
 const ProfileGalleryTab = ({ channels, specs, keptIdx, measurements, threshold }) => {
   const t = useTheme();
-  const { style } = usePlotStyle();
   if (!keptIdx.length || !channels.length) {
     return (
       <div style={{ color: t.textFaint, textAlign: 'center', paddingTop: 40 }}>
@@ -1625,7 +1617,6 @@ const ProfileCard = ({ ch, spec, m, threshold }) => {
 // ===========================================================================
 const SummaryTableTab = ({ channels, specs, keptIdx, measurements, threshold }) => {
   const t = useTheme();
-  const { style } = usePlotStyle();
   const [sortCol, setSortCol] = useStateA('order');
   const [sortDir, setSortDir] = useStateA('asc');
   const rows = useMemoA(() => {
@@ -1838,7 +1829,6 @@ const SummaryTableTab = ({ channels, specs, keptIdx, measurements, threshold }) 
 // ===========================================================================
 const DetectionHeatmapTab = ({ channels, specs, measurements, threshold, dirFilter }) => {
   const t = useTheme();
-  const { style } = usePlotStyle();
   const [cmap, setCmap] = useStateA('jet');
   // Build {channel: {g_e_dir: michelson}}. dir filter already applied via keptIdx isn't used
   // here because heatmap shows the matrix structure; we average H+V if both picked.
@@ -2118,8 +2108,6 @@ const Colorbar = ({ cmap, threshold, t }) => {
 // 5. Group sweep — 6 mini-charts (one per group)
 // ===========================================================================
 const GroupSweepTab = ({ channels, specs, keptIdx, measurements, threshold }) => {
-  const t = useTheme();
-  const { style } = usePlotStyle();
   const groups = [0, 1, 2, 3, 4, 5];
   return (
     <GridTabFrame
@@ -2266,7 +2254,6 @@ const GroupMiniChart = ({ group, channels, specs, keptIdx, measurements, thresho
 // ===========================================================================
 const FFTMTFTab = ({ channels, specs, keptIdx, measurements, threshold }) => {
   const t = useTheme();
-  const { style } = usePlotStyle();
   const [view, setView] = useStateA('ctf'); // ctf | coltman | fft
   if (!channels.length || !keptIdx.length) {
     return (
@@ -2575,7 +2562,6 @@ const FFTSpectraGrid = ({ channels, specs, keptIdx, measurements }) => {
 // ===========================================================================
 const FPNAnalysisModal = ({ run, onClose, onToast }) => {
   const t = useTheme();
-  const { style } = usePlotStyle();
   const plotStyleState = usePlotStyleState();
   const [styleOpen, setStyleOpen] = useStateA(false);
   const { response = {} } = run;
@@ -3093,7 +3079,6 @@ const FPNSummaryTab = ({
   fullDR = 65535,
 }) => {
   const t = useTheme();
-  const { style } = usePlotStyle();
   const [sortCol, setSortCol] = useStateA('order');
   const [sortDir, setSortDir] = useStateA('asc');
   const [editingI, setEditingI] = useStateA(null); // ROI index being renamed
@@ -3112,7 +3097,6 @@ const FPNSummaryTab = ({
       : unit === 'pctDR'
         ? `${((v / fullDR) * 100).toFixed(decimals + 1)}`
         : v.toFixed(decimals);
-  const dnHdr = (sigma = false) => (unit === 'pctDR' ? '%DR' : 'DN');
   const muHdr = unit === 'pctDR' ? 'μ %DR' : 'μ DN';
   const dsnuHdr = unit === 'pctDR' ? 'DSNU %DR' : 'DSNU';
   const sigHdr = (axis) => (unit === 'pctDR' ? `σ ${axis} %DR` : `σ ${axis}`);
@@ -3547,7 +3531,6 @@ const FPNHistogramsTab = ({
   fullDR = 65535,
 }) => {
   const t = useTheme();
-  const { style } = usePlotStyle();
   if (!channels.length || !visibleRoiIdx.length) {
     return (
       <div style={{ color: t.textFaint, textAlign: 'center', paddingTop: 40 }}>
@@ -3771,7 +3754,6 @@ const FPNHistChart = ({ channel, roiName, measurement, unit, fullDR }) => {
 // ---------------------------------------------------------------------------
 const FPNProfilesTab = ({ channels, measurements, rois, visibleRoiIdx, roiLabel }) => {
   const t = useTheme();
-  const { style } = usePlotStyle();
   const cards = [];
   for (const i of visibleRoiIdx)
     for (const ch of channels) {
@@ -3935,7 +3917,6 @@ const RowColCard = ({ ch, label, m }) => {
 // ---------------------------------------------------------------------------
 const FPNPSD1DTab = ({ channels, measurements, visibleRoiIdx, roiLabel }) => {
   const t = useTheme();
-  const { style } = usePlotStyle();
   if (!visibleRoiIdx.length || !channels.length) {
     return <div style={{ color: t.textFaint, textAlign: 'center', paddingTop: 40 }}>No data.</div>;
   }
@@ -4203,8 +4184,6 @@ const FPNFigureGrid = ({ channels, measurements, visibleRoiIdx, roiLabel, figKey
 const fmtDN0 = (v, d = 3) => (v == null || !Number.isFinite(v) ? '—' : v.toFixed(d));
 
 const FPNHeatmapCard = ({ ch, label, m, gridRaw, spec, cmap }) => {
-  const t = useTheme();
-  const { style } = usePlotStyle();
   const grid = useMemoA(() => decodeFloat32Grid(gridRaw), [gridRaw]);
   if (!grid) return null;
   const vmin = grid.stats.p1 ?? grid.stats.min;
@@ -4354,7 +4333,6 @@ const HotPixCard = ({ ch, label, m }) => {
 
 const HotColdList = ({ m }) => {
   const t = useTheme();
-  const { style } = usePlotStyle();
   if (!m) return null;
   const hot = m.top_hot || [];
   const cold = m.top_cold || [];
@@ -4418,7 +4396,6 @@ const HotColdList = ({ m }) => {
 // ---------------------------------------------------------------------------
 const FPNCompareTab = ({ channels, measurements, rois, visibleRoiIdx, roiLabel }) => {
   const t = useTheme();
-  const { style } = usePlotStyle();
   if (!channels.length || !visibleRoiIdx.length) {
     return <div style={{ color: t.textFaint, textAlign: 'center', paddingTop: 40 }}>No data.</div>;
   }
@@ -4604,7 +4581,6 @@ const MetricBars = ({ metric, channels, measurements, visibleRoiIdx, roiLabel })
 // ===========================================================================
 const DoFAnalysisModal = ({ run, onClose, onToast }) => {
   const t = useTheme();
-  const { style } = usePlotStyle();
   const plotStyleState = usePlotStyleState();
   const [styleOpen, setStyleOpen] = useStateA(false);
   // Response is state, not prop, so we can re-post /api/dof/analyze when
@@ -5335,7 +5311,6 @@ const DoFSummaryTab = ({
   tiltFactor = 1,
 }) => {
   const t = useTheme();
-  const { style } = usePlotStyle();
   const [sortCol, setSortCol] = useStateA('order');
   const [sortDir, setSortDir] = useStateA('asc');
   const rows = useMemoA(() => {
@@ -5552,7 +5527,6 @@ const DoFLinesTab = ({
   tiltFactor = 1,
 }) => {
   const t = useTheme();
-  const { style } = usePlotStyle();
   if (!visibleLineIdx.length) {
     return <div style={{ color: t.textFaint, textAlign: 'center', paddingTop: 40 }}>No lines.</div>;
   }
@@ -5840,7 +5814,6 @@ const DoFMetricCompareTab = ({
   tiltFactor = 1,
 }) => {
   const t = useTheme();
-  const { style } = usePlotStyle();
   const cards = [];
   for (const i of visibleLineIdx)
     for (const ch of channels) {
@@ -6447,7 +6420,6 @@ const DoFGaussianTab = ({
   tiltFactor = 1,
 }) => {
   const t = useTheme();
-  const { style } = usePlotStyle();
   const cards = [];
   for (const ch of channels) {
     for (const i of visibleLineIdx) {
@@ -6855,7 +6827,6 @@ const DoFHeatmapTab = ({ channels, results, lineLabel, pointLabel }) => {
 };
 
 const DoFHeatmapCard = ({ ch, r, cmap, lineLabel, pointLabel }) => {
-  const t = useTheme();
   const { style } = usePlotStyle();
   const grid = useMemoA(() => decodeFloat32Grid(r.heatmap_grid), [r.heatmap_grid]);
   if (!grid) return null;
@@ -7289,7 +7260,6 @@ const TiltPlaneSVG = ({ r, color }) => {
 // ===========================================================================
 const LegacyPngModal = ({ run, onClose, onToast }) => {
   const t = useTheme();
-  const { style } = usePlotStyle();
   const { mode, response = {} } = run;
   const tabs = useMemoA(() => {
     if (mode === 'fpn') {

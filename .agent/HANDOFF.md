@@ -1,7 +1,7 @@
 # HANDOFF — current live state pointer
 
-Last updated: **2026-04-24**, end of `bundler-migration-v1 Phase 5a`
-(Claude Opus 4.7, 1M context).
+Last updated: **2026-04-24**, end of `bundler-migration-v1 Phase 5b-1
++ warning reduction` (Claude Opus 4.7, 1M context).
 
 ## Current state of the working tree
 
@@ -15,85 +15,37 @@ Last updated: **2026-04-24**, end of `bundler-migration-v1 Phase 5a`
 
 ## What just shipped
 
-**bundler-migration-v1 Phase 5a — TypeScript infrastructure + seed**
-(this session; push pending).
+**bundler-migration-v1 Phase 5b-1 + warning reduction** (this
+session; push pending).
 
-- `package.json` — 5 new devDeps: `typescript@^5`, `@types/react@^18`,
-  `@types/react-dom@^18`, `@types/node@^20`, `typescript-eslint@^8`.
-  New script: `typecheck` (`tsc --noEmit`).
-- `tsconfig.json` — `allowJs: true` + `checkJs: false` so every
-  existing `.jsx` stays unchecked; `strict: true` + `jsx: react-jsx`
-  for new `.ts`/`.tsx`. `noEmit: true` — Vite still does transpile.
-- `eslint.config.js` — typescript-eslint flat-config merged in;
-  globs extended to include `.ts`/`.tsx`; tsdef's `no-unused-vars`
-  demoted to warn to match the core rule.
-- `scripts/check_frontend_lint.py` — now also runs `tsc --noEmit`
-  when a tsconfig exists. Tier 0 gate stays green.
-- `scripts/doctor.py::check_frontend_lint_config` — expanded to
-  verify `tsconfig.json` + `typescript` + `typescript-eslint` +
-  `@types/react`.
-- **Seed file**: `web/src/main.jsx` → `web/src/main.tsx`. Zero
-  logic change. `web/index.html` entry script updated.
-- `.agent/manifest.yaml`, BACKLOG, TOOLS_AND_SKILLS, ExecPlan,
-  Status — all updated to mark 5a closed + Phase 5b as the
-  multi-session follow-up for shared/usaf/fpn/dof/analysis/app/
-  isp_settings migrations.
+- **`isp_settings.jsx` → `isp_settings.tsx`** (615 lines). First
+  real-component TypeScript migration. Typed component props +
+  server-contract shapes (`IspMode`, `IspChannelSpec`, `IspConfig`,
+  `SourceLite`, `Pair`, `SayFn`). Established the
+  `import * as _shared from './shared.jsx'; const _s = _shared as any;`
+  shim pattern that every future .tsx file will use until
+  `shared.tsx` lands.
+- **ESLint warning count 372 → 49 (87% drop)**. Drivers: turned off
+  core `no-unused-vars` (typescript-eslint handles both JS + TS);
+  turned off `react-refresh/only-export-components` (dev-HMR hint
+  that doesn't map to our primitives hub); auto-pruned 81 unused
+  shared-module imports across `app.jsx` + `analysis.jsx`;
+  auto-removed 21 dead `const { style } = usePlotStyle();` lines;
+  auto-removed 7 other dead single-const destructures; ran
+  `npm run lint:fix` for 10 unused eslint-disable directives.
+- **Browser-verified** — ISP settings window opens cleanly from
+  the gear; mode dropdown + geometry + channel list render; zero
+  console errors.
 
 **Previous sessions** (already pushed):
 
-- `cd560d7` — bundler-migration-v1 Phase 4 (ESLint + Prettier).
-- `febb365` — Phase 3 follow-up fixes (isp_settings useSource,
-  PyInstaller pipeline, 10 `.agent/` docs refreshed).
+- `2bd4ef6` — Phase 5a (TypeScript infrastructure + main.tsx seed).
+- `cd560d7` — Phase 4 (ESLint + Prettier).
+- `febb365` — Phase 3 follow-up (reviewer findings).
 - `cb3cbaf` — Phase 3 atomic CDN→ESM cutover.
 
-Phase 3 itself (already pushed):
-
-- All 7 `.jsx` migrated to ES `import` / `export`. React, Plotly
-  (`plotly.js-dist-min`), and dom-to-image-more are real npm
-  packages — no CDN `<script>` tags, no Babel-standalone.
-- `web/index.html` rewritten as a Vite entry; `web/src/main.jsx` is
-  a 16-line `createRoot` mount of `<App />`.
-- `vite.config.js` `base: '/'`; canonical `web/index.html` is the
-  single Vite entry.
-- `mantisanalysis/server.py::_mount_static` now serves
-  `web/dist/index.html` and mounts `web/dist/` at `/`. If the dist
-  is missing, `/` returns a friendly "build the frontend first"
-  HTML page (no 404/500).
-- `scripts/doctor.py::check_node_npm` promoted WARN → FAIL.
-- `tests/web/test_web_boot.py` skips the Playwright test cleanly
-  when `web/dist/` is absent.
-- Bonus fix: `web/src/usaf.jsx` RulerH replaced an invalid
-  `<text x={calc(...)}>` SVG attribute with a
-  `<g transform="translate(3,0)">` wrapper.
-
-Follow-up cleanup this session (pending push):
-
-- **P0 fixed** — `web/src/isp_settings.jsx` now imports `useSource`
-  (was referenced but missing — would crash the moment a user
-  opened ISP settings).
-- **P0 fixed** — release pipeline no longer ships the placeholder
-  page: `packaging/mantisanalysis.spec` hard-fails if
-  `web/dist/index.html` is missing; `packaging/build.py` runs
-  `npm install && npm run build` before PyInstaller;
-  `packaging/smoke_frozen.py` now asserts the body contains
-  `/assets/` (Vite's hashed asset reference) and not the
-  "Frontend bundle not built" string;
-  `.github/workflows/release.yml` adds a Set-up-Node-20 step;
-  `.github/workflows/smoke.yml` adds a `tier4-web-smoke` job that
-  runs `npm run build` + `pytest -m web_smoke -q`.
-- **P0 fixed** — README.md + 9 `.agent/` docs scrubbed of "no Node"
-  / "CDN" / "Babel standalone" claims and updated to reference
-  the Vite-bundled flow.
-- **P1 fixed** — `web/src/app.jsx` deleted the dead
-  `window.FILE_FILTERS = ...` line; `web/src/analysis.jsx` deleted
-  duplicate local `channelColor` / `paletteColor` and imports
-  them from `shared.jsx`; stale Babel comments in `fpn.jsx` +
-  `main.jsx` updated; main.jsx now guards against a missing
-  `#root` element.
-- **P1 fixed** — `tests/web/test_web_boot.py` adds
-  `test_analysis_modal_plotly_renders` that exercises the
-  Plotly path through ⌘K → "run analysis" and asserts no console
-  errors during the modal lifecycle.
+(For Phases 3–5a detail, see
+`.agent/CHANGELOG_AGENT.md` + `.agent/runs/bundler-migration-v1/Status.md`.)
 
 ## Smoke status, last verified 2026-04-24
 
@@ -102,11 +54,13 @@ Follow-up cleanup this session (pending push):
 - ✅ Tier 1 — PASS (15 modules imported)
 - ✅ Tier 2 — PASS (figures written)
 - ✅ Tier 3 — PASS (FastAPI endpoints exercised)
-- ✅ pytest — **108/108** green (was 107; +1 analysis-modal
-  Plotly test)
+- ✅ pytest — **108/108** green (3/3 web_smoke)
 - ✅ `npm run build` — 41 modules, 5.35 MB / gzip 1.62 MB
-- ✅ Browser-verified end-to-end via Preview MCP — DoF, USAF, FPN
-  modes all render with zero console errors
+- ✅ `npm run typecheck` — 0 errors
+- ✅ `npm run lint` — 0 errors, **49 warnings** (was 372 before the
+  Phase 5b-1 warning-reduction pass; 87% drop)
+- ✅ Browser-verified via Preview MCP — ISP settings window opens
+  cleanly from the gear with mode + geometry + channel list
 
 ## Quick verification for the next agent
 
@@ -129,12 +83,14 @@ python -m mantisanalysis --no-browser --port 8773
 
 ## Active initiative
 
-**`bundler-migration-v1`** — Phases 1, 2, 3, 4, **5a** closed.
-Phases 5b–8 remain (multi-session):
+**`bundler-migration-v1`** — Phases 1–4 + 5a + **5b-1** closed.
+Phases 5b-2+ + 6–8 remain (multi-session):
 
-- Phase 5b — TypeScript FILE migrations (shared.jsx first, then
-  isp_settings, analysis, usaf, fpn, dof, app). Each is a
-  dedicated session. Pipeline already proven by the `main.tsx` seed.
+- Phase 5b-2 — `shared.jsx` → `shared.tsx`. The dependency hub
+  (~4300 lines, 85+ exports). Likely 1-2 sessions just to type
+  it; downstream consumers get real types for free afterward.
+- Phase 5b-3+ — `analysis.jsx` → `analysis.tsx`, then
+  `usaf`/`fpn`/`dof`/`app`. One per session.
 - Phase 6 — axe-core integration under `pytest -m web_smoke`
 - Phase 7 — Storybook with component stories
 - Phase 8 — docs + close
@@ -146,13 +102,14 @@ be built ES-modules-native from the start.
 
 ## Where to pick up next
 
-1. **bundler-migration-v1 Phase 5b** — migrate `shared.jsx` →
-   `shared.tsx`. The hub has ~85 exports; typing them propagates
-   type info outward to every consumer. Budget: 1-3 sessions.
-2. **Warning-cleanup pass** — 390 ESLint warnings to triage
-   (224 Phase 4 + ~166 Phase 5 typescript-eslint). Many dissolve
-   automatically once files migrate to .tsx (strict mode drops
-   `no-unused-vars` noise that currently fires on .jsx).
+1. **bundler-migration-v1 Phase 5b-2** — migrate `shared.jsx` →
+   `shared.tsx`. Once the hub is typed, the `as any` shim in every
+   `.tsx` file gets dropped and downstream .tsx files start seeing
+   real prop/return types. Budget: 1-2 sessions.
+2. **Warning-cleanup-last-mile** — 49 remaining warnings are all
+   legit tech debt: unused component props (`onToast`, `unitPref`,
+   etc.) and unused destructured state. Each resolves with `_`-
+   prefix or deletion. Pair well with Phase 5b-2+.
 3. **analysis-page-overhaul-v1 Phase 3** — paused; unified
    `<AnalysisModal>` shell refactor. Now safe to do ES-modules-
    native + typed.
@@ -163,8 +120,9 @@ be built ES-modules-native from the start.
 
 ## Deferred with explicit rationale
 
-- **B-0014** — Vite bundler migration. **Phases 1–4 + 5a SHIPPED**
-  (2026-04-24). Phase 5b (file migrations) + 6–8 upcoming.
+- **B-0014** — Vite bundler migration. **Phases 1–4 + 5a + 5b-1
+  SHIPPED** (2026-04-24). Phase 5b-2+ (shared.tsx + remaining file
+  migrations) + 6–8 upcoming.
 - **B-0015 extended** — per-mode Playwright interaction suites
   (USAF / FPN / DoF analysis modals). Substantial; depends on
   analysis-page-overhaul-v1 Phase 3 landing.

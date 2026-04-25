@@ -69,8 +69,8 @@ major_modules:
     role: "DoF mode panel — points + lines + H/V refs + tilt"
   - path: web/src/analysis.jsx
     role: "analysis modal — per-mode tabs + CSV/PNG export"
-  - path: web/src/isp_settings.jsx
-    role: "ISP settings modal — mode selector + per-channel geometry"
+  - path: web/src/isp_settings.tsx
+    role: "ISP settings modal — mode selector + per-channel geometry (TypeScript; bundler-migration-v1 Phase 5b-1)"
 
 entry_points:
   - "python -m mantisanalysis"

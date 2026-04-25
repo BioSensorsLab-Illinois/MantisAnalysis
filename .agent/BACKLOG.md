@@ -27,9 +27,14 @@ Tracked under `.agent/runs/bundler-migration-v1/`. 8-phase plan:
   `typescript-eslint` plugin, `tsc --noEmit` wired into the Tier 0
   scanner, `npm run typecheck` script, `main.jsx` → `main.tsx`
   seed (proves the pipeline).
-- **Phase 5b** — ONGOING, multi-session. File migrations
-  (shared.jsx first). Tracked in
-  `.agent/runs/bundler-migration-v1/ExecPlan.md`.
+- **Phase 5b** — ONGOING, multi-session. File migrations.
+  - **5b-1** (CLOSED 2026-04-24) — `isp_settings.jsx` →
+    `isp_settings.tsx`. First real-component .tsx migration; typed
+    against server contract; warnings reduced 372→49 (87%) via
+    dead-code pruning + eslint config cleanup.
+  - 5b-2+ — `shared.jsx` → `shared.tsx` (next), then `analysis`,
+    `usaf`, `fpn`, `dof`, `app`. Tracked in
+    `.agent/runs/bundler-migration-v1/ExecPlan.md`.
 - Phase 5 — gradual TypeScript (`.jsx` and `.tsx` side-by-side).
 - Phase 6 — axe-core integration under `pytest -m web_smoke`.
 - Phase 7 — Storybook with component stories.

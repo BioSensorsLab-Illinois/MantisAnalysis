@@ -136,7 +136,7 @@ MantisAnalysis/
 │   ├── index.html                ← Vite entry; loads /src/main.jsx as ES module
 │   ├── dist/                     ← built artifacts (git-ignored; FastAPI serves at /)
 │   └── src/
-│       ├── main.jsx              ← Vite entry — mounts <App /> via createRoot
+│       ├── main.tsx              ← Vite entry — mounts <App /> via createRoot (TypeScript; Phase 5a seed)
 │       ├── shared.jsx            ← BRAND, THEMES, icons, hooks, Chart primitive,
 │       │                            useChartGeom, tokens(), renderChartToPng,
 │       │                            API helpers (apiFetch, apiUpload, channelPngUrl)
@@ -147,7 +147,7 @@ MantisAnalysis/
 │       ├── fpn.jsx               ← FPNMode — ROI drag, channel chips, live stats
 │       ├── dof.jsx               ← DoFMode — probe points, focus lines, H/V refs, tilt
 │       ├── analysis.jsx          ← AnalysisModal — per-mode tabs + CSV/PNG export
-│       └── isp_settings.jsx      ← ISPSettingsModal — mode selector + geometry + per-channel config
+│       └── isp_settings.tsx      ← ISPSettingsModal — mode selector + geometry + per-channel config (TypeScript; Phase 5b-1)
 └── outputs/                      ← generated artifacts (git-ignored)
     ├── smoke/                    ← PNGs from `smoke_test.py --tier 2`
     ├── web-smoke/                ← screenshots + traces from Playwright runs

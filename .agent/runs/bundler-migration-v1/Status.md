@@ -86,8 +86,12 @@ after the Phase 3 commit was pushed. Findings + dispositions:
 - [x] Phase 2 — parallel `shared-esm.js` (shipped 2026-04-24)
 - [x] Phase 3 — atomic cutover (2026-04-24, commits cb3cbaf + febb365)
 - [x] Phase 4 — ESLint + Prettier (2026-04-24, commit cd560d7)
-- [x] Phase 5a — TypeScript infrastructure + seed (**this commit**)
+- [x] Phase 5a — TypeScript infrastructure + seed (2026-04-24, commit 2bd4ef6)
 - [ ] Phase 5b — TypeScript file migrations (ONGOING, multi-session)
+  - [x] 5b-1: `isp_settings.jsx` → `isp_settings.tsx` + warning reduction 372→49 (**this commit**)
+  - [ ] 5b-2: `shared.jsx` → `shared.tsx` (the dependency hub; 2-3 sessions)
+  - [ ] 5b-3: `analysis.jsx` → `analysis.tsx`
+  - [ ] 5b-4+: `usaf.jsx` / `fpn.jsx` / `dof.jsx` / `app.jsx`
 - [ ] Phase 6 — axe-core integration
 - [ ] Phase 7 — Storybook + initial stories
 - [ ] Phase 8 — docs + close
@@ -134,7 +138,77 @@ after the Phase 3 commit was pushed. Findings + dispositions:
 - [x] `npm run format:check` — clean
 - [x] `npm run build` — 41 modules, 5.35 MB (unchanged)
 
-## Phase 5b plan (multi-session, not ship-blocking)
+## Phase 5b-1 shipment (2026-04-24)
+
+Migrated `isp_settings.jsx` (615 lines) → `isp_settings.tsx` with real
+type annotations. Simultaneously lowered the ESLint warning count
+from 372 → 49 (87% reduction) by pruning dead code.
+
+- **isp_settings.tsx** — typed `ISPSettingsWindow`, `HeaderRow`,
+  `Section`, `GeomRow` with proper `Props` interfaces. Added
+  server-contract types: `IspMode`, `IspChannelSpec`, `IspConfig`,
+  `SourceLite`, `Pair`, `SayFn`. State hooks carry explicit type
+  parameters (`useStateI<IspMode[] | null>(null)` etc.). Helper
+  fns (`_pairEq`, `_formulaPreview`) have real signatures.
+- **Shared-import shim** — `import * as _shared from './shared.jsx'; const _s = _shared as any; const { ... } = _s;` bridges around
+  tsc's over-strict parameter inference on .jsx destructurings.
+  This is the pattern every Phase 5b .tsx file will use until
+  shared.tsx lands, at which point the `as any` cast gets dropped.
+- **`web/index.html`**, `web/src/app.jsx` import path updated
+  (.jsx → .tsx). `.agent/manifest.yaml` + `REPO_MAP.md` refreshed.
+- **Browser verification** — opened the ISP settings window via
+  the gear button; rendered clean, zero console errors, channels
+  editable. The Phase 3 P0 regression (missing useSource import)
+  stays fixed.
+
+### Warning reduction (372 → 49, 87%)
+
+Changes that drove the drop, in order of impact:
+
+1. `eslint.config.js`: `no-unused-vars: 'off'` — delegated entirely
+   to `@typescript-eslint/no-unused-vars` (was double-reporting
+   every match). Saved 158 warnings.
+2. `eslint.config.js`: `react-refresh/only-export-components: 'off'`
+   — dev-HMR-only hint that doesn't apply to our primitives-hub
+   pattern. Saved 45 warnings.
+3. Auto-pruned unused `shared.jsx` imports across `app.jsx` (78),
+   `analysis.jsx` (3), and re-pruned after later edits. Via a
+   one-shot Node script that grep-checks each imported name
+   against the rest of the file and rewrites the import block.
+4. `npm run lint:fix` — removed 10 unused eslint-disable directives.
+5. Auto-removed 21 dead `const { style } = usePlotStyle();` lines
+   from `analysis.jsx` (destructured but never used in the
+   containing component).
+6. Auto-removed 7 other dead single-const assignments (`t`, `grad`,
+   `thumbnails`, `channelShape`, `figures`, `reRunning`, `dnHdr`)
+   where the variable was destructured but unused.
+
+Remaining 49 warnings (all legit tech debt, non-blocking):
+- 45 `@typescript-eslint/no-unused-vars` — unused component props
+  (e.g. `onToast`, `unitPref`, `tiltFactor`, `pxPerMicronMean`),
+  unused map-callback indexers (`i`, `idx`), intentionally-kept
+  API-shape props (e.g. `calibrated`, `gamma`). Each would be
+  resolved by a `_` prefix; left visible as real cleanup
+  opportunities.
+- 4 `react-hooks/exhaustive-deps` in `analysis.jsx` — useMemo
+  dep-array complexity; worth addressing during 5b-3.
+
+### Phase 5b-1 final verification
+
+- [x] Tier 0 — 5 scanners PASS (prettier + eslint + tsc all clean)
+- [x] Tier 1 — 15 modules PASS
+- [x] Tier 2 — headless figures PASS
+- [x] Tier 3 — FastAPI endpoints PASS
+- [x] pytest — 108/108 green
+- [x] `npm run typecheck` — 0 errors
+- [x] `npm run lint` — 0 errors, **49 warnings** (was 372)
+- [x] `npm run format:check` — clean
+- [x] `npm run build` — 41 modules, 5.35 MB
+- [x] Browser verification via Preview MCP — ISP settings window
+      opens cleanly from the gear; mode dropdown + geometry +
+      channel list render; zero console errors
+
+## Phase 5b plan (remaining, multi-session, not ship-blocking)
 
 File-migration order:
 1. `shared.jsx` → `shared.tsx` — 2800-line hub. Biggest.

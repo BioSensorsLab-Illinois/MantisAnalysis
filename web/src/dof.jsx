@@ -213,7 +213,6 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
       null,
       rgbComposite
     );
-    // eslint-disable-next-line
   }, [
     source,
     activeChannel,
@@ -347,7 +346,6 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
     return () => {
       alive = false;
     };
-    // eslint-disable-next-line
   }, [
     source?.source_id,
     activeChannel,
@@ -417,7 +415,6 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
     return () => {
       alive = false;
     };
-    // eslint-disable-next-line
   }, [
     stabEnabled,
     source?.source_id,

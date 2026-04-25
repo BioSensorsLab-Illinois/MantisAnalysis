@@ -5,27 +5,36 @@
 // keyed on the source + mode so re-opening the same recording restores
 // the exact overrides — on Apply we PUT /api/sources/{id}/isp and let the
 // server return the authoritative SourceSummary which updates root state.
-// bundler-migration-v1 Phase 3: ES-module native.
-import React from 'react';
-import {
-  Icon,
-  Card,
-  Row,
-  Slider,
-  Select,
-  Button,
-  Segmented,
-  Modal,
-  Toast,
-  Kbd,
-  Checkbox,
-  Spinbox,
-  useTheme,
-  useSource,
-  apiFetch,
-  formatApiDetail,
-  useLocalStorageState,
-} from './shared.jsx';
+//
+// bundler-migration-v1 Phase 5b-1 (2026-04-24): first .tsx component
+// migration. Typed against the server contract in
+// `mantisanalysis/server.py::SourceSummary` + `/api/isp/modes`. Imports
+// from `shared.jsx` are still untyped (Phase 5b-2 — shared.tsx — will
+// propagate real types here) so anything coming out of those imports
+// is `any` today.
+import React, { type CSSProperties, type ReactNode } from 'react';
+// tsc under `allowJs: true` scans shared.jsx for the shape of each named
+// export and infers every destructured parameter as REQUIRED, even when
+// the JS source treats them as optional. That produces false errors at
+// every call site the moment a .tsx file uses <Button variant="subtle">
+// without also passing icon / title / fullWidth / etc. The pragmatic
+// fix for the Phase 5b gradual migration: import the whole module as
+// `any`, then destructure the primitives we need. When shared.jsx →
+// shared.tsx lands (Phase 5b-2), drop the cast and let the real types
+// propagate. Marked with `eslint-disable` because typescript-eslint's
+// no-explicit-any rule trips on the cast itself.
+
+import * as _shared from './shared.jsx';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _s = _shared as any;
+const { Icon, Button, Modal, useTheme, useSource, apiFetch, useLocalStorageState } = _s;
+// Unused-but-previously-imported primitives are intentionally omitted —
+// the original .jsx listed them for consistency but this file never
+// used Card / Row / Slider / Select / Segmented / Toast / Kbd /
+// Checkbox / Spinbox / formatApiDetail. Phase 4's no-unused-vars rule
+// would flag them post-migration; they can be re-imported from _s on
+// demand if ISPSettingsWindow grows.
+
 const {
   useState: useStateI,
   useEffect: useEffectI,
@@ -33,14 +42,77 @@ const {
   useCallback: useCallbackI,
 } = React;
 
-const _pairEq = (a, b) =>
+// ---------------------------------------------------------------------------
+// Server-contract types
+// ---------------------------------------------------------------------------
+// Mirrors the payload shape served by GET /api/isp/modes and the nested
+// `isp_config` on every SourceSummary. Kept narrow on purpose — only the
+// fields this file reads are declared; adding more is cheap but
+// propagating them through shared.jsx is the real Phase 5b-2 job.
+
+type Pair = [number, number];
+
+interface IspChannelSpec {
+  slot_id: string;
+  default_name: string;
+  loc: Pair;
+  renameable: boolean;
+  color_hint: string;
+}
+
+interface IspMode {
+  id: string;
+  display_name: string;
+  description: string;
+  default_origin: Pair;
+  default_sub_step: Pair;
+  default_outer_stride: Pair;
+  channels: IspChannelSpec[];
+  supports_rgb_composite: boolean;
+}
+
+interface IspConfig {
+  origin?: Pair;
+  sub_step?: Pair;
+  outer_stride?: Pair;
+  channel_name_overrides?: Record<string, string>;
+  channel_loc_overrides?: Record<string, Pair>;
+}
+
+// Narrow subset of SourceSummary we actually read here. The full shape
+// lives in the Python server; `useSource()` returns untyped (any) today
+// until shared.tsx lands.
+interface SourceLite {
+  source_id: string;
+  isp_mode_id?: string;
+  isp_config?: IspConfig;
+}
+
+// Say-toast signature, shared with the app's <Toast> plumbing. `kind` is
+// free-form in app.jsx; we type it loosely rather than enumerating the
+// already-used tones ('success', 'danger', 'warning', 'info').
+type SayFn = (msg: string, kind?: string) => void;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+// Coerce-compare two Pair-ish values. Kept loose (unknown) so callers can
+// pass server-shaped `origin`/`sub_step` entries that might be undefined
+// before the first fetch completes.
+const _pairEq = (a: unknown, b: unknown): boolean =>
   Array.isArray(a) &&
   Array.isArray(b) &&
   a.length === b.length &&
   a.every((x, i) => Number(x) === Number(b[i]));
 
 // Build an illustrative extraction-formula string for the preview label.
-const _formulaPreview = (mode, origin, subStep, outerStride) => {
+const _formulaPreview = (
+  mode: IspMode | null,
+  origin: Pair,
+  subStep: Pair,
+  outerStride: Pair
+): string => {
   if (!mode || !mode.channels || mode.channels.length === 0) return '';
   const c = mode.channels[0];
   const r = c.loc[0] * subStep[0] + origin[0];
@@ -48,43 +120,57 @@ const _formulaPreview = (mode, origin, subStep, outerStride) => {
   return `${c.default_name}: half[${r}::${outerStride[0]}, ${col}::${outerStride[1]}]`;
 };
 
-const ISPSettingsWindow = ({ onClose, onApplied, say }) => {
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
+interface ISPSettingsWindowProps {
+  onClose: () => void;
+  onApplied?: (updated: SourceLite) => void;
+  say?: SayFn;
+}
+
+const ISPSettingsWindow = ({ onClose, onApplied, say }: ISPSettingsWindowProps) => {
   const t = useTheme();
-  const source = useSource();
+  const source = useSource() as SourceLite | null;
 
   // Mode catalog — fetched once on open. Kept in local state so a stale
   // response doesn't keep an orphan list open forever.
-  const [modes, setModes] = useStateI(null);
-  const [loadErr, setLoadErr] = useStateI(null);
+  const [modes, setModes] = useStateI<IspMode[] | null>(null);
+  const [loadErr, setLoadErr] = useStateI<string | null>(null);
 
   // Staged (unapplied) values. When the user switches mode, we seed
   // staging with that mode's defaults; on Revert we re-seed from the
   // current source's server state.
-  const [stagedModeId, setStagedModeId] = useStateI(source?.isp_mode_id || 'rgb_nir');
-  const [stagedOrigin, setStagedOrigin] = useStateI(source?.isp_config?.origin || [0, 0]);
-  const [stagedSubStep, setStagedSubStep] = useStateI(source?.isp_config?.sub_step || [2, 2]);
-  const [stagedOuter, setStagedOuter] = useStateI(source?.isp_config?.outer_stride || [4, 4]);
-  const [stagedNames, setStagedNames] = useStateI(source?.isp_config?.channel_name_overrides || {});
+  const [stagedModeId, setStagedModeId] = useStateI<string>(source?.isp_mode_id || 'rgb_nir');
+  const [stagedOrigin, setStagedOrigin] = useStateI<Pair>(source?.isp_config?.origin || [0, 0]);
+  const [stagedSubStep, setStagedSubStep] = useStateI<Pair>(source?.isp_config?.sub_step || [2, 2]);
+  const [stagedOuter, setStagedOuter] = useStateI<Pair>(source?.isp_config?.outer_stride || [4, 4]);
+  const [stagedNames, setStagedNames] = useStateI<Record<string, string>>(
+    source?.isp_config?.channel_name_overrides || {}
+  );
   // Per-channel loc overrides — dict slot_id → [row, col]. Empty means
   // "inherit the mode's declared loc". The UI seeds each slot's inputs
   // from the override if present, else the mode catalog's default loc.
-  const [stagedLocs, setStagedLocs] = useStateI(source?.isp_config?.channel_loc_overrides || {});
+  const [stagedLocs, setStagedLocs] = useStateI<Record<string, Pair>>(
+    source?.isp_config?.channel_loc_overrides || {}
+  );
   const [rgbCompositeDisplay, setRgbCompositeDisplay] = useLocalStorageState(
     'ispSettings/rgbComposite',
     false
   );
 
   const [applying, setApplying] = useStateI(false);
-  const [lastError, setLastError] = useStateI(null);
+  const [lastError, setLastError] = useStateI<string | null>(null);
 
   useEffectI(() => {
     let alive = true;
     (async () => {
       try {
-        const data = await apiFetch('/api/isp/modes', { method: 'GET' });
+        const data = (await apiFetch('/api/isp/modes', { method: 'GET' })) as IspMode[];
         if (alive) setModes(data);
       } catch (err) {
-        if (alive) setLoadErr(err.message);
+        if (alive) setLoadErr((err as Error).message);
       }
     })();
     return () => {
@@ -92,7 +178,7 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }) => {
     };
   }, []);
 
-  const activeMode = useMemoI(() => {
+  const activeMode = useMemoI<IspMode | null>(() => {
     if (!modes) return null;
     return modes.find((m) => m.id === stagedModeId) || modes[0] || null;
   }, [modes, stagedModeId]);
@@ -111,17 +197,17 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }) => {
 
   // Picking a new mode seeds staging with that mode's declared defaults.
   const pickMode = useCallbackI(
-    (id) => {
+    (id: string) => {
       const m = (modes || []).find((x) => x.id === id);
       if (!m) return;
       setStagedModeId(id);
-      setStagedOrigin([...m.default_origin]);
-      setStagedSubStep([...m.default_sub_step]);
-      setStagedOuter([...m.default_outer_stride]);
+      setStagedOrigin([...m.default_origin] as Pair);
+      setStagedSubStep([...m.default_sub_step] as Pair);
+      setStagedOuter([...m.default_outer_stride] as Pair);
       // Drop renames that no longer apply under the new mode.
       const renameable = new Set(m.channels.filter((c) => c.renameable).map((c) => c.slot_id));
       setStagedNames((prev) => {
-        const next = {};
+        const next: Record<string, string> = {};
         for (const [k, v] of Object.entries(prev)) {
           if (renameable.has(k)) next[k] = v;
         }
@@ -130,7 +216,7 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }) => {
       // Drop loc overrides that reference slots not present in the new mode.
       const known = new Set(m.channels.map((c) => c.slot_id));
       setStagedLocs((prev) => {
-        const next = {};
+        const next: Record<string, Pair> = {};
         for (const [k, v] of Object.entries(prev)) {
           if (known.has(k)) next[k] = v;
         }
@@ -141,7 +227,7 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }) => {
     [modes]
   );
 
-  const dirty = useMemoI(() => {
+  const dirty = useMemoI<boolean>(() => {
     if (!source) return false;
     if (source.isp_mode_id !== stagedModeId) return true;
     if (!_pairEq(source.isp_config?.origin, stagedOrigin)) return true;
@@ -165,7 +251,7 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }) => {
     setApplying(true);
     setLastError(null);
     try {
-      const updated = await apiFetch(`/api/sources/${source.source_id}/isp`, {
+      const updated = (await apiFetch(`/api/sources/${source.source_id}/isp`, {
         method: 'PUT',
         body: {
           mode_id: stagedModeId,
@@ -175,13 +261,14 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }) => {
           channel_name_overrides: stagedNames,
           channel_loc_overrides: stagedLocs,
         },
-      });
+      })) as SourceLite;
       onApplied?.(updated);
       say?.(`ISP mode → ${activeMode?.display_name || stagedModeId}`, 'success');
       onClose?.();
     } catch (err) {
-      setLastError(err.message);
-      say?.(`ISP reconfigure failed: ${err.message}`, 'danger');
+      const msg = (err as Error).message;
+      setLastError(msg);
+      say?.(`ISP reconfigure failed: ${msg}`, 'danger');
     } finally {
       setApplying(false);
     }
@@ -223,7 +310,7 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }) => {
     );
   }
 
-  const inputStyle = {
+  const inputStyle: CSSProperties = {
     background: t.inputBg,
     color: t.text,
     border: `1px solid ${t.chipBorder}`,
@@ -234,8 +321,6 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }) => {
     fontFamily: 'ui-monospace,Menlo,monospace',
     textAlign: 'right',
   };
-
-  const renameableSlots = activeMode.channels.filter((c) => c.renameable);
 
   return (
     <Modal onClose={onClose} width={600} label="ISP settings">
@@ -343,11 +428,11 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }) => {
           {activeMode.channels.map((c) => {
             const displayName = stagedNames[c.slot_id] ?? c.default_name;
             const effectiveLoc = stagedLocs[c.slot_id] ?? c.loc;
-            const setLocCell = (i, v) => {
+            const setLocCell = (i: 0 | 1, v: string) => {
               const n = Math.max(0, Math.floor(Number(v) || 0));
               setStagedLocs((prev) => {
                 const next = { ...prev };
-                const cur = [...(next[c.slot_id] ?? c.loc)];
+                const cur = [...(next[c.slot_id] ?? c.loc)] as Pair;
                 cur[i] = n;
                 // If the user reverted to the default, drop the override
                 // so the payload stays clean.
@@ -535,7 +620,15 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }) => {
   );
 };
 
-const HeaderRow = ({ onClose }) => {
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+interface HeaderRowProps {
+  onClose: () => void;
+}
+
+const HeaderRow = ({ onClose }: HeaderRowProps) => {
   const t = useTheme();
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
@@ -547,7 +640,12 @@ const HeaderRow = ({ onClose }) => {
   );
 };
 
-const Section = ({ label, children }) => {
+interface SectionProps {
+  label: ReactNode;
+  children: ReactNode;
+}
+
+const Section = ({ label, children }: SectionProps) => {
   const t = useTheme();
   return (
     <div style={{ marginBottom: 16 }}>
@@ -568,14 +666,22 @@ const Section = ({ label, children }) => {
   );
 };
 
-const GeomRow = ({ label, pair, setPair, inputStyle, min = 0 }) => {
+interface GeomRowProps {
+  label: string;
+  pair: Pair;
+  setPair: React.Dispatch<React.SetStateAction<Pair>>;
+  inputStyle: CSSProperties;
+  min?: number;
+}
+
+const GeomRow = ({ label, pair, setPair, inputStyle, min = 0 }: GeomRowProps) => {
   // `min` defaults to 0 (valid for origin); pass min={1} for sub_step and
   // outer_stride rows so the UI rejects 0 client-side instead of letting
   // the user submit and then eat a server 422. See bugfix bug_003.
   const t = useTheme();
-  const set = (i, v) =>
+  const set = (i: 0 | 1, v: string) =>
     setPair((prev) => {
-      const n = [...prev];
+      const n = [...prev] as Pair;
       n[i] = Math.max(min, Math.floor(Number(v) || min));
       return n;
     });

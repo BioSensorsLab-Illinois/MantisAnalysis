@@ -127,25 +127,21 @@ export default [
       'react-hooks/exhaustive-deps': 'warn',
 
       // --- React Refresh -----------------------------------------------
-      // Only-export-components is Vite-HMR-specific; warn is plenty.
-      'react-refresh/only-export-components': [
-        'warn',
-        { allowConstantExport: true },
-      ],
+      // Only-export-components is a dev-HMR hint — "this file won't be
+      // hot-replace-able, only full-refreshed." For the MantisAnalysis
+      // codebase shared.jsx mixes components + hooks + constants +
+      // helpers intentionally (it's the primitives hub), so every
+      // shared file trips this rule. A full page refresh on .jsx edit
+      // is fine during dev; prod is unaffected. Kept off globally; we
+      // revisit per-file when Phase 5b migrates shared.jsx → shared.tsx
+      // and can legitimately split hook/component exports.
+      'react-refresh/only-export-components': 'off',
 
       // --- Core --------------------------------------------------------
-      'no-unused-vars': [
-        'warn',
-        {
-          argsIgnorePattern: '^_',
-          varsIgnorePattern: '^_',
-          caughtErrors: 'none',
-        },
-      ],
-      // typescript-eslint ships its own no-unused-vars that runs as an
-      // error by default. Demote to warn + match core's ignore pattern
-      // so .ts/.tsx files behave like .js/.jsx. Also turn OFF core's
-      // copy on TS files so we don't double-report.
+      // Use `@typescript-eslint/no-unused-vars` exclusively — it handles
+      // both .js/.jsx and .ts/.tsx, and the core rule would double-
+      // report every match. Core is off; TS version is warn.
+      'no-unused-vars': 'off',
       '@typescript-eslint/no-unused-vars': [
         'warn',
         {
