@@ -4,6 +4,7 @@
 
 import React from 'react';
 
+import { Inspector } from './components/Inspector';
 import { LibraryRail } from './components/LibraryRail';
 import { TabBar } from './components/TabBar';
 import { ViewerGrid } from './components/ViewerGrid';
@@ -29,6 +30,7 @@ export const PlaybackMode: React.FC<PlaybackModeProps> = ({ say }) => {
   const { workspace, loading, error, refresh } = useWorkspace();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
 
   const handleError = useCallback(
     (msg: string) => {
@@ -198,8 +200,44 @@ export const PlaybackMode: React.FC<PlaybackModeProps> = ({ say }) => {
                     {visibleActiveTab.views.length !== 1 ? 's' : ''}
                   </span>
                 </div>
-                <ViewerGrid tab={visibleActiveTab} onSelectView={handleSelectView} />
-                <Transport tab={visibleActiveTab} stream={visibleStream} onError={handleError} />
+                <div
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    minHeight: 0,
+                    minWidth: 0,
+                  }}
+                >
+                  <div
+                    style={{
+                      flex: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      minWidth: 0,
+                      minHeight: 0,
+                    }}
+                  >
+                    <ViewerGrid tab={visibleActiveTab} onSelectView={handleSelectView} />
+                    <Transport
+                      tab={visibleActiveTab}
+                      stream={visibleStream}
+                      onError={handleError}
+                    />
+                  </div>
+                  <Inspector
+                    tab={visibleActiveTab}
+                    view={
+                      visibleActiveTab.views.find(
+                        (v) => v.view_id === visibleActiveTab.selected_view_id
+                      ) ??
+                      visibleActiveTab.views[0] ??
+                      null
+                    }
+                    onError={handleError}
+                    collapsed={inspectorCollapsed}
+                    onCollapse={() => setInspectorCollapsed((c) => !c)}
+                  />
+                </div>
               </>
             )}
           </>

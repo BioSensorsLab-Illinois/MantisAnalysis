@@ -384,6 +384,66 @@ def mount(app: FastAPI, workspace: Optional[Workspace] = None) -> Workspace:
                 setattr(view, k, v)
         return _view_dto(view)
 
+    @app.get("/api/playback/tabs/{tab_id}/export")
+    async def tab_export(
+        tab_id: str,
+        view_id: Optional[str] = None,
+        format: str = "png",
+    ) -> Response:
+        """Export the active frame of one view as PNG or TIFF.
+
+        WYSIWYG: same render path as the preview frame.png. TIFF is
+        produced by re-encoding the rendered RGB array via PIL.
+        """
+        try:
+            tab = ws.get_tab(tab_id)
+            stream = ws.get_stream(tab.stream_id)
+        except KeyError as e:
+            raise HTTPException(404, str(e))
+        if view_id:
+            view = next((v for v in tab.views if v.view_id == view_id), None)
+        else:
+            view = tab.views[0] if tab.views else None
+        if view is None:
+            raise HTTPException(404, "no view")
+        local_frame = (
+            view.locked_frame if view.locked_frame is not None else tab.active_frame
+        )
+        loop = asyncio.get_running_loop()
+        try:
+            if format.lower() == "tiff":
+                bytes_ = await loop.run_in_executor(
+                    None,
+                    _render.render_view_tiff,
+                    stream,
+                    local_frame,
+                    view,
+                    ws.library,
+                )
+                media = "image/tiff"
+            else:
+                bytes_ = await loop.run_in_executor(
+                    None,
+                    _render.render_view,
+                    stream,
+                    local_frame,
+                    view,
+                    ws.library,
+                )
+                media = "image/png"
+        except (IndexError, ValueError, KeyError, FileNotFoundError) as e:
+            raise HTTPException(422, f"render failed: {e}") from e
+        safe = view.name.replace(" ", "_")
+        return Response(
+            content=bytes_,
+            media_type=media,
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="{safe}_f{local_frame:05d}.{format.lower()}"'
+                ),
+            },
+        )
+
     @app.get("/api/playback/tabs/{tab_id}/frame.png")
     async def tab_frame_png(tab_id: str, view_id: Optional[str] = None) -> Response:
         """Render the active frame for one view as PNG bytes."""

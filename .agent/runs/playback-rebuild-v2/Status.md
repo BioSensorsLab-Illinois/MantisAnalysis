@@ -3,7 +3,54 @@
 Opened: 2026-04-25
 Last updated: 2026-04-25 (M0 in-flight)
 
-## Active milestone: M5 — Inspector tabs + render-pipeline polish + image export (next)
+## Active milestone: M6 — polish + reviewer pass + close (next)
+
+### M5 — Inspector tabs + image export — DONE 2026-04-25
+
+**Frontend** (`web/src/playback/`):
+- `components/Inspector.tsx` — tabbed right panel (368 px). Sections:
+  View / Display / Labels / Export. Collapsible to a 32 px stub via
+  ▶/◀ toggle. `aria-selected` + accent-tinted active tab.
+- `inspector/Field.tsx` — uppercase tracked label + body slot used
+  by every section.
+- `inspector/ViewTab.tsx` — view-name input + channel `<select>`
+  (10 channels) + Synced/Locked frame-mode pill (locks to current
+  active_frame).
+- `inspector/DisplayTab.tsx` — colormap select (9 cmaps),
+  Low/High range sliders (0–4095), Auto-normalize + Invert toggles,
+  Gain (0.1–5.0) + Offset (-512–512) sliders. Every change
+  PATCHes `view`; ViewerCard's URL-epoch invalidates and the
+  rendered frame refreshes within ~100 ms.
+- `inspector/LabelsTab.tsx` — placeholder for burn-in toggles
+  (per-label flags need DTO extension; tracked as backlog).
+- `inspector/ExportTab.tsx` — PNG / TIFF format pill + Export
+  button. Triggers `exportFrame` which fetches the rendered file
+  and downloads it via a hidden `<a download>`.
+- `index.tsx` — Inspector wired alongside ViewerGrid+Transport in
+  a flex row; collapse state local to the shell.
+
+**Backend** (`mantisanalysis/playback/`):
+- `render.py` — refactored: `_render_rgb()` is the shared pipeline
+  used by both `render_view` (PNG) and `render_view_tiff` (LZW
+  TIFF). WYSIWYG invariant preserved.
+- `api.py` — `GET /tabs/{id}/export?view_id=…&format={png|tiff}`
+  serves the file with Content-Disposition for browser download.
+
+**Live-render verification**:
+- `screenshots/M5_inspector_display_tab.png` — Inspector in Display
+  mode showing colormap selector (viridis), LOW/HIGH sliders,
+  modifier toggles, GAIN/OFFSET sliders. All controls fit cleanly
+  inside the 368 px panel.
+- Export round-trip via curl on real H5:
+  - PNG: 512×512 RGB, 1.9 KB.
+  - TIFF: 512×512 RGB LZW-compressed, 9.5 KB.
+  Both produced from `sample_1_view_0_exp_0.025.h5` via the same
+  render pipeline as the live preview.
+
+**Tests**: pytest 131 passed. Tier 0–3 smoke green. lint + tsc
+clean.
+
+### M4 — TabBar + ViewerGrid + Transport + render pipeline — DONE 2026-04-25
 
 ### M4 — TabBar + ViewerGrid + Transport + render pipeline — DONE 2026-04-25
 

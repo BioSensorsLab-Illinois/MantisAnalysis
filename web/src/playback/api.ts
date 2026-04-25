@@ -211,6 +211,24 @@ export function frameUrl(
   return `${BASE}/tabs/${tab_id}/frame.png?view_id=${view_id}&_f=${active_frame}&_e=${encodeURIComponent(String(view_epoch))}`;
 }
 
+export async function exportFrame(
+  tab_id: string,
+  view_id: string,
+  format: 'png' | 'tiff'
+): Promise<Blob> {
+  const r = await fetch(`${BASE}/tabs/${tab_id}/export?view_id=${view_id}&format=${format}`);
+  if (!r.ok) {
+    let detail = '';
+    try {
+      detail = (await r.json())?.detail ?? '';
+    } catch {
+      detail = await r.text();
+    }
+    throw new Error(`${r.status} ${r.statusText}: ${detail}`);
+  }
+  return r.blob();
+}
+
 /**
  * Subscribe to the SSE event stream. Returns an unsubscribe function.
  */

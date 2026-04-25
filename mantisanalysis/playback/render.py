@@ -86,35 +86,33 @@ def _png_bytes(arr_rgb: np.ndarray) -> bytes:
     return buf.getvalue()
 
 
-def render_view(
+def _tiff_bytes(arr_rgb: np.ndarray) -> bytes:
+    """Encode an (H, W, 3) uint8 array as TIFF."""
+    img = Image.fromarray(arr_rgb, mode="RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="TIFF", compression="tiff_lzw")
+    return buf.getvalue()
+
+
+def _render_rgb(
     stream: "Stream",
     frame: int,
     view: "View",
     library: "Library",
-) -> bytes:
-    """Return PNG bytes for the rendered view.
-
-    M4 supports `view.type == 'single'` only. Dark correction is
-    skipped at this milestone (added in M5 with the dark-frame UI).
-    Colormap + low/high windowing + invert are honored.
-    """
-
+) -> np.ndarray:
+    """Internal: shared pipeline up to the (H, W, 3) uint8 RGB array."""
     rec, local = _resolve_local(stream, frame, library)
     raw = h5io.read_frame(rec.path, local)
     half = _half_for_channel(raw, view.channel)
     band = _band_of(view.channel)
-
-    # Single-channel extract via the legacy GSense Bayer constants.
     plane = _extract.extract_channel(half, band)
 
-    # Optional gain + offset before windowing.
     if view.gain != 1.0 or view.offset != 0.0:
         plane32 = plane.astype(np.float32) * float(view.gain) + float(view.offset)
         plane32 = np.clip(plane32, 0.0, 65535.0)
         plane = plane32.astype(np.uint16)
 
     if view.normalize:
-        # Auto-stretch min..max into the user's window.
         pmin = int(plane.min())
         pmax = int(plane.max())
         win = _apply_window(plane, pmin, pmax if pmax > pmin else pmin + 1)
@@ -124,5 +122,30 @@ def render_view(
     if view.invert:
         win = 255 - win
 
-    rgb = _to_rgb(win, view.colormap)
-    return _png_bytes(rgb)
+    return _to_rgb(win, view.colormap)
+
+
+def render_view(
+    stream: "Stream",
+    frame: int,
+    view: "View",
+    library: "Library",
+) -> bytes:
+    """Return PNG bytes for the rendered view.
+
+    M4–M5 support `view.type == 'single'` only. Dark correction is
+    skipped at this milestone. Colormap + low/high windowing + invert
+    + gain + offset + normalize are honored. WYSIWYG: same pipeline
+    as ``render_view_tiff``.
+    """
+    return _png_bytes(_render_rgb(stream, frame, view, library))
+
+
+def render_view_tiff(
+    stream: "Stream",
+    frame: int,
+    view: "View",
+    library: "Library",
+) -> bytes:
+    """Return TIFF bytes for the rendered view (LZW-compressed)."""
+    return _tiff_bytes(_render_rgb(stream, frame, view, library))
