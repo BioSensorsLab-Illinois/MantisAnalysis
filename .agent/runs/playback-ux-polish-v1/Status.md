@@ -71,8 +71,17 @@ flip).
       transitions (narrow → collapsed → overlay → collapsed →
       wide → in-flow). Browser-verified via preview MCP at 1024
       and 1440 widths.
-- [ ] **M5** — ViewerCardContextMenu (right-click → Send to
-      USAF/FPN/DoF, Lock, Duplicate, Remove).
+- [x] **M5** — ViewerCardContextMenu shipped at
+      `web/src/playback/ViewerCardContextMenu.tsx`. Right-clicking
+      a ViewerCard opens a 200 px-wide menu with: Send to USAF
+      Resolution / FPN / Depth of Field, Lock to current frame
+      (toggles to Unlock), Duplicate view, Remove view (destructive,
+      inline 2-step armed pattern mirroring ConfirmRemoveButton).
+      Menu auto-clips to viewport, traps focus on first item, closes
+      on Esc / outside-click / non-destructive item-click. Handoff
+      items route through the same modal flow added in M3. New Tier
+      4 test exercises menu open / handoff item / 2-step Remove /
+      Esc-disarm. Browser-verified via preview MCP.
 - [ ] **M6** — Inspector body text 10 → 11.5 px (M12 react-ui-ux P2)
       + per-cell layout placeholder + close.
 
@@ -85,6 +94,7 @@ flip).
 | 2026-04-25 | M2 — Tier 0 + pytest -q (264 PASS) + web_smoke (23 PASS, +1) | PASS | ~56s + ~44s |
 | 2026-04-25 | M3 — Tier 0 + pytest -q (265 PASS) + web_smoke (24 PASS, +1) | PASS | ~58s + ~46s |
 | 2026-04-25 | M4 — Tier 0 + pytest -q (266 PASS) + web_smoke (25 PASS, +1) | PASS | ~59s + ~47s |
+| 2026-04-25 | M5 — Tier 0 + pytest -q (267 PASS) + web_smoke (26 PASS, +1) | PASS | ~60s + ~48s |
 
 ## Smoke status (from prior initiative close)
 

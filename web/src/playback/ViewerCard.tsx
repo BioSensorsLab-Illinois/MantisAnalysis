@@ -9,6 +9,7 @@ import React from 'react';
 import { Icon, useTheme, useDebounced } from '../shared.tsx';
 import { previewPngUrl } from './api.ts';
 import { ConfirmRemoveButton } from './ConfirmRemoveButton.tsx';
+import { ViewerCardContextMenu } from './ViewerCardContextMenu.tsx';
 
 const { useLayoutEffect, useMemo, useRef, useState } = React;
 
@@ -148,6 +149,8 @@ export const ViewerCard = ({
   const epoch = useRef(0);
   const [imgState, setImgState] = useState('loading');
   const [hover, setHover] = useState(false);
+  // playback-ux-polish-v1 M5: right-click context menu state.
+  const [ctxMenu, setCtxMenu] = useState(null);
   // M12 frontend-react F3: bump epoch in a useLayoutEffect so it
   // increments synchronously *before* the new <img> mounts and its
   // onLoad/onError fire. The handlers read epoch.current directly
@@ -178,6 +181,13 @@ export const ViewerCard = ({
       onClick={() => onSelect?.(view.view_id)}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
+      onContextMenu={(ev) => {
+        // M5: open the right-click menu. Selecting the card first
+        // ensures the parent reducer treats it as the active view.
+        ev.preventDefault();
+        onSelect?.(view.view_id);
+        setCtxMenu({ x: ev.clientX, y: ev.clientY });
+      }}
       // M12 accessibility P0: previously this was role="button"
       // with `aria-selected="true"` (axe critical: aria-allowed-attr)
       // AND it contained nested `<button>`s (axe serious:
@@ -529,6 +539,18 @@ export const ViewerCard = ({
         >
           Frame not decoded
         </div>
+      )}
+      {ctxMenu && (
+        <ViewerCardContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          isLocked={isLocked}
+          onClose={() => setCtxMenu(null)}
+          onHandoff={(mode) => onHandoff?.(view.view_id, mode)}
+          onToggleLock={() => onToggleLock?.(view.view_id)}
+          onDuplicate={() => onDuplicate?.(view.view_id)}
+          onRemove={() => onRemove?.(view.view_id)}
+        />
       )}
     </div>
   );

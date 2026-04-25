@@ -967,3 +967,117 @@ def test_playback_sources_panel_collapses_at_narrow_viewport(
         box_wide = page.locator('[data-region="sources-panel"]').bounding_box()
         assert box_wide["width"] >= 240, f"expected wide-mode column; got {box_wide}"
         browser.close()
+
+
+@pytest.mark.web_smoke
+def test_playback_viewer_context_menu_right_click(web_server: str) -> None:
+    """playback-ux-polish-v1 M5: right-click on a ViewerCard opens a
+    context menu with Send-to-USAF/FPN/DoF + Lock + Duplicate +
+    Remove. The Remove item is destructive (2-step confirm); other
+    items fire immediately and close the menu.
+    """
+    pytest.importorskip("playwright")
+    from playwright.sync_api import sync_playwright
+
+    if not _DIST_INDEX.is_file():
+        pytest.skip("web/dist not built")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        ctx = browser.new_context()
+        page = ctx.new_page()
+        page.add_init_script(
+            """try {
+                localStorage.setItem('mantis/playback/enabled', '1');
+                localStorage.setItem('mantis/mode', JSON.stringify('play'));
+            } catch (e) {}"""
+        )
+        page.goto(web_server, wait_until="networkidle", timeout=15_000)
+        page.wait_for_selector(
+            "[data-screen-label='Playback empty state']", state="visible", timeout=5_000
+        )
+        page.evaluate(
+            """async () => {
+                const rec = await fetch('/api/playback/recordings/load-sample', { method: 'POST' }).then(r => r.json());
+                await fetch('/api/playback/streams', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ recording_ids: [rec.recording_id] }),
+                });
+            }"""
+        )
+        page.evaluate("() => window.location.reload()")
+        page.wait_for_load_state("networkidle")
+        page.wait_for_selector('[data-region="viewer-grid"]', state="visible", timeout=5_000)
+
+        # Right-click the viewer card.
+        page.evaluate(
+            """() => {
+                const card = document.querySelector('[data-view-id]');
+                const rect = card.getBoundingClientRect();
+                card.dispatchEvent(new MouseEvent('contextmenu', {
+                    bubbles: true, cancelable: true,
+                    clientX: rect.left + 60, clientY: rect.top + 60,
+                }));
+            }"""
+        )
+        menu = page.locator('[data-region="viewer-context-menu"]').first
+        menu.wait_for(state="visible", timeout=4_000)
+        # Six action items (3 handoff + lock + duplicate + remove).
+        item_actions = page.evaluate(
+            """() => Array.from(document.querySelectorAll('[data-region="viewer-context-menu"] [role="menuitem"]'))
+                .map(b => b.getAttribute('data-action'))"""
+        )
+        assert set(item_actions) == {
+            "menu-handoff-usaf",
+            "menu-handoff-fpn",
+            "menu-handoff-dof",
+            "menu-lock",
+            "menu-duplicate",
+            "menu-remove",
+        }, item_actions
+
+        # Send to USAF → opens the handoff modal + closes the context menu.
+        page.locator('[data-action="menu-handoff-usaf"]').click()
+        page.wait_for_function(
+            "() => !document.querySelector('[data-region=\"viewer-context-menu\"]')",
+            timeout=2_000,
+        )
+        page.wait_for_selector(
+            '[data-region="handoff-modal"]', state="visible", timeout=4_000
+        )
+        # Cancel the handoff modal.
+        page.locator('[data-action="handoff-cancel"]').click()
+        page.wait_for_function(
+            "() => !document.querySelector('[data-region=\"handoff-modal\"]')",
+            timeout=2_000,
+        )
+
+        # Re-open menu and exercise the destructive 2-step on Remove.
+        page.evaluate(
+            """() => {
+                const card = document.querySelector('[data-view-id]');
+                const rect = card.getBoundingClientRect();
+                card.dispatchEvent(new MouseEvent('contextmenu', {
+                    bubbles: true, cancelable: true,
+                    clientX: rect.left + 60, clientY: rect.top + 60,
+                }));
+            }"""
+        )
+        page.locator('[data-region="viewer-context-menu"]').wait_for(
+            state="visible", timeout=4_000
+        )
+        page.locator('[data-action="menu-remove"]').click()
+        # Menu stays open; remove is armed.
+        assert page.locator('[data-region="viewer-context-menu"]').is_visible()
+        armed = page.locator('[data-action="menu-remove"]').get_attribute("data-armed")
+        assert armed == "1"
+        # Esc closes without firing remove (view count unchanged).
+        before = page.locator('[data-view-id]').count()
+        page.keyboard.press("Escape")
+        page.wait_for_function(
+            "() => !document.querySelector('[data-region=\"viewer-context-menu\"]')",
+            timeout=2_000,
+        )
+        assert page.locator('[data-view-id]').count() == before
+        browser.close()
