@@ -80,23 +80,24 @@ M12 playwright-verifier P1 batch:
 
 ---
 
-## B-0032 — Playback feature-flag default flip (`mantis/playback/enabled=1`)
+## B-0032 — Playback feature-flag default flip — **CLOSED 2026-04-25**
 
-The Playback mode was shipped behind a `mantis/playback/enabled`
-localStorage flag (default OFF) per risk-skeptic P1-K. Open this
-when:
+Flipped per user request after `playback-ux-polish-v1` close.
+`web/src/playback/state.tsx::playbackEnabled` now returns
+`localStorage.getItem(PLAYBACK_FLAG_KEY) !== '0'` (default ON);
+explicit opt-out is `mantis/playback/enabled='0'`. The Play rail
+tile, `4` keyboard shortcut, and ⌘K Playback entry are all
+visible without DevTools opt-in.
 
-- B-0030 polish is in;
-- B-0029 perf work has either landed or has been formally
-  deferred with measured numbers showing the single-thread path is
-  acceptable for the deployment;
-- A docs/help update exists explaining the new mode + the rail
-  tile.
-
-Plan: change `playbackEnabled()` default from
-`localStorage.getItem(...) === '1'` to `localStorage.getItem(...) !== '0'`
-so opt-out is the new opt-in. One-line frontend change + visual
-release notes.
+- `test_playback_rail_hidden_by_default` retired; replaced with
+  `test_playback_rail_visible_by_default` +
+  `test_playback_rail_hidden_when_explicitly_disabled`.
+- README 4-mode table no longer carries the *(preview)* tag and
+  documents the opt-out path.
+- Pre-conditions: ✅ B-0030 polish landed; ✅ B-0035 preview-PNG
+  cache landed; B-0029 perf scale-out remains a deferred
+  follow-up but the single-thread path is acceptable for the
+  documented single-user deployment (D-0019).
 
 ---
 
@@ -131,16 +132,18 @@ regressions land silently.
 
 ---
 
-## B-0035 — Playback Cache-Control on preview PNGs (M12 perf F5)
+## B-0035 — Playback Cache-Control on preview PNGs — **CLOSED 2026-04-25**
 
-Preview PNGs at `/api/playback/streams/{sid}/frame/{n}.png`
-currently send `Cache-Control: no-store`. PNG bytes are pure
-functions of the URL (channel + view + frame), so a backward
-scrub re-decodes/re-encodes a frame the browser still has. Switch
-to `Cache-Control: max-age=300, immutable` once the hash-of-view
-component is in the URL (avoid serving stale on view changes).
-Optionally add an `lru_cache` server-side on
-`(stream_id, frame, hash(view)) → PNG bytes`.
+`mantisanalysis/playback_api.py::frame_png_route` now responds with
+`Cache-Control: private, max-age=60, must-revalidate` plus an `ETag`
+derived from the rendered PNG bytes. The route honors
+`If-None-Match` and returns 304 with the same ETag when the bytes
+are unchanged. Backward-scrub during a session reuses cached bytes
+(no re-decode + re-encode); a freshly-uploaded dark or stream
+rebuild becomes visible within ≤60 s without forcing every
+mousemove to re-fetch. Test coverage in
+`tests/headless/test_playback_api.py::test_frame_png_returns_image`
+asserts both headers and the 304 round-trip.
 
 ---
 

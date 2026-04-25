@@ -6,8 +6,8 @@
 //     with strategy picker, Stream Builder modal auto-opens at 2+
 //     recordings, warning chips on FilePill rows.
 //
-// Behind the `mantis/playback/enabled` localStorage flag (default
-// OFF until M11 close per risk-skeptic P1-K).
+// Behind the `mantis/playback/enabled` localStorage flag.
+// B-0032 (2026-04-25): default ON; opt-out by setting the key to '0'.
 
 import React from 'react';
 import { useLocalStorageState, useTheme } from '../shared.tsx';

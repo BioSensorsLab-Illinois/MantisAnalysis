@@ -282,16 +282,20 @@ export const PlaybackProvider = ({ children }) => {
 };
 
 // ---------------------------------------------------------------------------
-// Feature flag (risk-skeptic P1-K). Default OFF until M11 close.
+// Feature flag (risk-skeptic P1-K). **Default ON** as of B-0032
+// (2026-04-25) — `playback-ux-polish-v1` shipped, perf hot-paths
+// addressed via M12 inline fixes. Users who want to hide the
+// Playback rail tile can set the localStorage key to "0".
 // ---------------------------------------------------------------------------
 
 export const PLAYBACK_FLAG_KEY = 'mantis/playback/enabled';
 
 export const playbackEnabled = () => {
-  if (typeof window === 'undefined') return false;
+  if (typeof window === 'undefined') return true;
   try {
-    return window.localStorage?.getItem(PLAYBACK_FLAG_KEY) === '1';
+    // B-0032: default ON. Hidden only when explicitly set to "0".
+    return window.localStorage?.getItem(PLAYBACK_FLAG_KEY) !== '0';
   } catch {
-    return false;
+    return true;
   }
 };

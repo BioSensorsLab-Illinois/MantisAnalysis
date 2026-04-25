@@ -227,9 +227,9 @@ const App = () => {
       } else if (e.key === '1') setMode('usaf');
       else if (e.key === '2') setMode('fpn');
       else if (e.key === '3') setMode('dof');
-      // recording-inspection-implementation-v1 M5 — Playback rail tile
-      // is feature-flag-gated (mantis/playback/enabled = '1'). Default
-      // OFF until M11 close per risk-skeptic P1-K.
+      // recording-inspection-implementation-v1 M5 — Playback rail tile.
+      // B-0032 (2026-04-25): default ON; opt-out via
+      // `mantis/playback/enabled='0'` in localStorage.
       else if (e.key === '4' && playbackEnabled()) setMode('play');
       // ISP settings window — uppercase `I` (shift+i) avoids clashing with
       // common text-insert patterns elsewhere in the app.
@@ -564,8 +564,8 @@ const ModeRail = ({ mode, setMode }) => {
     { id: 'usaf', label: 'USAF', title: 'USAF Resolution (1)', icon: 'usaf' },
     { id: 'fpn', label: 'FPN', title: 'FPN Analysis (2)', icon: 'fpn' },
     { id: 'dof', label: 'DoF', title: 'Depth of Field (3)', icon: 'dof' },
-    // recording-inspection-implementation-v1 M5 — gated behind
-    // mantis/playback/enabled localStorage flag (default OFF until M11).
+    // recording-inspection-implementation-v1 M5 — visible by default
+    // (B-0032, 2026-04-25); opt-out via mantis/playback/enabled='0'.
     ...(playbackEnabled()
       ? [{ id: 'play', label: 'Play', title: 'Playback / Recording Inspection (4)', icon: 'film' }]
       : []),

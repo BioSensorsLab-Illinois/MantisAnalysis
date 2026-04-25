@@ -863,8 +863,27 @@ def mount_playback_api(app: FastAPI,
                                       max_dim=max_dim, burn_ctx=ctx)
         except KeyError as e:
             raise HTTPException(422, f"channel error: {e}") from e
+        # B-0035 (M12 perf F5): preview PNG bytes are a pure function
+        # of (stream_id, frame, view) for fixed server-side state.
+        # The URL already encodes every URL-affecting view field via
+        # `previewPngUrl`, so the same URL re-issued during a backward
+        # scrub may safely return the cached bytes. We use a short
+        # `private, max-age=60` so a freshly-uploaded dark or a stream
+        # rebuild becomes visible within ≤60 s without forcing the
+        # client to round-trip per scrub. Includes an ETag so the
+        # browser can revalidate cheaply.
+        import hashlib
+        etag = '"' + hashlib.sha1(png).hexdigest()[:16] + '"'  # noqa: S324
+        if request.headers.get("if-none-match") == etag:
+            return Response(status_code=304, headers={
+                "Cache-Control": "private, max-age=60, must-revalidate",
+                "ETag": etag,
+            })
         return Response(content=png, media_type="image/png",
-                        headers={"Cache-Control": "no-store"})
+                        headers={
+                            "Cache-Control": "private, max-age=60, must-revalidate",
+                            "ETag": etag,
+                        })
 
     # --- CCM + presets + frame-LRU controls (M8) -------------------------
 

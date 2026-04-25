@@ -1,11 +1,12 @@
 """Tier 4 Playwright smoke for the Playback (Recording Inspection) mode (M5).
 
-Per UI_IMPLEMENTATION_NOTES §17 + risk-skeptic P0-B + P1-K:
+Per UI_IMPLEMENTATION_NOTES §17 + risk-skeptic P0-B + B-0032:
 
-  * Default state (no `mantis/playback/enabled` localStorage entry):
-    no rail tile, `4` keypress is a no-op.
-  * With the feature flag set: rail tile visible, `4` activates
-    Playback, empty-state CTA renders.
+  * Default state (no `mantis/playback/enabled` localStorage entry,
+    or value != '0'): rail tile visible, `4` keypress activates
+    Playback (default ON as of 2026-04-25, B-0032).
+  * Explicit opt-out (`mantis/playback/enabled='0'`): rail tile +
+    `4` shortcut hidden.
   * Test endpoints (gated by MANTIS_PLAYBACK_TEST=1) load a synthetic
     sample → stream is built → workspace placeholder renders.
   * Firing `mantis:source-evicted` with `detail.kind='stream'` does
@@ -37,8 +38,11 @@ def _enable_playback_test_env(monkeypatch_module=None):
 
 
 @pytest.mark.web_smoke
-def test_playback_rail_hidden_by_default(web_server: str) -> None:
-    """Without the feature flag, the rail tile and `4` shortcut are no-ops."""
+def test_playback_rail_visible_by_default(web_server: str) -> None:
+    """B-0032 (2026-04-25): the Playback feature flag now defaults
+    ON. With no `mantis/playback/enabled` localStorage entry, the
+    rail tile is present and the `4` shortcut works.
+    """
     pytest.importorskip("playwright")
     from playwright.sync_api import sync_playwright
 
@@ -49,14 +53,39 @@ def test_playback_rail_hidden_by_default(web_server: str) -> None:
         browser = p.chromium.launch()
         ctx = browser.new_context()
         page = ctx.new_page()
-        # Ensure the flag is OFF before navigating.
+        # Make sure the key is unset (would also be unset on first visit).
         page.add_init_script(
             "try { localStorage.removeItem('mantis/playback/enabled'); } catch (e) {}"
         )
         page.goto(web_server, wait_until="networkidle", timeout=15_000)
-        # Default rail has 3 tiles; the 4th (Play) must not be present.
         play_btn = page.locator('[data-mode-tile="play"]')
-        assert play_btn.count() == 0
+        assert play_btn.count() >= 1, (
+            "Play rail tile must be visible by default after B-0032 flip"
+        )
+
+
+@pytest.mark.web_smoke
+def test_playback_rail_hidden_when_explicitly_disabled(web_server: str) -> None:
+    """B-0032: setting `mantis/playback/enabled='0'` is the explicit
+    opt-out — the rail tile + `4` shortcut go away."""
+    pytest.importorskip("playwright")
+    from playwright.sync_api import sync_playwright
+
+    if not _DIST_INDEX.is_file():
+        pytest.skip("web/dist not built")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        ctx = browser.new_context()
+        page = ctx.new_page()
+        page.add_init_script(
+            "try { localStorage.setItem('mantis/playback/enabled', '0'); } catch (e) {}"
+        )
+        page.goto(web_server, wait_until="networkidle", timeout=15_000)
+        play_btn = page.locator('[data-mode-tile="play"]')
+        assert play_btn.count() == 0, (
+            "Play rail tile should be hidden when flag is explicitly '0'"
+        )
         browser.close()
 
 

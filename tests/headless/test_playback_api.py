@@ -197,7 +197,18 @@ def test_frame_png_returns_image(client: TestClient, synth_h5: Path) -> None:
     assert r.status_code == 200
     assert r.headers["content-type"] == "image/png"
     assert r.content[:8] == b"\x89PNG\r\n\x1a\n"
-    assert r.headers.get("cache-control") == "no-store"
+    # B-0035: preview PNGs use a short private cache (was no-store)
+    # so backward-scrub re-uses the bytes; ETag enables 304 revalidation.
+    assert r.headers.get("cache-control") == "private, max-age=60, must-revalidate"
+    assert r.headers.get("etag")
+    # Re-request with If-None-Match → 304.
+    r2 = client.get(
+        f"/api/playback/streams/{sid}/frame/0.png",
+        params={"channel": "HG-G", "colormap": "viridis", "low": 0, "high": 255},
+        headers={"If-None-Match": r.headers["etag"]},
+    )
+    assert r2.status_code == 304
+    assert r2.headers.get("etag") == r.headers["etag"]
 
 
 def test_frame_png_out_of_range_returns_422(client: TestClient,
