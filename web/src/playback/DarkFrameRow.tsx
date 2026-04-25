@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { Icon, useTheme } from '../shared.tsx';
+import { ConfirmRemoveButton } from './ConfirmRemoveButton.tsx';
 
 export const DarkFrameRow = ({ dark, baseExposure, onRemove }) => {
   const t = useTheme();
@@ -85,22 +86,14 @@ export const DarkFrameRow = ({ dark, baseExposure, onRemove }) => {
       >
         ×{dark.frames_averaged}
       </span>
-      <button
-        type="button"
-        aria-label={`Remove dark frame ${dark.name}`}
-        onClick={() => onRemove?.(dark.dark_id)}
-        style={{
-          width: 18,
-          height: 18,
-          border: 'none',
-          background: 'transparent',
-          color: t.textFaint,
-          cursor: 'pointer',
-          borderRadius: 3,
-        }}
-      >
-        <Icon name="close" size={10} />
-      </button>
+      <ConfirmRemoveButton
+        ariaLabel={`Remove dark frame ${dark.name}`}
+        iconMode
+        iconNode={<Icon name="close" size={10} />}
+        iconWidth={18}
+        iconHeight={18}
+        onConfirm={() => onRemove?.(dark.dark_id)}
+      />
     </li>
   );
 };

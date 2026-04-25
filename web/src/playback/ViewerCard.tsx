@@ -8,6 +8,7 @@
 import React from 'react';
 import { Icon, useTheme, useDebounced } from '../shared.tsx';
 import { previewPngUrl } from './api.ts';
+import { ConfirmRemoveButton } from './ConfirmRemoveButton.tsx';
 
 const { useLayoutEffect, useMemo, useRef, useState } = React;
 
@@ -497,31 +498,18 @@ export const ViewerCard = ({
         >
           →D
         </button>
-        <button
-          type="button"
-          aria-label="Remove view"
-          title="Remove view"
-          data-action="remove"
-          onClick={(ev) => {
-            ev.stopPropagation();
-            onRemove?.(view.view_id);
-          }}
-          style={{
-            width: 24,
-            height: 24,
-            border: 'none',
-            cursor: 'pointer',
-            borderRadius: 2,
-            background: 'transparent',
-            color: '#d8dde6',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 0,
-          }}
-        >
-          <Icon name="close" size={12} />
-        </button>
+        {/* M2 destructive guard: 2-step confirm via ConfirmRemoveButton
+            (icon mode). First click flashes red + tooltip changes to
+            "Click again to confirm"; second click within 3s commits. */}
+        <ConfirmRemoveButton
+          ariaLabel="Remove view"
+          dataAction="remove"
+          iconMode
+          iconNode={<Icon name="close" size={12} />}
+          iconWidth={24}
+          iconHeight={24}
+          onConfirm={() => onRemove?.(view.view_id)}
+        />
       </div>
 
       {imgState === 'failed' && (

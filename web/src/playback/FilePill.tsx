@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { Icon, useTheme } from '../shared.tsx';
+import { ConfirmRemoveButton } from './ConfirmRemoveButton.tsx';
 
 const { useState } = React;
 
@@ -169,26 +170,11 @@ export const FilePill = ({ file, onRemove }) => {
             );
           })}
           <div style={{ marginTop: 6, display: 'flex', gap: 6 }}>
-            <button
-              type="button"
-              aria-label={`Remove ${file.name}`}
-              onClick={(ev) => {
-                ev.stopPropagation();
-                onRemove?.(file.recording_id);
-              }}
-              style={{
-                padding: '3px 8px',
-                background: 'transparent',
-                color: t.textMuted,
-                border: `1px solid ${t.chipBorder}`,
-                borderRadius: 3,
-                cursor: 'pointer',
-                fontSize: 10,
-                fontFamily: 'inherit',
-              }}
-            >
-              Remove
-            </button>
+            <ConfirmRemoveButton
+              ariaLabel={`Remove ${file.name}`}
+              size="sm"
+              onConfirm={() => onRemove?.(file.recording_id)}
+            />
           </div>
         </div>
       )}

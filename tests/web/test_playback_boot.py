@@ -713,3 +713,89 @@ def test_playback_empty_state_dropzone_drag_and_drop(web_server: str) -> None:
             f"expected 1 upload POST (one .h5 + one .txt filtered), got {upload_calls!r}"
         )
         browser.close()
+
+
+@pytest.mark.web_smoke
+def test_playback_destructive_remove_two_step_confirm(web_server: str) -> None:
+    """playback-ux-polish-v1 M2: FilePill Remove now requires a 2-step
+    confirm. First click flips data-armed=1 and the visible label to
+    "Click again to confirm"; second click within 3s commits the
+    DELETE; Esc disarms; auto-revert after the 3s window also disarms.
+    """
+    pytest.importorskip("playwright")
+    from playwright.sync_api import sync_playwright
+
+    if not _DIST_INDEX.is_file():
+        pytest.skip("web/dist not built")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        ctx = browser.new_context()
+        page = ctx.new_page()
+        page.add_init_script(
+            """try {
+                localStorage.setItem('mantis/playback/enabled', '1');
+                localStorage.setItem('mantis/mode', JSON.stringify('play'));
+            } catch (e) {}"""
+        )
+
+        # Capture DELETE requests fired against the recordings endpoint.
+        deletes: list[str] = []
+        page.on(
+            "request",
+            lambda req: deletes.append(req.url)
+            if req.method == "DELETE" and "/api/playback/recordings/" in req.url
+            else None,
+        )
+
+        page.goto(web_server, wait_until="networkidle", timeout=15_000)
+        page.wait_for_selector(
+            "[data-screen-label='Playback empty state']", state="visible", timeout=5_000
+        )
+        # Load + bind a recording so the FilePill renders with Remove.
+        page.evaluate(
+            """async () => {
+                const rec = await fetch('/api/playback/recordings/load-sample', { method: 'POST' }).then(r => r.json());
+                await fetch('/api/playback/streams', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ recording_ids: [rec.recording_id] }),
+                });
+            }"""
+        )
+        page.evaluate("() => window.location.reload()")
+        page.wait_for_load_state("networkidle")
+
+        # Expand the FilePill to reveal the Remove button.
+        page.locator('button[aria-label*=": expand details"]').first.click()
+        remove = page.locator('[data-action="remove"]').first
+        remove.wait_for(state="visible", timeout=4_000)
+        assert remove.get_attribute("data-armed") == "0"
+
+        # Step 1: arm.
+        remove.click()
+        page.wait_for_function(
+            "() => document.querySelector('[data-action=\"remove\"]')?.getAttribute('data-armed') === '1'",
+            timeout=2_000,
+        )
+        assert "Click again to confirm" in (
+            page.locator('[data-action="remove"]').first.text_content() or ""
+        )
+        # Esc disarms.
+        page.keyboard.press("Escape")
+        page.wait_for_function(
+            "() => document.querySelector('[data-action=\"remove\"]')?.getAttribute('data-armed') === '0'",
+            timeout=2_000,
+        )
+        assert deletes == [], f"Esc should not commit; got {deletes!r}"
+
+        # Step 1 again, then step 2 within window → commits DELETE.
+        page.locator('[data-action="remove"]').first.click()
+        page.wait_for_function(
+            "() => document.querySelector('[data-action=\"remove\"]')?.getAttribute('data-armed') === '1'",
+            timeout=2_000,
+        )
+        page.locator('[data-action="remove"]').first.click()
+        page.wait_for_load_state("networkidle")
+        assert len(deletes) == 1, f"second click must fire one DELETE; got {deletes!r}"
+        browser.close()

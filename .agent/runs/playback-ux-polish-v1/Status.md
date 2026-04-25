@@ -34,8 +34,16 @@ flip).
       added; copy and accent-color flip while dragging. New Tier 4
       Playwright test exercises dragover + drop + filter (one .h5 +
       one .txt → one upload POST). Browser-verified via preview MCP.
-- [ ] **M2** — Destructive-action confirm/undo on FilePill +
-      DarkFrameRow + ViewerCard Remove.
+- [x] **M2** — Destructive-action 2-step confirm pattern. New
+      `web/src/playback/ConfirmRemoveButton.tsx` primitive (text or
+      icon mode) replaces every Playback "Remove" call site
+      (FilePill, DarkFrameRow, ViewerCard). First click arms (red
+      bg + label "Click again to confirm"); second click within 3 s
+      commits; auto-revert at 3 s; Esc disarms. `data-action=remove`,
+      `data-armed`, `aria-pressed` for tests + AT. New Tier 4 test
+      `test_playback_destructive_remove_two_step_confirm` exercises
+      arm + Esc-disarm + arm + commit. Browser-verified via preview
+      MCP.
 - [ ] **M3** — HandoffModal between toolbar click and dispatch
       (W11; per UI_IMPLEMENTATION_NOTES §21a).
 - [ ] **M4** — Responsive collapse: Sources panel → 44 px icon
@@ -51,6 +59,7 @@ flip).
 |---|---|---|---|
 | 2026-04-25 | M0 — initiative scaffold | n/a | n/a |
 | 2026-04-25 | M1 — Tier 0 + pytest -q (263 PASS) + web_smoke (22 PASS, +1) | PASS | ~55s + ~42s |
+| 2026-04-25 | M2 — Tier 0 + pytest -q (264 PASS) + web_smoke (23 PASS, +1) | PASS | ~56s + ~44s |
 
 ## Smoke status (from prior initiative close)
 
