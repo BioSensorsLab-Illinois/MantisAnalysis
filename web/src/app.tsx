@@ -35,6 +35,7 @@ import { USAFMode } from './usaf.tsx';
 import { FPNMode } from './fpn.tsx';
 import { DoFMode } from './dof.tsx';
 import { AnalysisModal } from './analysis.tsx';
+import { AnalysisShell } from './analysis/shell';
 import { ISPSettingsWindow } from './isp_settings.tsx';
 const {
   useState: useStateApp,
@@ -410,9 +411,19 @@ const App = () => {
               onAbout={() => setShowAbout(true)}
               onPalette={() => setShowPalette(true)}
             />
-            {analysis && (
-              <AnalysisModal run={analysis} onClose={() => setAnalysis(null)} onToast={say} />
-            )}
+            {analysis &&
+              (() => {
+                // analysis-page-overhaul-v1 Phase 3 — `?newshell=1` opts into
+                // the new <AnalysisShell> (web/src/analysis/). Old modals
+                // remain default until Phase 4 ports every chart.
+                const useNewShell =
+                  typeof window !== 'undefined' && /[?&]newshell=1\b/.test(window.location.search);
+                return useNewShell ? (
+                  <AnalysisShell run={analysis} onClose={() => setAnalysis(null)} onToast={say} />
+                ) : (
+                  <AnalysisModal run={analysis} onClose={() => setAnalysis(null)} onToast={say} />
+                );
+              })()}
             {showHelp && <HelpOverlay mode={mode} onClose={() => setShowHelp(false)} />}
             {showAbout && <AboutOverlay onClose={() => setShowAbout(false)} />}
             {showPalette && (

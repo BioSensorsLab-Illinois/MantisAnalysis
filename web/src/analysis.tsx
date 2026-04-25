@@ -7399,5 +7399,290 @@ const LegacyPngModal = ({ run, onClose, _onToast }) => {
   );
 };
 
-export { AnalysisModal };
+// ---------------------------------------------------------------------------
+// analysis-page-overhaul-v1 Phase 3 — bridge exports for the new shell
+// (`web/src/analysis/`). Each `_*TabBody` dispatches the active tab to the
+// chart components that still live in this module. Phase 4 moves the chart
+// bodies into `web/src/analysis/charts/` and these bridges retire.
+// Underscore prefix marks them as cross-module bridges, not public API.
+// ---------------------------------------------------------------------------
+const _USAFTabBody = ({
+  tab,
+  visibleChannels,
+  allSpecs,
+  keptIdx,
+  measurements,
+  threshold,
+  perChLim,
+  dirFilter,
+}) => {
+  if (tab === 'mtf')
+    return (
+      <MTFCurvesTab
+        channels={visibleChannels}
+        specs={allSpecs}
+        keptIdx={keptIdx}
+        measurements={measurements}
+        threshold={threshold}
+        perChLim={perChLim}
+      />
+    );
+  if (tab === 'profiles')
+    return (
+      <ProfileGalleryTab
+        channels={visibleChannels}
+        specs={allSpecs}
+        keptIdx={keptIdx}
+        measurements={measurements}
+        threshold={threshold}
+      />
+    );
+  if (tab === 'table')
+    return (
+      <SummaryTableTab
+        channels={visibleChannels}
+        specs={allSpecs}
+        keptIdx={keptIdx}
+        measurements={measurements}
+        threshold={threshold}
+      />
+    );
+  if (tab === 'heatmap')
+    return (
+      <DetectionHeatmapTab
+        channels={visibleChannels}
+        specs={allSpecs}
+        measurements={measurements}
+        threshold={threshold}
+        dirFilter={dirFilter}
+      />
+    );
+  if (tab === 'group')
+    return (
+      <GroupSweepTab
+        channels={visibleChannels}
+        specs={allSpecs}
+        keptIdx={keptIdx}
+        measurements={measurements}
+        threshold={threshold}
+      />
+    );
+  if (tab === 'fft')
+    return (
+      <FFTMTFTab
+        channels={visibleChannels}
+        specs={allSpecs}
+        keptIdx={keptIdx}
+        measurements={measurements}
+        threshold={threshold}
+      />
+    );
+  return null;
+};
+
+const _FPNTabBody = ({
+  tab,
+  visibleChannels,
+  measurements,
+  allRois,
+  visibleRoiIdx,
+  roiLabel,
+  setRoiLabel,
+  unit,
+  fullDR,
+}) => {
+  if (tab === 'summary')
+    return (
+      <FPNSummaryTab
+        channels={visibleChannels}
+        measurements={measurements}
+        rois={allRois}
+        visibleRoiIdx={visibleRoiIdx}
+        roiLabel={roiLabel}
+        setRoiLabel={setRoiLabel}
+        unit={unit}
+        fullDR={fullDR}
+      />
+    );
+  if (tab === 'hist')
+    return (
+      <FPNHistogramsTab
+        channels={visibleChannels}
+        measurements={measurements}
+        visibleRoiIdx={visibleRoiIdx}
+        roiLabel={roiLabel}
+        unit={unit}
+        fullDR={fullDR}
+      />
+    );
+  if (tab === 'profiles')
+    return (
+      <FPNProfilesTab
+        channels={visibleChannels}
+        measurements={measurements}
+        rois={allRois}
+        visibleRoiIdx={visibleRoiIdx}
+        roiLabel={roiLabel}
+      />
+    );
+  if (tab === 'psd1d')
+    return (
+      <FPNPSD1DTab
+        channels={visibleChannels}
+        measurements={measurements}
+        visibleRoiIdx={visibleRoiIdx}
+        roiLabel={roiLabel}
+      />
+    );
+  if (tab === 'map')
+    return (
+      <FPNFigureGrid
+        channels={visibleChannels}
+        measurements={measurements}
+        visibleRoiIdx={visibleRoiIdx}
+        roiLabel={roiLabel}
+        figKey="map"
+        caption="Blue = below, red = above. Scale centered on zero."
+      />
+    );
+  if (tab === 'psd')
+    return (
+      <FPNFigureGrid
+        channels={visibleChannels}
+        measurements={measurements}
+        visibleRoiIdx={visibleRoiIdx}
+        roiLabel={roiLabel}
+        figKey="psd"
+        caption="Bright lines = banding, bright points = periodic structure."
+      />
+    );
+  if (tab === 'autocorr')
+    return (
+      <FPNFigureGrid
+        channels={visibleChannels}
+        measurements={measurements}
+        visibleRoiIdx={visibleRoiIdx}
+        roiLabel={roiLabel}
+        figKey="autocorr"
+        caption="Center spike = signal power, off-center peaks = periodic spatial structure."
+      />
+    );
+  if (tab === 'hotpix')
+    return (
+      <FPNHotPixTab
+        channels={visibleChannels}
+        measurements={measurements}
+        visibleRoiIdx={visibleRoiIdx}
+        roiLabel={roiLabel}
+      />
+    );
+  if (tab === 'compare')
+    return (
+      <FPNCompareTab
+        channels={visibleChannels}
+        measurements={measurements}
+        rois={allRois}
+        visibleRoiIdx={visibleRoiIdx}
+        roiLabel={roiLabel}
+      />
+    );
+  return null;
+};
+
+const _DoFTabBody = ({
+  tab,
+  visibleChannels,
+  results,
+  visibleLineIdx,
+  lineLabel,
+  pointLabel,
+  unitPref,
+  tiltFactor,
+}) => {
+  if (tab === 'summary')
+    return (
+      <DoFSummaryTab
+        channels={visibleChannels}
+        results={results}
+        visibleLineIdx={visibleLineIdx}
+        lineLabel={lineLabel}
+        pointLabel={pointLabel}
+        unitPref={unitPref}
+        tiltFactor={tiltFactor}
+      />
+    );
+  if (tab === 'lines')
+    return (
+      <DoFLinesTab
+        channels={visibleChannels}
+        results={results}
+        visibleLineIdx={visibleLineIdx}
+        lineLabel={lineLabel}
+        unitPref={unitPref}
+        tiltFactor={tiltFactor}
+      />
+    );
+  if (tab === 'gaussian')
+    return (
+      <DoFGaussianTab
+        channels={visibleChannels}
+        results={results}
+        visibleLineIdx={visibleLineIdx}
+        lineLabel={lineLabel}
+        unitPref={unitPref}
+        tiltFactor={tiltFactor}
+      />
+    );
+  if (tab === 'metric')
+    return (
+      <DoFMetricCompareTab
+        channels={visibleChannels}
+        results={results}
+        visibleLineIdx={visibleLineIdx}
+        lineLabel={lineLabel}
+        unitPref={unitPref}
+        tiltFactor={tiltFactor}
+      />
+    );
+  if (tab === 'chromatic')
+    return (
+      <DoFChromaticTab
+        channels={visibleChannels}
+        results={results}
+        visibleLineIdx={visibleLineIdx}
+        lineLabel={lineLabel}
+        unitPref={unitPref}
+        tiltFactor={tiltFactor}
+      />
+    );
+  if (tab === 'heatmap')
+    return (
+      <DoFHeatmapTab
+        channels={visibleChannels}
+        results={results}
+        lineLabel={lineLabel}
+        pointLabel={pointLabel}
+      />
+    );
+  if (tab === 'points')
+    return (
+      <DoFPointsTab
+        channels={visibleChannels}
+        results={results}
+        pointLabel={pointLabel}
+        unitPref={unitPref}
+        tiltFactor={tiltFactor}
+      />
+    );
+  return null;
+};
+
+export {
+  AnalysisModal,
+  _USAFTabBody,
+  _FPNTabBody,
+  _DoFTabBody,
+  DOF_UNIT_OPTS as _DOF_UNIT_OPTS,
+  dofIsCalibrated as _dofIsCalibrated,
+};
 export default AnalysisModal;

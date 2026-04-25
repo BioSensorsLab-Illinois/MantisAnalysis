@@ -1,7 +1,12 @@
 # analysis-page-overhaul-v1 — Status
 
 Opened: 2026-04-23
-Last updated: 2026-04-23 (Phase 0 + Phase 1 + Phase 2 landed; Phase 3 next)
+Last updated: 2026-04-24 — ExecPlan re-evaluated against post-
+`bundler-migration-v1` infrastructure. Phases 3–8 rewritten to land
+on Vite + ESM + TypeScript + Storybook + axe baseline. New Phase 4.5
+inserted (Plotly dynamic import). Phase 3 remains the next active
+phase but its scope expanded: type-clean subtree, typed registry,
+feature-flag cutover, Storybook story for the shell.
 
 ## Milestones
 
@@ -9,24 +14,46 @@ Last updated: 2026-04-23 (Phase 0 + Phase 1 + Phase 2 landed; Phase 3 next)
 - [x] Phase 1 — Foundation primitives
       (`<Chart>`, `useChartGeom`, `tokens()`, `<Page>`,
       `renderChartToPng` + `renderNodeToPng`, new plotStyle fields
-      `pageBackground` + `chartBodyBackground`)
-- [x] Phase 2 — plotStyle model cleanup (dropped dead `chartScale` field,
-      `useChartSize` hook, and "Chart ×" slider; rename Card bg → Page bg
-      deferred to after Phase 3 so UI language lands alongside the unified
-      shell)
-- [ ] Phase 3 — Unified `<AnalysisModal>` shell + per-mode tab registry
-- [ ] Phase 4 — Rewrite every chart through `<Chart>`
-- [ ] Phase 5 — Export pipeline replacement (migrate callers from `mantisExport` → `renderChartToPng`)
-- [ ] Phase 6 — Empty states + typography polish
-- [ ] Phase 7 — Playwright analysis-modal test suite
-- [ ] Phase 8 — Docs + migration cleanup
+      `pageBackground` + `chartBodyBackground`) — live in
+      `shared.tsx`
+- [x] Phase 2 — plotStyle model cleanup (dropped `chartScale`,
+      `useChartSize` hook, "Chart ×" slider). Card bg → Page bg
+      rename deferred to Phase 6.
+- [ ] Phase 3 — `<AnalysisShell>` + typed mode registry under
+      type-clean `web/src/analysis/` subtree, `?newshell=1` flag,
+      DoF `BgColorPicker` parity, Esc-to-close, Storybook shell
+      story.
+- [ ] Phase 4 — Rewrite every chart through `<Chart>` (Wave A: 8
+      ChartCard charts → Wave B: 6 raw-`cardChromeFor` charts →
+      Wave C: 3 ignore-`cardChromeFor` cards). Companion
+      `.stories.tsx` per chart.
+- [ ] Phase 4.5 — **NEW** — Dynamic `import('plotly.js-dist-min')`
+      to chunk the 3.5 MB Plotly dep out of the initial bundle.
+- [ ] Phase 5 — Collapse `analysis.tsx` `mantisExport` duplicate
+      onto `renderChartToPng` / `renderNodeToPng`. Drop SVG-width-
+      freeze + transform-scale hacks.
+- [ ] Phase 6 — Empty states + typography sweep + wire deferred
+      tokens (`showLegend`, `tickWeight`, `annotationSize`) +
+      "Card bg → Page bg" rename + drop `@ts-nocheck` from
+      `analysis.tsx`.
+- [ ] Phase 7 — Playwright analysis-modal suite (closes B-0015) +
+      Storybook visual regression baselines (closes R-0011) +
+      lint/tsc/a11y gates.
+- [ ] Phase 8 — Delete `LegacyPngModal` + duplicate `mantisExport`
+      + `?newshell=1` flag + vestigial mode modals. ARCHITECTURE /
+      HANDOFF / REPO_MAP / DECISIONS / RISKS / BACKLOG /
+      CHANGELOG_AGENT updates. Memory note for the type-clean
+      island.
 
 ## Active phase
 
-Phase 3 — the first high-risk surgery: merging the three modal shells
-into one unified `<AnalysisModal>` + per-mode tab registry, while adding
-DoF's missing `BgColorPicker` and the Esc-to-close listener all three
-modals advertise but none implement.
+Phase 3 — extract `<AnalysisShell>` + typed mode registry into a
+new type-clean `web/src/analysis/` subtree. Born without
+`@ts-nocheck`. Replaces three near-duplicate modal functions in
+`analysis.tsx` (~2700 lines combined). Adds DoF `BgColorPicker`,
+Esc-to-close, Storybook story. Cuts over via `?newshell=1` query
+param so the existing modals stay live as the safety net through
+Phase 4.
 
 ## What Phase 1 added (shared.jsx)
 
@@ -71,10 +98,40 @@ Kept deliberately:
 
 ## Next session entry
 
-1. Phase 3 — extract `<AnalysisModal>` shell from USAF/FPN/DoF
-   duplicates. Create `web/src/analysis/` subtree: `modal.jsx` (shell),
-   `usaf.jsx`, `fpn.jsx`, `dof.jsx` per-mode specs. Add DoF's missing
-   `BgColorPicker`. Install Esc-to-close listener in the shell.
-2. After Phase 3 lands: rename "Card bg" → "Page bg" slider label; add a
-   tiny "which token moves what" hint popover per PlotStylePanel section.
-3. See inventory.md §H for the phase → code-map crosswalk.
+**Phase 3 — concrete starting moves**:
+
+1. Create `web/src/analysis/` subtree (no `@ts-nocheck`):
+   - `types.ts` — `RunRecord`, `AnalysisMode`, `FilterState`,
+     `TabDef<T>`, `ModeSpec<T>`.
+   - `registry.ts` — typed `MODE_REGISTRY: Record<AnalysisMode,
+     ModeSpec<unknown>>` with module-augmentation hook.
+   - `shell.tsx` — `<AnalysisShell mode run onClose onToast />`
+     with Esc-to-close, `<Page>` provider root, shared filter-bar
+     scaffold, tab-rail, tab-body, modal chrome.
+   - `filterbar.tsx` — extracts shared filter-bar bits
+     (`BgColorPicker`, channel chips, gain segmented).
+   - `modes/usaf.tsx`, `modes/fpn.tsx`, `modes/dof.tsx` — each
+     exports a `ModeSpec` with `{ tabs, filterBar, defaultTab,
+     themeFallbackBg, exportName }`. **Tab dispatch bodies still
+     point at the existing chart functions in `analysis.tsx`** for
+     this phase — Phase 4 moves them.
+   - `shell.stories.tsx` — synthetic `RunRecord` fixture, each
+     mode rendered against `ThemeFrame` + `PlotStyleCtx`.
+2. Wire `?newshell=1` query param read in `app.tsx` `AnalysisModal`
+   mount — toggle between old and new shells.
+3. Add DoF `BgColorPicker` via the shared filter-bar component.
+4. Install `keydown(Escape)` listener in `shell.tsx` with proper
+   cleanup. Drop the "(Esc)" lie from button titles.
+5. Verify: open `?newshell=1`, click through every mode + tab,
+   confirm visual + behavioral parity. Take screenshots.
+6. Gates per Phase 7: lint + tsc + build + a11y + smoke + pytest.
+7. Commit "analysis-page-overhaul-v1 Phase 3 — `<AnalysisShell>`
+   + typed registry + `?newshell=1` cutover".
+
+**Then Phase 4 Wave A** — port the 8 `ChartCard`-based charts onto
+`<Chart>`. Each chart lands with a companion `.stories.tsx`. See
+ExecPlan §Phase 4 for the revised wave order.
+
+**Crosswalk**: see `inventory.md` §H for Phase → code-map. Note
+that the inventory was authored with `.jsx` paths; everything is
+`.tsx` now.
