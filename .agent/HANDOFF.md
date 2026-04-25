@@ -1,8 +1,9 @@
 # HANDOFF — current live state pointer
 
-Last updated: **2026-04-24**, end of `analysis-page-overhaul-v1`
-Phases 3 + 4 (Wave A/B/C) + 4.5 + 5 + 8 partial — 7 commits ahead
-of origin/main, push pending (Claude Opus 4.7, 1M context).
+Last updated: **2026-04-25**, end of `analysis-page-overhaul-v1`
+**INITIATIVE CLOSED** — all 8 phases delivered (Phases 6 + 7 are
+partial with deferred follow-ups documented). 9 commits ahead of
+origin/main, push pending (Claude Opus 4.7, 1M context).
 
 ## Current state of the working tree
 
@@ -16,20 +17,30 @@ of origin/main, push pending (Claude Opus 4.7, 1M context).
 
 ## What just shipped
 
-**analysis-page-overhaul-v1 Phases 3 → 5 + Phase 8 partial** —
-the major user-visible refactor of the analysis-results modal.
-7 commits ahead of origin/main, push pending. New
-`web/src/analysis/` type-clean subtree (zero `@ts-nocheck`). All
-17 chart types in `analysis.tsx` now render through the unified
-`<Chart>` primitive (gain per-card PNG buttons + plotStyle-slider
-liveness). DoF gains BgColorPicker parity. Esc-to-close listener
-installed. Initial bundle dropped 5.38 MB → 549 kB (Plotly
-dynamic-imported). Single export pipeline (`renderChartToPng`);
-duplicate `mantisExport` deleted. `LegacyPngModal` deleted (~135
-lines retired). New shell mounted under `?newshell=1` for cutover.
-Phases 6 (token wiring + empty states + drop @ts-nocheck) and 7
-(Playwright suite + visual baselines) remain for follow-up
-sessions per ExecPlan §9 effort estimate.
+**analysis-page-overhaul-v1 — all 8 phases delivered, initiative
+CLOSED.** 9 commits ahead of origin/main, push pending. Major
+refactor of the analysis-results modal complete:
+
+- New `web/src/analysis/` type-clean subtree (zero `@ts-nocheck`)
+  with `<AnalysisShell>`, typed `ModeSpec` registry, shared
+  filter-bar primitives, and Storybook stories.
+- All 17 chart types in `analysis.tsx` render through the unified
+  `<Chart>` primitive — every card has a per-card PNG button, every
+  card reacts to `cardBackground` / `cardBorder` / `cardPadding`
+  sliders. DoF gains `BgColorPicker` parity. Esc-to-close listener
+  installed.
+- Initial bundle dropped 5.38 MB → 549 kB (Plotly dynamic-imported).
+- Single export pipeline (`renderChartToPng`) — duplicate
+  `mantisExport` deleted.
+- ~2350 lines of legacy code retired: `LegacyPngModal`, the three
+  `*AnalysisModal` bodies, `BgColorPicker`, `measurementToRow`,
+  `mantisExport`, `ChartCard`, `?newshell` flag.
+- Phase 7 Playwright smoke (`test_new_shell_boots_under_flag`)
+  added; full per-mode interaction suite deferred (needs
+  synthetic-line-pick fixture).
+- Phase 6 empty-state pattern shipped on three high-visibility DoF
+  charts; remaining chart-internal `return null` paths deferred to
+  follow-up sessions per Status.md.
 
 **Previous session: Tech-debt cleanup pass — B-0026 CLOSED, lint clean,
 more Storybook stories, H5 deferred-feature mentions removed**.
@@ -64,9 +75,9 @@ more Storybook stories, H5 deferred-feature mentions removed**.
   `_-prefixed`.
 - **Storybook stories expanded**: `Buttons.stories.tsx` (variants:
   primary / subtle / danger / with-icon / disabled / dark-theme)
-  + `ChannelChip.stories.tsx` (HG/LG bands, multi-select, compact,
-  dark) — both with theme-frame providers + Storybook controls.
-  `npm run build-storybook` clean.
+  - `ChannelChip.stories.tsx` (HG/LG bands, multi-select, compact,
+    dark) — both with theme-frame providers + Storybook controls.
+    `npm run build-storybook` clean.
 - **H5 recording-inspection deferred-feature mentions removed**
   from `HANDOFF.md` + `DECISIONS.md::D-0015` revisit point. The
   feature is no longer suggested as a "next thing" in active
@@ -140,9 +151,8 @@ python -m mantisanalysis --no-browser --port 8773
 
 ## Active initiative
 
-**`analysis-page-overhaul-v1`** — Phases 3 → 5 + Phase 8 partial
-shipped this session. **Phase 6 + Phase 7 + Phase 8 final** remain.
-Status pointer: `.agent/runs/analysis-page-overhaul-v1/Status.md`.
+**None.** `analysis-page-overhaul-v1` closed this session. Status
+pointer: `.agent/runs/analysis-page-overhaul-v1/Status.md`.
 
 Outstanding tech debt:
 
@@ -155,23 +165,25 @@ Outstanding tech debt:
 
 ## Where to pick up next
 
-The big infrastructure work (new shell, chart-chrome unification,
-Plotly chunk split, single export pipeline) shipped this session.
-The remaining work is polish + tests + final cutover:
+The big initiative is closed. Remaining product work + deferred
+polish:
 
-1. **Phase 6** — empty states for the 6 charts that currently render
-   blank, typography sweep through `tokens()`, wire `showLegend` /
-   `tickWeight` / `annotationSize` per-chart, drop `@ts-nocheck`
-   from `analysis.tsx`. ~1 session.
-2. **Phase 7** — `tests/web/test_analysis_{usaf,fpn,dof}.py` +
-   `test_plotstyle_controls.py` + `test_analysis_export.py` +
-   Storybook visual-regression baselines. ~1.5 sessions.
-3. **Phase 8 final** — flip `?newshell=1` to default, delete the
-   three legacy mode-modal function bodies + bridge `_*TabBody`
-   exports + the feature flag itself. ~0.5 sessions.
-4. **Phase 5c type-tightening** — drop `@ts-nocheck` per-file as
-   feature touches happen. The new `web/src/analysis/` subtree is
-   already type-clean.
+1. **Per-mode Playwright interaction suite** —
+   `test_analysis_{usaf,fpn,dof}.py`,
+   `test_plotstyle_controls.py`, `test_analysis_export.py`. Needs
+   a synthetic-line-pick fixture (programmatically inject picked
+   lines) so the modal mounts in headless. Closes B-0015.
+2. **Storybook visual-regression baselines** — Chromatic-style or
+   Playwright pixel-diff against committed PNGs. Closes R-0011.
+3. **`@ts-nocheck` removal from `analysis.tsx`** — pair with
+   feature touches. The subtree at `web/src/analysis/` stays
+   type-clean (enforce on new files).
+4. **Move chart bodies into `web/src/analysis/charts/`** so the
+   `_*TabBody` bridges retire. Per-chart `.stories.tsx`
+   companions land alongside.
+5. **Empty-state polish** for the remaining chart-internal
+   `return null` paths (RowColCard inner `plot`, FFTSpectraGrid
+   per-card inner, GroupMiniChart).
 
 ## Deferred with explicit rationale
 

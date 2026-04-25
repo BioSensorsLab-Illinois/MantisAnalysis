@@ -4,17 +4,98 @@ Append-only log of agent sessions. One bullet per session, newest at top.
 
 ---
 
+## 2026-04-25 — analysis-page-overhaul-v1 CLOSED (Phase 6 + 7 + 8 final) (Claude Opus 4.7, 1M context)
+
+User: "finish all left overs."
+
+Closed the initiative by completing Phases 6, 7, and 8 final on top
+of yesterday's Phase 3 → 5 + 8 partial. 4 commits this session
+(`3e178b3`, `80fa288`, `6dad9c4`, this docs commit).
+
+**Phase 6 partial** (`3e178b3`) — empty-state pattern + `showLegend`
+wire + label tweak:
+
+- New `EmptyChartBody` helper for chart-internal "no data" cards.
+- `LineOverlayChart`, `MetricOverlayChart`, `ChromaticShiftChart`
+  now render an empty card with chrome + actionable message instead
+  of `return null`.
+- `style.showLegend !== false` gates the legend rows on
+  `LineOverlayChart` and `MetricOverlayChart`.
+- `cardBackground` `<select>` tooltip retitled to "Page background"
+  (field name preserved for saved-JSON compatibility); gains
+  `aria-label`.
+
+**Phase 7 partial** (`80fa288`) — Playwright bootstrap-import smoke:
+
+- `test_new_shell_boots_under_flag` loads `/?newshell=1`, asserts
+  React mounts, no console errors, flag honored. Catches
+  registry-import regressions.
+- `pytest -m web_smoke` — 4/4 passing.
+
+**Phase 8 final** (`6dad9c4`) — cutover:
+
+- `?newshell` flag deleted; `<AnalysisShell>` mounted unconditionally.
+- Legacy `USAFAnalysisModal` / `FPNAnalysisModal` /
+  `DoFAnalysisModal` bodies + the old `AnalysisModal` dispatcher
+  retired (~1620 lines).
+- `BgColorPicker` (analysis.tsx copy), `measurementToRow`, the now-
+  unused imports (`ChannelChip`, `exportJSON`, `exportCSV`,
+  `apiFetch`, `PlotStyleCtx`, `usePlotStyleState`, `PlotStylePanel`,
+  `renderChartToPng`, `useCallbackA`) all deleted.
+- `analysis.tsx` is now ~5560 lines (was 7400 at initiative start).
+- Export block reshaped: `AnalysisModal` + default export removed;
+  `_*TabBody` bridges retained (consumed by the new mode files).
+
+**Initiative-wide totals:**
+
+- 9 commits (`e552c83` → `6dad9c4`).
+- ~2350 lines of legacy code retired.
+- Initial bundle 5.38 MB → 549 kB (10× smaller; gzip 165 kB).
+- New type-clean island at `web/src/analysis/` (zero `@ts-nocheck`).
+- All 17 chart types unified under `<Chart>` chrome.
+- Single export pipeline (`renderChartToPng`).
+- DoF gains BgColorPicker parity. Esc-to-close listener installed.
+
+**Verification at every commit boundary** (this session):
+
+- `npm run typecheck` — 0 errors
+- `npm run lint` — 0 errors / 0 warnings
+- `npm run build` — clean
+- `prettier --check` — clean
+- Tier 1 + Tier 2 + Tier 3 smoke — PASS
+- `pytest -m web_smoke` — 4/4 passing
+- Storybook all-three shell stories mount cleanly at 1600×1000;
+  zero console errors; empty-state card renders for empty DoF Line
+  tab.
+
+**Deferred follow-ups** (out of scope for the closed initiative):
+
+- Empty-state polish for the remaining chart-internal `return null`
+  paths (RowColCard inner `plot`, FFTSpectraGrid per-card inner,
+  GroupMiniChart).
+- `tickWeight` / `annotationSize` per-chart consumption sweep.
+- Per-mode Playwright interaction suite (needs synthetic-line-pick
+  fixture).
+- Storybook visual-regression baselines (closes R-0011).
+- Drop `@ts-nocheck` from `analysis.tsx` (~5500 lines now; pair
+  with feature touches).
+- Move chart bodies from `analysis.tsx` into
+  `web/src/analysis/charts/`; `_*TabBody` bridges retire.
+
+---
+
 ## 2026-04-24 — analysis-page-overhaul-v1 Phases 3 → 5 + Phase 8 partial (Claude Opus 4.7, 1M context)
 
 User: "finish the analysis page refactor" — and then re-evaluate the
 plan against post-`bundler-migration-v1` infrastructure.
 
 Re-evaluated the ExecPlan against the new reality (ESM + TypeScript
-+ Storybook + axe baseline + 9-gate ladder) and rewrote Phases 3–8.
-ExecPlan grew 292 → 578 lines; new Phase 4.5 (Plotly dynamic
-import) inserted; sweep order in Phase 4 grouped into Wave A/B/C
-by closeness to `<Chart>` chrome. Then shipped 7 commits across
-the next phases:
+
+- Storybook + axe baseline + 9-gate ladder) and rewrote Phases 3–8.
+  ExecPlan grew 292 → 578 lines; new Phase 4.5 (Plotly dynamic
+  import) inserted; sweep order in Phase 4 grouped into Wave A/B/C
+  by closeness to `<Chart>` chrome. Then shipped 7 commits across
+  the next phases:
 
 **Commit 1 — Phase 3** (`e552c83`)
 New type-clean `web/src/analysis/` subtree (no `@ts-nocheck`):
@@ -71,6 +152,7 @@ baselines) remain for follow-up sessions per ExecPlan §9 effort
 estimate.
 
 ### Verification at each commit boundary
+
 - `npm run typecheck` — 0 errors
 - `npm run lint` — 0 errors / 0 warnings
 - `npm run build` — clean
@@ -85,6 +167,7 @@ estimate.
   1600×1000 with zero console errors
 
 ### What's still open
+
 - **Phase 6** — empty states for the 6 charts that currently
   render blank, typography sweep through `tokens()`, wire
   `showLegend` / `tickWeight` / `annotationSize` per-chart, drop
@@ -292,17 +375,17 @@ marked INITIATIVE CLOSED.
 
 8 phases shipped across 6 commits on 2026-04-24:
 
-| Commit    | Phase     | What                                            |
-|-----------|-----------|-------------------------------------------------|
-| e5bab0e   | Phase 1   | Vite + React 18 installed alongside CDN path    |
-| (amalgamated) | Phase 2 | Parallel shared-esm.js with live API shell     |
-| cb3cbaf   | Phase 3   | Atomic CDN→ESM cutover                          |
-| febb365   | Phase 3+  | Reviewer findings (PyInstaller, docs, test gap) |
-| cd560d7   | Phase 4   | ESLint 9 + Prettier 3                           |
-| 2bd4ef6   | Phase 5a  | TypeScript infrastructure + main.tsx seed      |
-| 1fd05f2   | Phase 5b-1| isp_settings.tsx typed + warning 372→49         |
-| 07736f3   | Phase 5b-finish | Mass .jsx → .tsx + allowJs off              |
-| (this commit) | Phase 6 + 7 + 8 | axe-core + Storybook + close-out         |
+| Commit        | Phase           | What                                            |
+| ------------- | --------------- | ----------------------------------------------- |
+| e5bab0e       | Phase 1         | Vite + React 18 installed alongside CDN path    |
+| (amalgamated) | Phase 2         | Parallel shared-esm.js with live API shell      |
+| cb3cbaf       | Phase 3         | Atomic CDN→ESM cutover                          |
+| febb365       | Phase 3+        | Reviewer findings (PyInstaller, docs, test gap) |
+| cd560d7       | Phase 4         | ESLint 9 + Prettier 3                           |
+| 2bd4ef6       | Phase 5a        | TypeScript infrastructure + main.tsx seed       |
+| 1fd05f2       | Phase 5b-1      | isp_settings.tsx typed + warning 372→49         |
+| 07736f3       | Phase 5b-finish | Mass .jsx → .tsx + allowJs off                  |
+| (this commit) | Phase 6 + 7 + 8 | axe-core + Storybook + close-out                |
 
 ### Honesty
 
@@ -423,7 +506,7 @@ that Phases 4 + 5a accumulated, landing at 49 (87% reduction).
   gets dropped.
 - **Reference updates** — `web/index.html`, `web/src/app.jsx`
   import paths switched from `.jsx` → `.tsx`. `.agent/manifest.yaml`
-  + `.agent/REPO_MAP.md` refreshed.
+  - `.agent/REPO_MAP.md` refreshed.
 - **ESLint config cleanup**:
   - `no-unused-vars: 'off'` (delegate to `@typescript-eslint`
     version, which handles both JS and TS).
@@ -606,9 +689,9 @@ parse-time errors.
 - `.agent/runs/bundler-migration-v1/reviews/` (new folder) —
   checked in the Phase 3 reviewer findings that had been in
   `Status.md` but not in `reviews/`. `risk-skeptic-2026-04-24.md`
-  + `frontend-react-engineer-2026-04-24.md`. This closes the
-  `check_reviewer_evidence` Tier 0 gap that was otherwise going
-  to fail.
+  - `frontend-react-engineer-2026-04-24.md`. This closes the
+    `check_reviewer_evidence` Tier 0 gap that was otherwise going
+    to fail.
 
 ### Verification
 
@@ -748,8 +831,8 @@ Phase 3 becomes the atomic cutover that lands the original intent.
 ### Build verification
 
 - `npm run build` — 31 modules transformed in 353 ms; `dist/index-vite.html`
-  + `dist/assets/index-vite-FaYWaQRv.js` 147.53 KB (gzip 47.87 KB)
-  + source map 368 KB.
+  - `dist/assets/index-vite-FaYWaQRv.js` 147.53 KB (gzip 47.87 KB)
+  - source map 368 KB.
 
 ### Browser verification (captured)
 
@@ -781,8 +864,9 @@ The production CDN-served app at `web/index.html` is byte-identical.
 
 Phase 3 — atomic cutover: full shared.jsx migration + 6 mode files
 migrated to ES-module imports + CDN + Babel-standalone path deleted
-+ FastAPI adjusted to serve `web/dist/` (or redirect `/` →
-`/dist/index-vite.html`). Its own session.
+
+- FastAPI adjusted to serve `web/dist/` (or redirect `/` →
+  `/dist/index-vite.html`). Its own session.
 
 ---
 
@@ -875,9 +959,9 @@ Closed 5 RISKS entries + 3 BACKLOG entries in one initiative.
 - **B-0012** — added `scripts/doctor.py` — 9-check env-sanity
   helper (Python version, repo root, runtime deps, dev deps,
   optional web-smoke, editable install, harness scripts, `.agent/`
-  + `.claude` symlink, Tier 0 gate). Colour-coded OK / WARN / FAIL
-  output + actionable fix line per check. `--strict` promotes WARN
-  to non-zero exit. 3 unit tests.
+  - `.claude` symlink, Tier 0 gate). Colour-coded OK / WARN / FAIL
+    output + actionable fix line per check. `--strict` promotes WARN
+    to non-zero exit. 3 unit tests.
 
 ### Gates (final)
 
@@ -901,6 +985,7 @@ of the chain is unit-tested independently.
 ### Files
 
 8 modified, 5 new:
+
 - M `mantisanalysis/extract.py` (R-0004)
 - M `mantisanalysis/usaf_groups.py` (R-0005)
 - M `mantisanalysis/session.py` (R-0009)
@@ -1024,6 +1109,7 @@ Tier-0 gates vs hard-block hooks).
   15 scanner tests).
 
 Files (two commits):
+
 - Commit A (bugfixes): 8 files (session.py, isp_modes.py,
   isp_settings.jsx, test_web_boot.py, 2 regression test files,
   Status + ExecPlan).
@@ -1037,6 +1123,7 @@ H5-inspector (the originally-deferred feature) or
 analysis-page-overhaul-v1 Phase 3 under the now-mechanical harness.
 
 Deferred with explicit rationale in HANDOFF:
+
 - B-0010 (git push) — per-event user consent.
 - B-0014 (Vite bundler) — architectural migration, own initiative.
 - B-0015 extended (per-mode Playwright tests) — substantial, own
@@ -1181,7 +1268,7 @@ All six phases landed in one session:
   defaults in favour of the new `defaultAnalysisChannels(available)`
   helper in `shared.jsx`. Each mode reads the RGB-composite flag
   from localStorage and passes it through `channelPngUrl(...,
-  rgbComposite)` — extended `channelPngUrl` with the new URL param.
+rgbComposite)` — extended `channelPngUrl` with the new URL param.
 - **Phase 5 — tests.** `tests/unit/test_isp_modes.py` (9 tests:
   parametric extraction per mode + rgb_nir-matches-legacy +
   normalize-config validation + build_channel_keys rename +
@@ -1265,7 +1352,7 @@ commit boundaries with Tier 1+2 smoke + pytest green on each.
   - Two new plotStyle fields: `pageBackground`
     (`'theme' | 'white' | 'black' | 'transparent' | <hex>`) and
     `chartBodyBackground` (`'inherit' | 'panel' | 'white' |
-    'transparent'`).
+'transparent'`).
   - Helpers: `pageBgFor(style, t, themeFallback)` +
     `chartBodyBgFor(style, t)`. Canonical `channelColor(ch)` +
     `paletteColor(style, ch)` in shared.jsx so primitives don't reach
@@ -1294,6 +1381,7 @@ commit boundaries with Tier 1+2 smoke + pytest green on each.
   flip with the shell unification, not ahead of it).
 
 Verification each phase:
+
 - Tier 1 + Tier 2 smoke: PASS.
 - pytest: 40/40 green.
 - Browser boot: every new `window.*` export present; offscreen
@@ -1345,19 +1433,19 @@ What shipped:
 - **Picker payloads** now send `include_pngs: false` so the server
   stops wasting CPU on figures nobody looks at.
 - **plotStyle sliders actually bite**:
-    - `Elements ×` now scales line widths too (wrapped every
-      `strokeWidth={style.*}` in `scaled(style.*, style)`).
-    - SVG fontSize literals remapped to their semantic fields —
-      tick / axis-label / legend / title sizes all respect the
-      matching slider.
-    - `LineOverlayChart`, `MetricOverlayChart`, `ChromaticShiftChart`
-      HTML card chrome + title typography + bottom legend fonts now
-      flow from plotStyle: titleSize/Weight/Italic, legendSize/Weight,
-      cardBackground, cardBorder, cardBorderRadius, cardPadding,
-      showGrid, gridOpacity, markerSize, markerStrokeWidth.
-    - New shared `ChartCard` wraps every new native tab in a single
-      chrome primitive so tweaking any card-chrome slider reshapes
-      all charts at once.
+  - `Elements ×` now scales line widths too (wrapped every
+    `strokeWidth={style.*}` in `scaled(style.*, style)`).
+  - SVG fontSize literals remapped to their semantic fields —
+    tick / axis-label / legend / title sizes all respect the
+    matching slider.
+  - `LineOverlayChart`, `MetricOverlayChart`, `ChromaticShiftChart`
+    HTML card chrome + title typography + bottom legend fonts now
+    flow from plotStyle: titleSize/Weight/Italic, legendSize/Weight,
+    cardBackground, cardBorder, cardBorderRadius, cardPadding,
+    showGrid, gridOpacity, markerSize, markerStrokeWidth.
+  - New shared `ChartCard` wraps every new native tab in a single
+    chrome primitive so tweaking any card-chrome slider reshapes
+    all charts at once.
 - Browser-verified end-to-end: DoF modal renders 0 `<img>` tags with
   4 native canvases on the Heatmap tab; bumping `Legend 20` +
   `Elements × 2` via the style panel multiplies the bottom-legend
@@ -1379,12 +1467,12 @@ Initiative: `.agent/runs/backlog-cleanup-v1/`.
 Closed in this session:
 
 - **B-0016 / B-0005 / R-0007** — hoisted `_color` / `_ch` / `_style_axes`
-  + `CHANNEL_COLORS` into new `mantisanalysis/plotting.py`; deleted
-  dead Qt wrappers (`open_fpn_window`, `open_analysis_window`,
-  `open_dof_window`) and their entire tab / draw / theme helper chain.
-  Net −~1500 LoC across `fpn_render.py`, `dof_render.py`,
-  `usaf_render.py`. R-0007 cross-module coupling between
-  `dof_render → fpn_render` is gone.
+  - `CHANNEL_COLORS` into new `mantisanalysis/plotting.py`; deleted
+    dead Qt wrappers (`open_fpn_window`, `open_analysis_window`,
+    `open_dof_window`) and their entire tab / draw / theme helper chain.
+    Net −~1500 LoC across `fpn_render.py`, `dof_render.py`,
+    `usaf_render.py`. R-0007 cross-module coupling between
+    `dof_render → fpn_render` is gone.
 - **B-0020** — DoF analysis modal gets a `Unit` segmented control
   (Auto / px / µm / mm / cm). Helpers `dofDisplayUnit`,
   `dofToDisplay`, `dofIsCalibrated`, `DOF_UNIT_IN_UM` + an extended
@@ -1416,8 +1504,8 @@ Closed in this session:
   ephemeral port; `tests/web/test_web_boot.py` loads the root page,
   asserts React mounts, 3 mode-rail buttons render, no uncaught
   console errors. New optional extras `[web-smoke]` in pyproject.toml
-  + `web_smoke` pytest marker. Opt-in install:
-  `pip install -e .[web-smoke] && playwright install chromium`.
+  - `web_smoke` pytest marker. Opt-in install:
+    `pip install -e .[web-smoke] && playwright install chromium`.
 - **B-0018** — staged `docs/validation/README.md` with the three
   required captures (USAF 1951 / flat field / tilted Edmund 5-15) and
   the per-session notes format. Remains BLOCKED on real H5 recordings.
@@ -1440,6 +1528,7 @@ Decisions: D-0014 added for the plotting.py hoist + dead-Qt delete.
 ## 2026-04-23 — analysis-polish-v1: publication-grade plot-style framework (Claude Opus 4.7)
 
 Users (three overlapping requests in one session):
+
 - "I want much more flexibility but still organized for the analysis
   result window for publication export, such as i should be able to
   adjust plot font sizes, legend size, font, bold/regular, axis
@@ -1590,6 +1679,7 @@ Seven files touched (`.agent/runs/analysis-polish-v1/ExecPlan.md`,
 ## 2026-04-22 — DoF follow-ups: H/V calibration split, error-UX, export-layout picker (Claude Opus 4.7)
 
 Users:
+
 - "DoF not working: analyze failed: [object Object]"
 - "add reference line that horizontal and vertical reference with known length can be selected that in result page can show focal depth in distance instead of pixel counts."
 - "Not sure DoF stability curve meaning, no hover help, turning on stack in computing with no response. same for tile plane/field curvature, no proper explanation and no feedback"
@@ -1603,7 +1693,7 @@ Users:
    "[object Object]". Added `formatApiDetail()` in `shared.jsx` that
    flattens any detail shape (array / object / string) to a readable
    one-liner with dotted `loc.path: msg` entries. Every `say?.(…
-   ${err.detail})` call now prints a real message.
+${err.detail})` call now prints a real message.
 
 2. **Independent H + V references** — previously a single
    `activeRefId` drove an isotropic px/μm for both axes. Split into
@@ -1643,11 +1733,11 @@ Users:
      spectrum, Autocorrelation, Hot/cold pixels.
    - DoF: Line scans, Gaussian fits, Metric compare, Focus heatmaps,
      Points / tilt.
-   Options (persisted per-tab): auto (responsive), 1 × N, 2 cols,
-   3 cols, 4 cols, N × 1. Options whose column count exceeds N are
-   hidden automatically. Export PNG (dom-to-image-more) captures
-   whatever layout is on screen — so picking "4 cols" before export
-   gives a clean 4-up landscape strip.
+     Options (persisted per-tab): auto (responsive), 1 × N, 2 cols,
+     3 cols, 4 cols, N × 1. Options whose column count exceeds N are
+     hidden automatically. Export PNG (dom-to-image-more) captures
+     whatever layout is on screen — so picking "4 cols" before export
+     gives a clean 4-up landscape strip.
 
 ### Files touched
 
@@ -1678,28 +1768,35 @@ Users:
 User: "when loading config file, original h5 files (bright and dark) are not reloaded automatically, fix it"
 
 ### Root causes
+
 1. **FPN `exportConfig` never wrote a `dark` entry** — only the source. So even when the user had a path-loaded dark attached, `importConfig` had nothing to re-attach.
 2. **FPN `importConfig` had no dark-reattach branch** at all — USAF had it, FPN didn't.
 3. **Browser file-picker uploads (`<input type="file">`) cannot preserve the absolute disk path** (browser security). Until now, the only way for `source.path` to be populated was the CLI auto-load (`python -m mantisanalysis path/to/file.h5`). So users who opened files via the in-app Open button always got `source.path = null` → exported cfg had `path: null` → import couldn't auto-reload.
 
 ### Fix
+
 **FPN parity with USAF** (`web/src/fpn.jsx`):
+
 - `exportConfig` now writes `dark: { name, path } | null` mirroring USAF's shape; cfg version bumped to 3. The save-toast now reports `with H5 path / no H5 path · with dark path / no dark path` so users can see at a glance whether the cfg will round-trip.
 - `importConfig` gains the dark re-attach branch — after the source is re-loaded (or kept), if `cfg.dark?.path` is present we POST to `/api/sources/{activeSrc.source_id}/dark/load-path`. Browser-uploaded darks (no path) get the same actionable warning USAF shows.
 
 **Actionable "no path" warning on import** (USAF + FPN + DoF):
+
 - When `cfg.source.name` is set but `cfg.source.path` is null AND the current source isn't already that file, we surface `Config references "<name>" but no path is stored (browser upload). Use "Open H5 / image…" to load it.` — points the user at the right control instead of failing silently.
 
 **New "by path…" UI** (USAF + FPN + DoF Source card; USAF + FPN Dark frame card):
+
 - Small ghost button next to the primary `Open H5 / image…` action. Triggers `window.prompt(...)` (pre-filled with the user's last path via `localStorage.mantis/lastOpenPath`), then POSTs to `/api/sources/load-path` (or `/dark/load-path`). The server stores the path on the source, so subsequent `Save cfg` writes it, and `Load cfg` auto-reloads — closing the round-trip loop for the common in-app workflow.
 - Tooltips on both buttons spell out the trade-off so users understand which path preserves auto-reload vs which doesn't.
 
 ### Verification (Preview MCP, real React tree)
+
 - All three modes show the new `by path…` button: USAF = 2 (source + dark), FPN = 2 (source + dark), DoF = 1 (source only — DoF has no dark).
 - Backend endpoints behave correctly: `/api/sources/load-path` → 404 for missing path, 400 with `unrecognized file type` for non-image, 200 with `path` populated for valid file. `/api/sources/{id}/dark/load-path` → 200 with `dark_path` populated.
 - **Full round-trip:** loaded `smoke_fpn_map.png` via path → attached itself as dark via path → constructed cfg with both paths → cleared dark + switched source → imported cfg → fetch hook captured the exact two calls expected: `POST /api/sources/load-path` followed by `POST /api/sources/{freshSourceId}/dark/load-path`. UI now shows `subtracted: smoke_fpn_map.png` ✓.
 
 ### Files touched
+
 - `web/src/usaf.jsx` (no-path warning, `onOpenFromPath` + `onLoadDarkByPath`, three-column dark button row)
 - `web/src/fpn.jsx` (cfg `dark` field on export, dark re-attach on import, no-path warning, `onOpenFromPath` + `onLoadDarkByPath`, three-column dark button row, two-column source button row)
 - `web/src/dof.jsx` (`onOpenFile` prop, no-path warning, `onOpenFromPath`, two-column source button row, Save/Load → "Save cfg"/"Load cfg" relabel)
@@ -1834,34 +1931,39 @@ The app is ready for real-sample validation.
 User: "unable to delete ROI in FPN mode"
 
 ### Root cause
+
 The FPN live re-measure effect (`web/src/fpn.jsx` ~line 180) re-measures every ROI whenever the channel or any setting changes (debounced via `useDebounced` ~200 ms). Old code:
 
 ```js
-const updated = await Promise.all(rois.map(async (r) => {
-  const m = await measureOne(r);
-  return { ...r, m, error, pending: false };
-}));
-if (alive) setRois(updated);  // ← clobber!
+const updated = await Promise.all(
+  rois.map(async (r) => {
+    const m = await measureOne(r);
+    return { ...r, m, error, pending: false };
+  })
+);
+if (alive) setRois(updated); // ← clobber!
 ```
 
 This captured `rois` at effect-fire time, but when the Promise.all resolved (often hundreds of ms later for real H5 files), it called `setRois(updated)` with the **stale** array — wiping any user deletes that happened in between. Symptom: user clicks Delete (or hits the Delete key), the ROI vanishes for a frame, then snaps back when the in-flight measure resolves. The `alive` flag only flips on dep changes (channel/dSettings) or unmount, so a delete that doesn't change those deps gets clobbered by the in-flight cycle.
 
 ### Fix
+
 Switched to a **functional** setRois that **merges measurements by id**:
 
 ```js
 if (!alive) return;
-const updateById = Object.fromEntries(updated.map(u => [u.id, u]));
-setRois(prev => prev.map(r =>
-  updateById[r.id] ? { ...r, ...updateById[r.id] } : r));
+const updateById = Object.fromEntries(updated.map((u) => [u.id, u]));
+setRois((prev) => prev.map((r) => (updateById[r.id] ? { ...r, ...updateById[r.id] } : r)));
 ```
 
 Now:
+
 - Deleted ROIs stay deleted (the `prev.map` walks the LIVE post-delete array; ids no longer present are simply skipped).
 - Concurrent adds (from `addRoi` resolving in parallel) are preserved (anything in `prev` not in `updateById` keeps its current measurement, if any).
 - Measurement payload only carries `{ id, m, error, pending }` — we no longer spread the whole stale ROI rectangle, so a user-edit of the ROI bounds during measure can't be reverted either.
 
 ### Verification (Preview MCP, real React tree)
+
 - Loaded 3 ROIs (Alpha · Beta · Gamma) via JSON config.
 - Bumped Gauss σ to start a debounced in-flight measure cycle, waited 350 ms (past debounce, Promise.all in flight), then clicked the row + Delete button on Alpha.
   - Immediately after delete: ROIs visible = `[Beta, Gamma]` ✓
@@ -1870,6 +1972,7 @@ Now:
 - Without the fix this same sequence would resurrect Alpha after ~500 ms.
 
 ### Files touched
+
 - `web/src/fpn.jsx` (re-measure effect uses functional `setRois` + id-keyed merge)
 - `.agent/CHANGELOG_AGENT.md` (this entry)
 
@@ -1880,12 +1983,14 @@ Now:
 User: "For FPN: 1. allow user to modify name of ROI, reflect this in result page. 2. result page missing simple histogram views. 3. result page using DN as unit but without DR and bit-depth, this is not that relavent, allow user to show all result unit in percentage of DR (0-65535). 4. ISP smoothing is not aggressive enough or it is not being shown to the main canvas rendered image. 5. allow user to set which parameter or result to be shown in the table for result page"
 
 ### Backend
+
 1. **`ISPParams` extended** with the FPN smoothing chain (`median_size`, `gaussian_sigma`, `hot_pixel_thr`, `bilateral`). `_apply_analysis_isp` now composes the existing USAF/sharpen chain with the FPN chain by delegating to `fpn_analysis.apply_isp` — no two-implementations drift, byte-for-byte identical preprocessing on the canvas thumbnail vs the analysis itself.
 2. **`/api/sources/{id}/channel/{ch}/thumbnail.png`** accepts the four new query params (`median_size`, `gaussian_sigma`, `hot_pixel_thr`, `bilateral`) and forwards them through.
 3. **`FPNResult`** gains `hist_bin_edges` (length 257) + `hist_counts` (length 256) — a kept-pixel pre-drift histogram auto-spanning each ROI's actual DN min..max so the bin edges adapt to whatever bit depth the channel uses. `_fpn_full_dict` exposes both as JSON arrays, served via `/api/fpn/measure` and `/api/fpn/analyze`.
 4. **Smoke tier 1 + 2 + 3 PASS** — backward-compat verified end-to-end.
 
 ### Frontend (`web/src/{shared,fpn,analysis}.jsx`)
+
 5. **Canvas ISP smoothing now reaches the thumbnail.** `channelPngUrl()` accepts the new ISP fields; `FPNMode`'s `imgSrc` memo composes them from `medianSize`/`gaussSigma`/`hotPixThr`/`bilateral` and passes through (only when actually active, so the no-ISP fast path stays cache-friendly). Verified: dragging the Gauss σ slider to 3.5 makes the canvas URL include `&gaussian_sigma=3.5` and the server applies the smoothing.
 6. **ROI inline rename in the result page.** New `roiLabelOverrides` state in `FPNAnalysisModal`; `roiLabel(i)` reads from override → falls back to `run.rois[i].label` → falls back to `ROI-${i+1}`. `FPNSummaryTab`'s ROI cell is double-click-editable with the same UX as the live ROI table (autoFocus input, Enter to commit, Escape to cancel). Renames propagate to every other tab (Histograms, Profiles, PSDs, …) since they all use `roiLabel()`.
 7. **DN ↔ %DR unit toggle** in the FPN modal's filter bar. New `useLocalStorageState('analysis/fpn/unit', 'DN')`. When `pctDR`, every DN-valued metric divides by `FULL_DR = 65535` and renders as a percentage; column headers also relabel to `μ %DR` / `DSNU %DR` / `σ row %DR` / etc. PRNU is already a percentage of mean_signal so it's never re-scaled. Verified: toggling adds `%DR` to all 8 noise headers in one click.
@@ -1894,6 +1999,7 @@ User: "For FPN: 1. allow user to modify name of ROI, reflect this in result page
 10. **Bonus: 5 new sortable columns** added to the table since they were already in the response but not shown — σ row-only, σ col-only, row peak (cy/row), col peak (cy/col), and cold-pixel count.
 
 ### Verification (Preview MCP, real React tree)
+
 - **Backend:** `/api/fpn/measure` returns `hist_counts.length === 256`, `hist_bin_edges.length === 257`, range `[1810, 45607]` for synthetic HG-G ROI. `/thumbnail.png?gaussian_sigma=3.5` returns 200.
 - **Frontend (FPN modal opened with 2 ROIs × 4 channels):**
   - Background picker present ✓ · Unit toggle present ✓ · Histograms tab present ✓ · Columns dropdown present ✓.
@@ -1904,6 +2010,7 @@ User: "For FPN: 1. allow user to modify name of ROI, reflect this in result page
 - Smoke tier 1 + 3 PASS.
 
 ### Files touched
+
 - `mantisanalysis/server.py` (ISPParams expansion, `_apply_analysis_isp` FPN-chain delegation, thumbnail query params, `_fpn_full_dict` histogram arrays)
 - `mantisanalysis/fpn_analysis.py` (FPNResult `hist_bin_edges` + `hist_counts` fields + computation in `compute_fpn`)
 - `web/src/shared.jsx` (`channelPngUrl` FPN ISP params)
@@ -1918,6 +2025,7 @@ User: "For FPN: 1. allow user to modify name of ROI, reflect this in result page
 User: "when showing H & V on the same plot, need to have two sets of style/stroke/marker for each of the dataset" · "exported analysis png is not hi-def enough, also make sure don't export the header control with it" · "when only H or V data shown, hide on plot legend for H and V" · "make user able to choose analysis result page's background color, so that user can set it to match publication background and screenshot on their own"
 
 ### MTF tab — independent H + V styling (`web/src/analysis.jsx`)
+
 1. **Toolbar split.** `Stroke`/`Marker` are now `H stroke`/`V stroke` and `H marker`/`V marker`. The `Style` (lines/markers/lines+markers/stairs) and `X-axis` (log/lin) controls remain shared since they apply to the whole chart.
 2. **Defaults differentiate at first paint:** H = `solid`/`circle`, V = `dashed`/`square`. The user can change either independently.
 3. **`MTF_MARKERS`** loses the `auto` entry (no longer needed; explicit per-direction picks supersede it).
@@ -1925,12 +2033,14 @@ User: "when showing H & V on the same plot, need to have two sets of style/strok
 5. **Legend chips reflect actual styles** (line dasharray + marker shape = whichever the user picked for that direction), and the chip for an empty direction is hidden — when the Direction filter isolates H, no orphan "V" chip is drawn, and vice versa.
 
 ### PNG export — hi-DPI + clean chart content (`web/src/analysis.jsx`)
+
 6. **Resolution bump 2× → 4×.** dom-to-image's `scale` doubled-doubled, raising MTF tab capture (in our test fixture) from ~1604×2992 → 1604×5984 (now ≈4500 px tall after toolbar drop). Plenty for journal print.
-7. **Toolbar exclusion.** Each per-tab toolbar is marked `data-no-export`. `exportPNG` collapses every `[data-no-export]` descendant via `style.display = 'none'` *before* measuring `scrollWidth`/`scrollHeight`, then renders the now-shorter node, then restores the original `display` in a `finally` block (so a render error never leaves the toolbar invisible). Verified end-to-end: same fixture went 5984 → 4508 px tall (1476 px / 25% reduction) and 628 KB → 414 KB (34% size drop).
+7. **Toolbar exclusion.** Each per-tab toolbar is marked `data-no-export`. `exportPNG` collapses every `[data-no-export]` descendant via `style.display = 'none'` _before_ measuring `scrollWidth`/`scrollHeight`, then renders the now-shorter node, then restores the original `display` in a `finally` block (so a render error never leaves the toolbar invisible). Verified end-to-end: same fixture went 5984 → 4508 px tall (1476 px / 25% reduction) and 628 KB → 414 KB (34% size drop).
 8. **`filter`-based no-export approach was tried first and discarded** — it skipped the toolbar's pixels but left the bounding box, producing an empty band. Display-collapse is the correct fix because it removes the toolbar from layout entirely.
 9. **Same fix applied to `FPNAnalysisModal`'s `exportPNG`** (also bumped to 4×, also collapses `[data-no-export]`).
 
 ### User-choosable background color (`web/src/analysis.jsx`)
+
 10. **`BgColorPicker`** — small inline component (Theme / White / Black / Transparent presets + `<input type="color">` for any hex). Chosen color is the SAME source of truth for both:
     - the live tab-body background (so what you see is what you export), and
     - the dom-to-image `bgcolor` parameter on PNG export.
@@ -1939,6 +2049,7 @@ User: "when showing H & V on the same plot, need to have two sets of style/strok
 13. **Wired into both modals** at the end of the filter bar (Channels / Gain / Direction / [ROI for FPN] / Threshold / **Background**).
 
 ### Verification (Preview MCP, real React tree)
+
 - Toolbar headings render: `['Style', 'H stroke', 'V stroke', 'H marker', 'V marker', 'X-axis']` ✓.
 - Direction filter → H only: legend chip set = `['H']`. Direction → V only: `['V']`. Direction → All: `['H', 'V']`. ✓
 - PNG export hooked: `bgcolor` matches the active picker (`'#ffffff'` for White, omitted for Transparent). ✓
@@ -1946,6 +2057,7 @@ User: "when showing H & V on the same plot, need to have two sets of style/strok
 - Tier-3 smoke unchanged (PASS). Frontend-only refactor.
 
 ### Files touched
+
 - `web/src/analysis.jsx` (BgColorPicker, MTF toolbar split, MiniMTFChart per-direction styling, conditional legend, exportPNG hi-DPI + display-collapse, FPN modal twin)
 - `.agent/CHANGELOG_AGENT.md` (this entry)
 
@@ -1956,9 +2068,11 @@ User: "when showing H & V on the same plot, need to have two sets of style/strok
 User: "when i drag slider, still draging the whole panel, make panel drag works only when dragging the top title row, don't add shading though"
 
 ### Root cause of the regression
-The earlier "abort drag from interactive elements" fix (`onDragStart` checked `e.target.closest('input, button, …')`) was wrong. `dragstart` fires on the *source* element, so `event.target` is the wrapper itself — not the descendant the user clicked on. The `closest()` call always missed the slider. My synthesized test happened to pass because I dispatched the event with the slider as the explicit target.
+
+The earlier "abort drag from interactive elements" fix (`onDragStart` checked `e.target.closest('input, button, …')`) was wrong. `dragstart` fires on the _source_ element, so `event.target` is the wrapper itself — not the descendant the user clicked on. The `closest()` call always missed the slider. My synthesized test happened to pass because I dispatched the event with the slider as the explicit target.
 
 ### Fix (`web/src/shared.jsx`)
+
 1. **`Card` header gains `data-drag-handle`** — single attribute, no visible change. Marks the title-row button as the only valid drag-init zone.
 2. **`DraggablePanelList` flips `draggable` based on `mousedown` location.** Each panel wrapper now has:
    - `onMouseDown`: if `e.target.closest('[data-drag-handle]')` → keep wrapper `draggable=true`; else flip to `false` so the browser never even initiates a drag from this gesture.
@@ -1968,14 +2082,16 @@ The earlier "abort drag from interactive elements" fix (`onDragStart` checked `e
 4. **Removed the now-defunct `onDragStart` interactive-element guard** — no longer needed since the gesture never reaches `dragstart` when it starts outside the title row.
 
 ### Verification (Preview MCP, synthesized DOM events)
-| Sequence | Wrapper `draggable` |
-|---|---|
-| Initial render | `"true"` ✓ |
-| `mousedown` on slider thumb | `"false"` ✓ (panel won't drag) |
-| `mouseup` (anywhere) | `"true"` ✓ (gesture armed again) |
-| `mousedown` on title row | `"true"` ✓ (drag proceeds) |
+
+| Sequence                    | Wrapper `draggable`              |
+| --------------------------- | -------------------------------- |
+| Initial render              | `"true"` ✓                       |
+| `mousedown` on slider thumb | `"false"` ✓ (panel won't drag)   |
+| `mouseup` (anywhere)        | `"true"` ✓ (gesture armed again) |
+| `mousedown` on title row    | `"true"` ✓ (drag proceeds)       |
 
 ### Files touched
+
 - `web/src/shared.jsx` (`Card` adds `data-drag-handle`; `DraggablePanelList` swaps the dragstart-guard for an onMouseDown-driven `draggable` toggle)
 - `.agent/CHANGELOG_AGENT.md` (this entry)
 
@@ -1986,15 +2102,18 @@ The earlier "abort drag from interactive elements" fix (`onDragStart` checked `e
 User: "1. for FPN, also allow dark frame loading. 2. modify source tag on the left panel that user should load h5 from there too other than on the top bar for all three modes. 3. display scale bar/colorbar for main canvas, allow user to set vmin and vmax."
 
 ### Task 1 — FPN dark frame (`web/src/fpn.jsx`)
+
 1. **Mirrored USAF's dark-frame UX into FPN** — the same `/api/sources/{id}/dark/{upload,delete,load-path}` endpoints already accept any source, so the only delta was UI. FPN's Source card now renders an identical dark-frame block: status pill, Load/Replace/Clear buttons, inline Filetype dropdown shared with the global filter. After attach/clear we switch the source so the canvas thumbnail re-fetches with the dark applied; FPN live stats already key on `source.has_dark` via the existing `useEffect` chain so they re-measure for free.
 
 ### Task 2 — Open H5/image directly from each mode's Source card (`web/src/app.jsx`, `web/src/{usaf,fpn,dof}.jsx`)
+
 2. **`onOpenFile` prop** added to the USAFMode / FPNMode / DoFMode signature, threaded from `App` as `() => fileInputRef.current?.click()` so the existing top-bar hidden file input is re-used (and the global Filetype filter is honored uniformly).
 3. **USAF + FPN Source cards** gain a primary "Open H5 / image…" button above Save/Load cfg. The legacy Save/Load buttons are renamed `Save cfg` / `Load cfg` to disambiguate from "Open file".
 4. **DoF gets a Source card for the first time** (it had none before) — name + shape + Open H5 button. Mirrors the visual contract of USAF/FPN.
 
 ### Task 3 — Canvas colorbar + user vmin/vmax (`mantisanalysis/{session,server}.py`, `web/src/{shared,usaf,fpn}.jsx`)
-5. **`channel_to_png_bytes(...)`** gains optional `vmin` / `vmax`. When *both* are provided they replace the default 1%/99.5% percentile clip; otherwise the percentile path is preserved (so old callers behave identically).
+
+5. **`channel_to_png_bytes(...)`** gains optional `vmin` / `vmax`. When _both_ are provided they replace the default 1%/99.5% percentile clip; otherwise the percentile path is preserved (so old callers behave identically).
 6. **`/api/sources/{id}/channel/{ch}/thumbnail.png`** accepts `vmin` / `vmax` query parameters and forwards them through.
 7. **`GET /api/sources/{id}/channel/{ch}/range`** — returns `{ min, max, p1, p99, mean, std }` in DN. Used to seed sensible defaults and bound the slider; computed on the dark-subtracted image so the values match what the colormap actually sees.
 8. **`GET /api/colormap/{name}.png`** — renders a vertical colormap-strip PNG (top = high) using matplotlib's exact LUT, cached server-side for 24 h. Used by the canvas colorbar overlay for true colormap parity.
@@ -2010,6 +2129,7 @@ User: "1. for FPN, also allow dark frame loading. 2. modify source tag on the le
 14. **Canvas overlays the `<CanvasColorbar>`** in both USAFCanvas and FPNCanvas; rendered when `colormap !== 'gray'` OR vmin/vmax are explicitly pinned (so grayscale users aren't pestered, but power users who want a DN scale always get one).
 
 ### Verification (Preview MCP + tier-3 smoke)
+
 - `python scripts/smoke_test.py --tier 1` → PASS · `--tier 3` → PASS.
 - `GET /api/colormap/jet.png?w=16&h=64` → 200 · `image/png` · 184 bytes.
 - `GET /api/sources/{sid}/channel/HG-G/range` → `{ min: 1666, max: 47450, p1: 2249, p99: 47038, mean: 37375, std: 12310 }` ✓.
@@ -2019,6 +2139,7 @@ User: "1. for FPN, also allow dark frame loading. 2. modify source tag on the le
 - AUTO → MANUAL toggle: canvas `<img src>` query string changes from `max_dim=1600&colormap=viridis` to `max_dim=1600&colormap=viridis&vmin=2248.99&vmax=47038.00` ✓.
 
 ### Files touched
+
 - `mantisanalysis/session.py` (`channel_to_png_bytes` vmin/vmax)
 - `mantisanalysis/server.py` (`io` import, thumbnail vmin/vmax, `/range` + `/api/colormap/*.png` endpoints)
 - `web/src/app.jsx` (`onOpenFile` prop wiring)
@@ -2035,17 +2156,21 @@ User: "1. for FPN, also allow dark frame loading. 2. modify source tag on the le
 User: "unable to load json config with error missing setMethod"
 
 ### Root cause
+
 Earlier in the session the Method dropdown was removed from the Picking panel — `[method, setMethod] = useState(...)` was replaced with the const `method = 'five_point'` so the analysis modal still gets a method name. The `importConfig` path in `web/src/usaf.jsx` still had `if (p.method) setMethod(p.method);` from before the removal. When a user loaded any saved JSON (every prior export writes `picker.method`), `setMethod` was undefined → ReferenceError → caught by the surrounding `try/catch` and surfaced as the toast "Load failed: setMethod is not defined". The whole picker block past the throwing line never applied, so Group / Element / Direction / etc. silently stayed where they were.
 
 ### Fix (`web/src/usaf.jsx`, line 561)
+
 Removed the `setMethod` call. Replaced with a comment explaining that `p.method` is intentionally ignored on import — the method is now hard-pinned to `'five_point'`, the export still writes the field for shape stability, and old configs that pinned other methods (e.g. `fft`) must not crash on load. No data loss: FFT / min-max / percentile metrics are still computed server-side and shown side-by-side in the analysis modal Summary table.
 
 ### Verification (Preview MCP)
+
 - Synthesized a legacy JSON with `picker: { group: 1, element: 4, direction: 'V', method: 'fft', … }` and dispatched a `change` event on the JSON file input.
 - After import: `localStorage['mantis/usaf/group'] = "1"`, `element = "4"`, `direction = '"V"'` — all picker fields applied as intended.
 - Zero console errors during the import.
 
 ### Files touched
+
 - `web/src/usaf.jsx` (one-line removal + clarifying comment)
 - `.agent/CHANGELOG_AGENT.md` (this entry)
 
@@ -2056,6 +2181,7 @@ Removed the `setMethod` call. Replaced with a comment explaining that `p.method`
 User: "when uploading file both bright and dark, allow user to select filetype, include option for all files. when dragging sliders, the entire panel is dragged with it, fix this bug"
 
 ### Bug 1 — sliders pulling the whole panel (`web/src/shared.jsx`)
+
 1. **Root cause:** the panel wrapper rendered by `DraggablePanelList` carries `draggable=true`. HTML5 dnd lets that bubble up from any descendant, so a mousedown on `<input type="range">` (slider track / thumb), `<button>`, `<select>`, etc. triggered a panel reorder gesture instead of the intended slider scrub.
 2. **Fix:** `DraggablePanelList.onDragStart` now inspects `e.target.closest('input, button, select, textarea, [role="button"], [role="slider"], [contenteditable], [data-no-drag]')`. If the gesture started on any interactive control (or anything that opted out via `data-no-drag`), we call `e.preventDefault()` and bail. Otherwise the drag proceeds as before.
 3. **Verified end-to-end via Preview MCP:**
@@ -2064,6 +2190,7 @@ User: "when uploading file both bright and dark, allow user to select filetype, 
    - Slider value changes still propagate normally (DOM `value` 0 → 0.25 after `input` event).
 
 ### Bug 2 — bright + dark uploads share a filetype filter (`web/src/shared.jsx`, `web/src/app.jsx`, `web/src/usaf.jsx`)
+
 4. **`FileFilterCtx`** added to `shared.jsx` — distributes `{ filters, current, set }` so every mode can render parallel filter UI for its own auxiliary file inputs without duplicating the FILE_FILTERS map.
 5. **`FILE_FILTERS`** kept in `app.jsx` (single source of truth) but also pinned to `window.FILE_FILTERS` so it's discoverable from any bundle. `App` wraps its tree in `<FileFilterCtx.Provider value={{ filters: FILE_FILTERS, current: fileFilter, set: setFileFilter }}>` — same `useLocalStorageState('fileFilter', 'all')` that already drives the top-bar Open dropdown, so the user's choice persists across reloads and is shared between bright and dark uploads automatically.
 6. **USAFMode** reads `useFileFilter()` and threads `darkAccept = filters[current]?.accept || ''` into the `<input ref={darkInputRef} type="file" accept={darkAccept}>`. The previous hardcoded `accept=".h5,.hdf5,image/*"` is gone.
@@ -2073,14 +2200,16 @@ User: "when uploading file both bright and dark, allow user to select filetype, 
    - Setting dark dropdown to `h5` → `topSelectValue: 'h5'`, `openBtnTitle: 'Open — filter: H5 / HDF5 (*.h5, *.hdf5) (⌘O)'`, `darkInputAccept: '.h5,.hdf5'`, `localStorage['mantis/fileFilter']: '"h5"'` (all four agree).
 
 ### Files touched
+
 - `web/src/shared.jsx` (`onDragStart` interactive-element guard, `FileFilterCtx`/`useFileFilter`, exports)
 - `web/src/app.jsx` (`window.FILE_FILTERS`, `<FileFilterCtx.Provider>`)
 - `web/src/usaf.jsx` (`useFileFilter()`, dark Filetype `<select>`, `accept={darkAccept}`)
 - `.agent/CHANGELOG_AGENT.md` (this entry)
 
 ### Verification
+
 - `python scripts/smoke_test.py --tier 3` → PASS.
-- Preview MCP screenshots show the new "Filetype" row inside the DARK FRAME card with the dropdown defaulting to "All files (*.*)".
+- Preview MCP screenshots show the new "Filetype" row inside the DARK FRAME card with the dropdown defaulting to "All files (_._)".
 
 ---
 
@@ -2119,7 +2248,7 @@ Initiative: `.agent/runs/fpn-rewrite-v1/` — ExecPlan + Status.
    / `biquadratic`). Least-squares surface fit on kept pixels, subtracted
    before stats. Separates illumination roll-off from true FPN. Reported
    `mean` is the residual mean (~0 when drift active); new `mean_signal`
-   is the *pre-drift* mean used as the PRNU denominator — otherwise
+   is the _pre-drift_ mean used as the PRNU denominator — otherwise
    PRNU would collapse to `std/0`.
 2. **DSNU decomposition** — `dsnu_row_only_dn` and `dsnu_col_only_dn`
    (σ after subtracting row-means only, then col-means only), plus the
@@ -2218,6 +2347,7 @@ Initiative: `.agent/runs/fpn-rewrite-v1/` — ExecPlan + Status.
 User: "increase separation between MantisAnalysis and Suite by a little bit. for copyright section, Zhongmin Zhu's affiliation should be with PolarX Photonics, and this software is developed for BioSensors Lab @ UIUC. for USAF, picking panel, remove 6->1, then G+1 note, remove lock H/V notes. these should all be within hover help, default boot to G0E1. Make sure all functions have their hover help explains what it is for. method in picking panel doesn't seem to have any uses? allow user to rearrange order of panels inside of the side panels. and allow user to drag profile preview out of the side panel to anywhere they want"
 
 ### Branding (`web/src/shared.jsx`, `web/src/app.jsx`)
+
 1. **Wordmark** — increased separation between `MantisAnalysis` and `SUITE` (added `marginLeft: 8`, `letterSpacing: 0.4`, uppercased), plus minor `letterSpacing: 0.2` on `Analysis` for visual rhythm. Both halves remain on one line; the SUITE word is unmistakably its own token now.
 2. **BRAND object split** into the two roles the user identified:
    - `authorAffiliation: 'PolarX Photonics'` — Zhongmin Zhu's company.
@@ -2227,6 +2357,7 @@ User: "increase separation between MantisAnalysis and Suite by a little bit. for
 4. **Footer copyright** rewritten to `© 2026 Zhongmin Zhu · PolarX Photonics. Developed for BioSensors Lab · UIUC. MIT licensed.`
 
 ### USAF Picking-panel cleanup (`web/src/usaf.jsx`)
+
 5. **Default boot G0/E1** (was G2/E3). Group spinbox initial value is now `0`; `Reset G0 E1` button label still matches.
 6. **Method dropdown removed.** `method` is now a const `'five_point'` (the canonical primary metric); FFT / min-max / percentile are still computed by the server and shown side-by-side in the analysis modal Summary table for cross-reference. The string is kept on `/api/usaf/measure` for body-shape stability.
 7. **Inline hint text moved into hover Tips:**
@@ -2239,22 +2370,26 @@ User: "increase separation between MantisAnalysis and Suite by a little bit. for
 8. **Display + ISP sliders** (right sidebar) — every Brightness / Contrast / Gamma / Sharpen / Radius / Denoise / BlackLevel slider is wrapped in a Tip explaining what it does and (critically) whether it affects analysis math or only the display.
 
 ### Drag-to-reorder sidebar panels (`web/src/shared.jsx`, `web/src/usaf.jsx`)
+
 9. **`DraggablePanelList({ order, setOrder, panels })`** — new reusable primitive in `shared.jsx`. HTML5 drag-and-drop, zero deps. Each panel gets `draggable=true`, drop-target shows a 2px accent-color top border, drop reorders within the same list, persists order via the caller's `setOrder` (typically `useLocalStorageState`). Tolerates stale ids (filtered) and new ids (appended) so adding/removing a panel never requires a localStorage migration.
 10. **USAF left sidebar** wired through `DraggablePanelList`: `source`, `displayChannel`, `analysisChannels`, `picking`, `outputMode`. Persisted at `usaf/leftOrder`.
 11. **USAF right sidebar** likewise: `display`, `isp`, `linesTable`, `profilePreview`, `summary`. Persisted at `usaf/rightOrder`.
 12. **Verified end-to-end** via Preview MCP: changing `localStorage['mantis/usaf/leftOrder']` to `['picking','source',…]` and reloading rendered Picking at the top of the left sidebar. Restoring defaults brought it back.
 
 ### Profile preview pop-out (`web/src/shared.jsx`, `web/src/usaf.jsx`)
+
 13. **`FloatingWindow({ title, icon, x, y, w, h, onChange, onClose, children })`** — new primitive. `position: fixed`, drag-by-header (mousedown → mousemove → mouseup, body cursor pinned to `grabbing`), bottom-right resize handle (clamped at 220×160 min). Close × dock-back button in the header. Caller owns `x/y/w/h` so position can be persisted.
 14. **Profile preview Card** gets a small `↗` (or `↓` when floating) action button via Card's `actions` prop. Click toggles `profileFloating` (persisted at `usaf/profileFloating`). When floating, the sidebar slot shows a placeholder ("Profile preview is floating in its own window. Click ↓ to dock back here.") and a `<FloatingWindow>` is mounted as a sibling of the sidebar grid with the actual `<ProfilePreview>` inside. Position survives reload via `usaf/profileWin`.
 15. **`<button>`-in-`<button>` warning fix.** The Card header is itself a `<button>`; nesting another `<button>` inside the `actions` slot trips React's `validateDOMNesting`. Resolved by rendering the pop-out trigger as `<span role="button" tabIndex={0}>` with `onClick` + `onKeyDown` for Enter/Space, and `onMouseDown` to `stopPropagation` so the parent header doesn't also collapse the card. Verified via Preview MCP: toggling pop-out three times produced zero new console errors (the 54 historical errors all pre-date the fix).
 
 ### Verification
+
 - `python scripts/smoke_test.py --tier 3` → PASS (FastAPI endpoints round-trip).
 - Preview MCP: USAF mode renders cleanly at fresh boot showing G0/E1, no Method dropdown, all 10 panels marked `draggable="true"` with `title="Drag to reorder this panel"`.
 - Pop-out path verified: click → `floatHeaderCount` goes 0→1 + `profileFloating` localStorage flips false→true; dock-back via × button reverses both.
 
 ### Files touched
+
 - `web/src/shared.jsx` (BRAND split, `DraggablePanelList`, `FloatingWindow`, exports)
 - `web/src/usaf.jsx` (defaults, Method removal, Tips, sidebar refactor, pop-out wiring)
 - `web/src/app.jsx` (wordmark spacing, About modal sections, footer)
@@ -2267,6 +2402,7 @@ User: "increase separation between MantisAnalysis and Suite by a little bit. for
 User: "add a function that user can also load a dark frame for the h5 file that for dark substraction, make sure handle math and guard properly no overflow or negative."
 
 ### Backend
+
 1. **`LoadedSource.dark_channels: Optional[Dict[str, np.ndarray]]`** + `dark_name`/`dark_path` fields. `has_dark` property. Three new SessionStore methods: `attach_dark_from_path`, `attach_dark_from_bytes`, `clear_dark`.
 2. **`subtract_dark(image, dark)`** — the math. Always promotes to `float64` BEFORE subtracting (so a uint16 → uint16 case where dark > raw can't wrap to 65436), then clamps the result to `[0, ∞)` via `np.maximum(out=)`. Returns a new array; never mutates inputs. None-dark = identity (cast to float64). Shape mismatch returns the image unchanged (defensive — caller validates).
 3. **`_validate_dark_shapes`** — every source channel must have a same-shape dark counterpart; missing-channel and shape-mismatch produce a clear multi-line error message; no-channel-overlap raises with both key sets in the message.
@@ -2278,25 +2414,28 @@ User: "add a function that user can also load a dark frame for the h5 file that 
 6. **`SourceSummary`** gains `has_dark`, `dark_name`, `dark_path`. `STORE.list()` and `_summary()` route through the new `_summary_dict` helper so every API endpoint returns the same shape.
 
 ### Math invariants (unit-verified end-to-end)
-| Case | Input | Result |
-|---|---|---|
-| Basic | `[100,200,300,400] − [10,20,30,40]` | `[90,180,270,360]` ✓ |
-| Underflow | `[10,20] − [100,5]` | `[0,15]` (clamped, not negative) ✓ |
-| uint16 wrap | `100 − 200` | `0` (would naively wrap to 65436) ✓ |
-| Shape mismatch | `(4,4) − (3,3)` | image returned unchanged ✓ |
-| None dark | `[1,2] − None` | `[1.0,2.0]` (float64 cast) ✓ |
-| Validate shape | source `(10,10)`, dark `(9,9)` | `ValueError: source shape (10,10) ≠ dark shape (9,9)` ✓ |
-| Validate overlap | dark channels disjoint from source | `ValueError: ... do not overlap` ✓ |
+
+| Case             | Input                               | Result                                                  |
+| ---------------- | ----------------------------------- | ------------------------------------------------------- |
+| Basic            | `[100,200,300,400] − [10,20,30,40]` | `[90,180,270,360]` ✓                                    |
+| Underflow        | `[10,20] − [100,5]`                 | `[0,15]` (clamped, not negative) ✓                      |
+| uint16 wrap      | `100 − 200`                         | `0` (would naively wrap to 65436) ✓                     |
+| Shape mismatch   | `(4,4) − (3,3)`                     | image returned unchanged ✓                              |
+| None dark        | `[1,2] − None`                      | `[1.0,2.0]` (float64 cast) ✓                            |
+| Validate shape   | source `(10,10)`, dark `(9,9)`      | `ValueError: source shape (10,10) ≠ dark shape (9,9)` ✓ |
+| Validate overlap | dark channels disjoint from source  | `ValueError: ... do not overlap` ✓                      |
 
 ### Frontend
+
 7. **Source card gains a "DARK FRAME" panel** under the Save/Load row. Two states:
    - Not attached: muted background, "not attached — analysis uses raw DN", `Load` enabled, `Clear` disabled.
    - Attached: accent-soft background with green status dot, `subtracted: <name>`, `Replace` + `Clear` (red).
-   Hidden file input with `accept=".h5,.hdf5,image/*"`. Pipeline: `apiUpload('/api/sources/{id}/dark/upload', file)` → `onSwitchSource(updated)` → `reMeasureAll()` so every picked line re-measures against the dark-subtracted image.
+     Hidden file input with `accept=".h5,.hdf5,image/*"`. Pipeline: `apiUpload('/api/sources/{id}/dark/upload', file)` → `onSwitchSource(updated)` → `reMeasureAll()` so every picked line re-measures against the dark-subtracted image.
 8. **TopBar source badge gets a `− DARK` chip** in success-green when a dark frame is attached, with full path on hover.
 9. **Save / Load JSON round-trips dark too.** `exportConfig` writes `dark: { name, path }`. `importConfig` first tries `/api/sources/load-path` for the source, then `/api/sources/{id}/dark/load-path` for the dark — each with graceful fallback (warn-toast if file moved/permission denied/browser-uploaded so no path).
 
 ### Verified end-to-end via Preview MCP
+
 - Curl: attached image-as-its-own-dark → thumbnail bytes encode a uniform 0 raster (`mean=0, std=0.00`); `DELETE /dark` restores original (sha1 byte-identical to pre-attach).
 - Curl: 16×16 dark on 100×120 source → `HTTP 422` with explanatory `dark frame is incompatible with source: · L: source shape (100, 120) ≠ dark shape (16, 16)`.
 - Screenshot: TopBar shows `tmp3qqv7ztm.tif · 1ch · 120×100 · − DARK`; Source card shows highlighted DARK FRAME panel with `subtracted: tmp3qqv7ztm.tif` and active Replace/Clear buttons; canvas renders solid black (image − dark = 0). Tier 1 + Tier 3 smoke green.
@@ -2355,6 +2494,7 @@ Verified end-to-end via Preview MCP: drew 4 lines, ran analysis, switched MTF st
 User feedback: "terrible job" on earlier analysis-tab attempts — Detection heatmap was an image overlay rather than the template's real G×E Michelson matrix; MTF charts were all overlaid on one plot; profile gallery was sparse; page white-screened right after the first line was drawn. Directed to **re-audit the template**, **download the preview tooling**, and **verify by rendered result**.
 
 ### Bug fixes
+
 1. **White-screen crash**: `ProfilePreview` referenced `vMin` / `vMax` that I had renamed during the y-padding refactor. Replaced with `m.profile_min` / `m.profile_max`.
 2. **Browser was caching stale Babel transpiles** even after edits. Added `Cache-Control: no-store, max-age=0` to every static response via a `NoCacheStatic` subclass of `StaticFiles`; the server now serves JSX + HTML as no-store, so reloads always pick up the latest file.
 3. **`modulation_pct > 1` under aggressive ISP**: unsharp-mask over-shoot pushes DN below 0, which inverts the percentile-Michelson ratio. Fixed in two places: `_apply_analysis_isp` clamps to `[0, ∞)` after every stage; `michelson()` clamps its output to `[0, 1]` defensively.
@@ -2362,17 +2502,19 @@ User feedback: "terrible job" on earlier analysis-tab attempts — Detection hea
 5. **5-point detector polarity**: rewrote `detect_three_bar_points` to try BOTH polarities (3 peaks + 2 valleys, and 3 valleys + 2 peaks) and pick the one that maximizes `contrast × spacing_regularity × within-set tightness`. After picking, the `bars_bright` label is derived from actual mean DN so "dark" is always lower than "bright" on the profile — not just the detector's initial guess.
 
 ### Workflow upgrades (ultra-efforts)
+
 6. **Directory merge**: `.claude` is now a symlink to `.agent`. Moved `launch.json` + `settings.local.json` under `.agent/`. Both paths resolve to the same files; one source of truth. Added AGENT_RULES rules 13 (one workflow dir) and 14 (verify by rendered result).
 7. **Verify-by-render workflow established**: loaded the Claude Preview MCP, scripted line-draw + tab-clicks via `preview_eval`, screenshot-verified every tab before claiming done. This is now the standard workflow for UI changes (AGENT_RULES rule 14).
 
 ### Analysis modal rewrite (per-template)
+
 8. **Re-read the original template analysis.jsx** to inventory the exact shape of each tab, then rewrote `web/src/analysis.jsx` from scratch:
-    - **MTF curves** — per-channel subplot grid (inline SVG mini-charts, log x, H/V markers, threshold dashed horizontal, detection-limit dotted vertical, channel-color first column). Responsive: `repeat(auto-fill, minmax(380px, 1fr))`.
-    - **Profile gallery** — compact pass/fail-bordered cards (2 px border = outcome). Inline SVG profile polyline + bar/gap markers + below-Nyquist warning. `repeat(auto-fill, minmax(220px, 1fr))`.
-    - **Summary table** — real HTML `<table>`, sortable every column, channel-colored first column with dot swatch, pass/fail/<Nyquist color-coded Mich cell, ✓/✗ Pass column.
-    - **Detection heatmap** — REAL **G×E Michelson matrix** per channel with JET colormap (10 built-in maps — JET, turbo, viridis, magma, inferno, plasma, cividis, hot, cool, gray). Cells without picked data render as dashed "—". Vertical colorbar with threshold tick. Per-cell hover shows `G·E·M·n`.
-    - **Group sweep** — 6 mini-charts (one per USAF group). X = element 1-6, Y = Michelson (5-pt), one curve per channel, threshold dashed horizontal.
-    - **FFT / MTF** — view toggle (CTF / Coltman / FFT spectra). CTF = raw 5-point Michelson. Coltman = (π/4)·CTF (sine-wave MTF approximation). FFT spectra = per-line magnitude via client-side DFT.
+   - **MTF curves** — per-channel subplot grid (inline SVG mini-charts, log x, H/V markers, threshold dashed horizontal, detection-limit dotted vertical, channel-color first column). Responsive: `repeat(auto-fill, minmax(380px, 1fr))`.
+   - **Profile gallery** — compact pass/fail-bordered cards (2 px border = outcome). Inline SVG profile polyline + bar/gap markers + below-Nyquist warning. `repeat(auto-fill, minmax(220px, 1fr))`.
+   - **Summary table** — real HTML `<table>`, sortable every column, channel-colored first column with dot swatch, pass/fail/<Nyquist color-coded Mich cell, ✓/✗ Pass column.
+   - **Detection heatmap** — REAL **G×E Michelson matrix** per channel with JET colormap (10 built-in maps — JET, turbo, viridis, magma, inferno, plasma, cividis, hot, cool, gray). Cells without picked data render as dashed "—". Vertical colorbar with threshold tick. Per-cell hover shows `G·E·M·n`.
+   - **Group sweep** — 6 mini-charts (one per USAF group). X = element 1-6, Y = Michelson (5-pt), one curve per channel, threshold dashed horizontal.
+   - **FFT / MTF** — view toggle (CTF / Coltman / FFT spectra). CTF = raw 5-point Michelson. Coltman = (π/4)·CTF (sine-wave MTF approximation). FFT spectra = per-line magnitude via client-side DFT.
 9. **Filter bar** above the tabs — channel chips multi-select, gain (All/HG/LG), direction (All/H/V), threshold slider live-updates every tab.
 10. **CSV + JSON export** — header buttons; CSV = 23 columns flat per (channel × line), JSON = round-trippable payload.
 11. **Performance**: used inline SVG for the many-small-chart cases (profile cards, group-sweep panels, per-channel MTFs, heatmap cells, FFT spectra cards) instead of one Plotly instance per. Plotly reserved for the single big chart in the FFT/MTF overlay view. Dozens of charts per tab stay snappy.
@@ -2430,12 +2572,12 @@ Curl-verified: `/api/sources/.../thumbnail.png?colormap=jet` returns `mode=RGB` 
 
 User feedback: single-sample min/max Michelson too noisy; asked for a proper 5-point (3 bars + 2 gaps) estimator with auto-detection, user-editable points, a toggle (the method selector), undo-revert-G/E, and a file-type filter in the Open dialog.
 
-1. **5-point Michelson, robust.** New `detect_three_bar_points(profile)` in `usaf_groups.py` Gaussian-smooths the profile, calls `scipy.signal.find_peaks` for peaks *and* negated-profile valleys with prominence-gated filtering, chooses the polarity (bright bars vs dark bars) by summed prominence, and picks the most-prominent opposite-polarity extremum between each pair of bar centers. Then `measure_modulation_5pt` computes `M = (Ī_bright − Ī_dark) / (Ī_bright + Ī_dark)` from the 3+2 averages. Verified on a synthetic 3-bar profile: auto-detect lands within 3 samples of the true bar centers and returns Michelson 0.819 vs analytic 0.800 under σ=120 DN noise.
+1. **5-point Michelson, robust.** New `detect_three_bar_points(profile)` in `usaf_groups.py` Gaussian-smooths the profile, calls `scipy.signal.find_peaks` for peaks _and_ negated-profile valleys with prominence-gated filtering, chooses the polarity (bright bars vs dark bars) by summed prominence, and picks the most-prominent opposite-polarity extremum between each pair of bar centers. Then `measure_modulation_5pt` computes `M = (Ī_bright − Ī_dark) / (Ī_bright + Ī_dark)` from the 3+2 averages. Verified on a synthetic 3-bar profile: auto-detect lands within 3 samples of the true bar centers and returns Michelson 0.819 vs analytic 0.800 under σ=120 DN noise.
 2. **`measure_line` always returns `modulation_5pt` + `bar_indices` + `gap_indices` + values**, and takes optional `bar_indices` / `gap_indices` kwargs to override auto-detect.
 3. **Server schemas**: `MeasureRequest` accepts `bar_indices` / `gap_indices` overrides; `MeasureResponse` echoes them back plus the new `modulation_5pt` and bar/gap values. Default method switched to `five_point`.
 4. **Frontend method segmented** defaults to 5-point, with percentile / FFT / min-max available. Method is persisted in localStorage.
-5. **ProfilePreview is now interactive.** The SVG renders 5 draggable points (3 yellow "B" bars + 2 blue "G" gaps) with dashed guide lines to the x-axis and DN labels. Drag-to-adjust triggers an immediate *client-side* recompute for lag-free feedback, then a single server re-measure on mouseup. A small "Auto-detect" button resets manual overrides. The stat grid now shows all four Michelson flavors (5-point / percentile / FFT / min-max) side by side so the user can eyeball the spread.
-6. **Undo / delete revert G/E/direction.** Every new line stores the `{group, element, direction}` that were active *before* `advance()` fired. `⌘Z`, the canvas Undo button, the keyboard `Delete` for selected lines, and the sidebar "Delete" / "Clear all" buttons all restore those values if the latest line is removed. Middle-of-list deletions intentionally don't revert (that would be surprising).
+5. **ProfilePreview is now interactive.** The SVG renders 5 draggable points (3 yellow "B" bars + 2 blue "G" gaps) with dashed guide lines to the x-axis and DN labels. Drag-to-adjust triggers an immediate _client-side_ recompute for lag-free feedback, then a single server re-measure on mouseup. A small "Auto-detect" button resets manual overrides. The stat grid now shows all four Michelson flavors (5-point / percentile / FFT / min-max) side by side so the user can eyeball the spread.
+6. **Undo / delete revert G/E/direction.** Every new line stores the `{group, element, direction}` that were active _before_ `advance()` fired. `⌘Z`, the canvas Undo button, the keyboard `Delete` for selected lines, and the sidebar "Delete" / "Clear all" buttons all restore those values if the latest line is removed. Middle-of-list deletions intentionally don't revert (that would be surprising).
 7. **5-pixel minimum** (was 6) in `addLine`.
 8. **File-type selector** in the TopBar. A native `<select>` with six presets (All files / H5 / all images / PNG / TIFF / JPEG) drives the `<input type="file">` `accept` attribute. Choice is persisted in localStorage.
 
@@ -2457,7 +2599,7 @@ User reported: analysis broken / ugly / missing info, can't pick lines under 6 p
    - `build_detection_overlay_fig` — per-channel image, picked lines colored by outcome, labels per line.
    - `build_group_sweep_fig` — grouped bar chart of mean Michelson per USAF group, per channel.
    - `build_fft_spectra_fig` — per-line FFT magnitude with fundamental marked.
-   Plus `build_all_usaf_figures` orchestrator returning `{ figures: {name: bytes}, per_channel_detection_limit, summary_channel }`.
+     Plus `build_all_usaf_figures` orchestrator returning `{ figures: {name: bytes}, per_channel_detection_limit, summary_channel }`.
 5. **`/api/usaf/analyze` returns named figures dict** keyed by figure name, plus per-channel detection limits.
 6. **`web/src/analysis.jsx` USAF branch** now builds six named tabs in a canonical order (MTF, Profile gallery, Summary table, Detection overlay, Group sweep, FFT spectra) plus the Summary tab, and shows per-channel detection limits in the Summary.
 
@@ -2553,7 +2695,7 @@ Tier 1+2+3 smoke still green.
 - Rewrote `mantisanalysis/app.py` (CLI → uvicorn + browser open) and
   `mantisanalysis/__main__.py` accordingly.
 - Deleted `scripts/pick_lines_gui.py`, `mantisanalysis/modes/{common,
-  dof,fpn,__init__}.py`, `MantisAnalysis.bat`.
+dof,fpn,__init__}.py`, `MantisAnalysis.bat`.
 - `pyproject.toml`: version 0.1.0 → 0.2.0; removed `PySide6` + `pytest-qt`;
   added `fastapi`, `uvicorn[standard]`, `python-multipart`, `pydantic`
   runtime deps and `httpx` dev dep.
@@ -2582,7 +2724,7 @@ Smoke status at session close: ✅ Tier 1, ✅ Tier 2, ✅ Tier 3.
 - Fetched the Claude Design handoff bundle for `MantisAnalysis Suite`
   (https://api.anthropic.com/v1/design/h/sRqIo_XUO3eQLBfY1bw3sg) and
   landed 6 files verbatim under `web/` — `index.html` + `src/{shared,
-  usaf, fpn, dof, analysis, app}.jsx`. ≈3800 lines of React prototype,
+usaf, fpn, dof, analysis, app}.jsx`. ≈3800 lines of React prototype,
   CDN-loaded (React 18 + Babel standalone), synthetic imagery only.
 - Opened `.agent/runs/gui-rewrite-v1/` with ExecPlan + Status.
 - Logged D-0008 (adopt React prototype as parallel GUI, PyQt untouched).
@@ -2622,11 +2764,11 @@ Phase 2 pass.
 - Added `.github/workflows/smoke.yml` (Tier 1 + pytest matrix on
   Linux/macOS/Windows × Python 3.10/3.11/3.12/3.13; Tier 2 on Linux).
 - Rewrote root `README.md` as user-facing docs (install + run + modes
-  + troubleshooting). Preserved `UI_SPEC.md` and `HANDOFF.md` from
-  Phase 1.
+  - troubleshooting). Preserved `UI_SPEC.md` and `HANDOFF.md` from
+    Phase 1.
 - Recorded 7 DECISIONS, 8 RISKS, 12 BACKLOG items.
 - VCS: `git init`, `git remote add origin
-  https://github.com/BioSensorsLab-Illinois/MantisAnalysis.git`. **No
+https://github.com/BioSensorsLab-Illinois/MantisAnalysis.git`. **No
   initial commit yet** — held for user review (B-0010).
 
 Smoke status at session close: ✅ Tier 1, ✅ Tier 2, ⚠ Tier 3
@@ -2637,6 +2779,6 @@ Smoke status at session close: ✅ Tier 1, ✅ Tier 2, ⚠ Tier 3
 
 ---
 
-*(future entries above this line)*
+_(future entries above this line)_
 
 <!-- /qt-allowed -->

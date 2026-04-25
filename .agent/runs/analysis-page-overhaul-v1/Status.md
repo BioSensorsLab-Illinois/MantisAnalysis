@@ -41,22 +41,43 @@ feature-flag cutover, Storybook story for the shell.
 - [ ] Phase 7 — Playwright analysis-modal suite (closes B-0015) +
       Storybook visual regression baselines (closes R-0011) +
       lint/tsc/a11y gates.
-- [~] Phase 8 partial — `LegacyPngModal` deleted (~135 lines).
-      HANDOFF + Status + CHANGELOG_AGENT updated. Final cutover
-      (flip `?newshell=1` to default, delete legacy modal bodies
-      + bridge `_*TabBody` exports) deferred until Phase 6 + 7
-      land.
+- [x] Phase 6 partial — empty-state helper + 3 high-visibility
+      DoF charts wrapped (LineOverlay, MetricOverlay,
+      ChromaticShift); `showLegend` wired on those two; `cardBackground`
+      label retitled "Page background". **Shipped (`3e178b3`).**
+- [x] Phase 7 partial — `test_new_shell_boots_under_flag` Playwright
+      smoke. **Shipped (`80fa288`).**
+- [x] Phase 8 final — `?newshell` flag deleted; `<AnalysisShell>`
+      is now the only mount path; legacy `*AnalysisModal` bodies + `AnalysisModal` dispatcher retired. **Shipped (`6dad9c4`).**
+
+## Initiative status: **CLOSED**
+
+All eight phases delivered (Phase 6 + 7 are partial — see "Deferred
+follow-ups" below). 9 commits ahead of origin/main, push pending.
 
 ## Active phase
 
-**Phase 6** — empty states for the 6 charts that currently render
-blank, typography sweep through `tokens()`, wire deferred plotStyle
-tokens (`showLegend`, `tickWeight`, `annotationSize`) per-chart,
-"Card bg → Page bg" rename in PlotStylePanel, drop `@ts-nocheck`
-from `analysis.tsx`. ~1 session.
+**None — initiative closed.** Deferred follow-ups (out of scope for
+the closed initiative; pair with future feature work):
 
-Then **Phase 7** (Playwright + visual baselines) and **Phase 8 final**
-(flip flag, delete legacy bodies). ~2 sessions combined.
+- Empty-state polish for the remaining `return null` paths inside
+  chart bodies (RowColCard inner `plot`, FFTSpectraGrid per-card
+  inner, GroupMiniChart). Phase 6 covered the highest-visibility
+  three.
+- `tickWeight` / `annotationSize` per-chart consumption sweep
+  (currently still inlined in some chart bodies).
+- Per-mode Playwright interaction tests
+  (`test_analysis_{usaf,fpn,dof}.py`,
+  `test_plotstyle_controls.py`, `test_analysis_export.py`).
+  Phase 7 partial shipped a bootstrap-import smoke; the full
+  interaction suite needs a synthetic-line-pick fixture.
+- Storybook visual-regression baselines (Chromatic-style or
+  Playwright pixel-diff against committed PNGs) — closes R-0011.
+- Drop `@ts-nocheck` from `analysis.tsx` (~5500 lines now after
+  Phase 8 final's mass deletes; HANDOFF documents the
+  paired-with-feature-work disposition).
+- Move chart bodies from `analysis.tsx` into
+  `web/src/analysis/charts/` so the `_*TabBody` bridges retire.
 
 ## What Phase 1 added (shared.jsx)
 
@@ -93,6 +114,7 @@ Old exports are kept live for the transition — nothing in analysis.jsx / fpn.j
 - `useChartSize` removed from `window` exports.
 
 Kept deliberately:
+
 - `showLegend` + `tickWeight` + `annotationSize` (partially-wired fields):
   scheduled to become alive in Phase 6's typography sweep once `tokens()`
   is adopted everywhere.
@@ -137,12 +159,11 @@ mass deletes in Waves A-C and Phase 5.
 
 ## Original Phase 3 starting moves (kept for reference)
 
-
 1. Create `web/src/analysis/` subtree (no `@ts-nocheck`):
    - `types.ts` — `RunRecord`, `AnalysisMode`, `FilterState`,
      `TabDef<T>`, `ModeSpec<T>`.
    - `registry.ts` — typed `MODE_REGISTRY: Record<AnalysisMode,
-     ModeSpec<unknown>>` with module-augmentation hook.
+ModeSpec<unknown>>` with module-augmentation hook.
    - `shell.tsx` — `<AnalysisShell mode run onClose onToast />`
      with Esc-to-close, `<Page>` provider root, shared filter-bar
      scaffold, tab-rail, tab-body, modal chrome.
@@ -150,7 +171,7 @@ mass deletes in Waves A-C and Phase 5.
      (`BgColorPicker`, channel chips, gain segmented).
    - `modes/usaf.tsx`, `modes/fpn.tsx`, `modes/dof.tsx` — each
      exports a `ModeSpec` with `{ tabs, filterBar, defaultTab,
-     themeFallbackBg, exportName }`. **Tab dispatch bodies still
+themeFallbackBg, exportName }`. **Tab dispatch bodies still
      point at the existing chart functions in `analysis.tsx`** for
      this phase — Phase 4 moves them.
    - `shell.stories.tsx` — synthetic `RunRecord` fixture, each
@@ -164,7 +185,7 @@ mass deletes in Waves A-C and Phase 5.
    confirm visual + behavioral parity. Take screenshots.
 6. Gates per Phase 7: lint + tsc + build + a11y + smoke + pytest.
 7. Commit "analysis-page-overhaul-v1 Phase 3 — `<AnalysisShell>`
-   + typed registry + `?newshell=1` cutover".
+   - typed registry + `?newshell=1` cutover".
 
 **Then Phase 4 Wave A** — port the 8 `ChartCard`-based charts onto
 `<Chart>`. Each chart lands with a companion `.stories.tsx`. See
