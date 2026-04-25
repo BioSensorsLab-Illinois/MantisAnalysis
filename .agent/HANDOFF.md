@@ -1,7 +1,7 @@
 # HANDOFF — current live state pointer
 
-Last updated: **2026-04-24**, end of `bundler-migration-v1 Phase 5
-(5b-finish)` — Phase 5 CLOSED (Claude Opus 4.7, 1M context).
+Last updated: **2026-04-24**, end of `bundler-migration-v1` Phases
+6 + 7 + 8 — **B-0014 INITIATIVE CLOSED** (Claude Opus 4.7, 1M context).
 
 ## Current state of the working tree
 
@@ -15,35 +15,33 @@ Last updated: **2026-04-24**, end of `bundler-migration-v1 Phase 5
 
 ## What just shipped
 
-**bundler-migration-v1 Phase 5b-finish — every .jsx → .tsx, Phase 5
-CLOSED** (this session; push pending).
+**bundler-migration-v1 Phases 6 + 7 + 8 — B-0014 CLOSED** (this
+session; push pending).
 
-- **6 mass renames with `@ts-nocheck` headers**:
-  `shared.jsx`/`app.jsx`/`usaf.jsx`/`fpn.jsx`/`dof.jsx`/`analysis.jsx`
-  → `.tsx`. Bodies preserved byte-for-byte; each file gets a
-  leading `// @ts-nocheck` so tsc parses but doesn't strict-check
-  them. Phase 5c (deferred, multi-session) peels `@ts-nocheck`
-  off file-by-file as code is touched.
-- **`tsconfig.json`** drops `allowJs` + `checkJs: false`. Every
-  source file is now TypeScript.
-- **`eslint.config.js`** — `@typescript-eslint/ban-ts-comment`
-  demoted so `@ts-nocheck` is allowed during the rollout.
-- **Cross-file imports** rewritten (11 sites); `web/index.html`
-  already pointed at `main.tsx`.
-- **`scripts/check_frontend_lint.py`** — Prettier glob extended to
-  include `.ts`/`.tsx` (the old glob matched nothing post-rename).
-- **`isp_settings.tsx`** — the `as any` shim stays; removes when
-  shared.tsx drops `@ts-nocheck` in Phase 5c.
-- **Browser-verified** — FPN mode default, then USAF + DoF clicks;
-  all 3 render with zero console errors.
+- **Phase 6 — axe-core**: `axe-playwright-python` added to
+  `[web-smoke]` extras; `tests/web/test_accessibility.py` runs
+  axe-core against WCAG A/AA on the boot page; baseline-gated
+  (2 critical + 3 serious captured; B-0026 tracks tightening).
+- **Phase 7 — Storybook**: `storybook@^8` + `@storybook/react-vite`
+  + `addon-essentials`/`addon-interactions`/`addon-a11y` installed.
+  `.storybook/main.ts` + `preview.ts`. Seed story
+  `web/src/Brand.stories.tsx`. `npm run storybook` /
+  `build-storybook` operational. `storybook-static/` gitignored.
+- **Phase 8 — close**: `DECISIONS.md::D-0017` records the final
+  toolchain decision (Vite + TypeScript + ESLint + Prettier +
+  Storybook + axe-core); `REFERENCES.md` updated;
+  `BACKLOG.md::B-0014` marked CLOSED with all 8 phases listed;
+  consolidated CHANGELOG entry written.
 
-**Previous sessions** (already pushed):
+**Today's commits in initiative order**:
 
-- `1fd05f2` — Phase 5b-1 (isp_settings.tsx + warning reduction 372→49).
-- `2bd4ef6` — Phase 5a (TypeScript infrastructure + main.tsx seed).
-- `cd560d7` — Phase 4 (ESLint + Prettier).
-- `febb365` — Phase 3 follow-up (reviewer findings).
-- `cb3cbaf` — Phase 3 atomic CDN→ESM cutover.
+- `cb3cbaf` — Phase 3 atomic CDN→ESM cutover
+- `febb365` — Phase 3 reviewer-findings follow-up
+- `cd560d7` — Phase 4 ESLint + Prettier
+- `2bd4ef6` — Phase 5a TypeScript infra + main.tsx seed
+- `1fd05f2` — Phase 5b-1 isp_settings.tsx typed + warnings 372→49
+- `07736f3` — Phase 5b-finish: mass .jsx → .tsx + allowJs off
+- (this commit) — Phases 6 + 7 + 8 + initiative close
 
 (For Phases 3–5a detail, see
 `.agent/CHANGELOG_AGENT.md` + `.agent/runs/bundler-migration-v1/Status.md`.)
@@ -84,16 +82,18 @@ python -m mantisanalysis --no-browser --port 8773
 
 ## Active initiative
 
-**`bundler-migration-v1`** — Phases 1–5 CLOSED. Phases 6–8 +
-Phase 5c (optional type-tightening) remain:
+**None.** `bundler-migration-v1` (B-0014) is **CLOSED** as of
+2026-04-24. Phases 1–8 all shipped. Outstanding tech debt from the
+initiative tracked in BACKLOG:
 
-- Phase 5c (DEFERRED, multi-session) — drop `@ts-nocheck`
-  file-by-file, type the exported primitives in shared.tsx, delete
-  the `as any` shim in `isp_settings.tsx`, promote ESLint to
-  `typescript-eslint/recommendedTypeChecked`. Not blocking 6/7/8.
-- Phase 6 — axe-core integration under `pytest -m web_smoke`.
-- Phase 7 — Storybook with component stories.
-- Phase 8 — docs + close.
+- **B-0026** — drive axe-core a11y baseline to zero (5 violations:
+  label, select-name, aria-command-name, color-contrast,
+  nested-interactive).
+- **Phase 5c** — DEFERRED, multi-session. Drop `@ts-nocheck`
+  file-by-file, type shared.tsx's exports, delete the `as any`
+  shim in `isp_settings.tsx`, promote ESLint to
+  `typescript-eslint/recommendedTypeChecked`. Not blocking
+  anything; pair with future feature work.
 
 `analysis-page-overhaul-v1` remains at Phase 2 done / Phase 3 next
 — paused since the harness rework. With Phase 3 of the bundler
@@ -102,24 +102,30 @@ be built ES-modules-native from the start.
 
 ## Where to pick up next
 
-1. **bundler-migration-v1 Phase 6** — axe-core accessibility
-   integration under `pytest -m web_smoke`. Self-contained session.
-2. **Phase 5c** (optional, any time) — drop `@ts-nocheck` from
-   `shared.tsx` first; type its exported primitives. Downstream
-   wins: delete the `as any` shim in `isp_settings.tsx`; the 49
-   residual warnings mostly dissolve under strict TS.
-3. **analysis-page-overhaul-v1 Phase 3** — paused; unified
-   `<AnalysisModal>` shell refactor. Now safe to do ES-modules-
-   native + typed.
-4. **H5 recording-inspection feature** — originally-deferred
-   product work; now safe under the hardened harness + Vite +
-   linter + typechecker stack. Open via
+The frontend tooling is fully migrated; the next initiatives are
+all product / quality work:
+
+1. **H5 recording-inspection feature** — originally-deferred
+   product work; the harness + Vite + TS + Storybook + axe-core
+   stack is now ready for it. Open via
    `skills/execplan-large-feature/SKILL.md`.
+2. **analysis-page-overhaul-v1 Phase 3** — paused; unified
+   `<AnalysisModal>` shell refactor. Pairs well with Phase 5c
+   (type the analysis tab components on the way through).
+3. **B-0026 a11y-baseline tightening** — pick a category (start
+   with `label` — quick wins on `<input>` elements in
+   `isp_settings.tsx::GeomRow`). Each fix lowers the test's
+   `BASELINE_*` constants.
+4. **Phase 5c type-tightening** — drop `@ts-nocheck` from
+   `shared.tsx` first to propagate types outward.
+5. **Stories for Card / Button / Chart / Page / PlotStylePanel** —
+   Storybook is wired but only has the seed story.
 
 ## Deferred with explicit rationale
 
-- **B-0014** — Vite bundler migration. **Phases 1–5 SHIPPED**
-  (2026-04-24). Phase 5c (type-tightening) + Phases 6–8 remaining.
+- **B-0014** — Vite bundler migration. **CLOSED 2026-04-24**
+  (all 8 phases shipped). Phase 5c + B-0026 are tech debt
+  follow-ups, not initiative blockers.
 - **B-0015 extended** — per-mode Playwright interaction suites
   (USAF / FPN / DoF analysis modals). Substantial; depends on
   analysis-page-overhaul-v1 Phase 3 landing.

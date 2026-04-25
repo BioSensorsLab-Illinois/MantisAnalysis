@@ -191,11 +191,11 @@ documented, not ignored.
 - Enables npm + lockfile + Storybook + dev-time TypeScript.
 
 **For MantisAnalysis**: this is the bundler we use as of
-`bundler-migration-v1` Phase 3 (2026-04-24). `npm run build` emits
-`web/dist/` (FastAPI serves it at `/`); `npm run dev` runs the
-Vite dev server on `:5173` with `/api` proxied to FastAPI on
-`:8765`. Phase 4 (ESLint + Prettier) and Phase 5 (TypeScript
-gradual migration) are next on the bundler-migration-v1 roadmap.
+`bundler-migration-v1` Phases 1-8 (all shipped 2026-04-24, D-0017).
+`npm run build` emits `web/dist/`; FastAPI serves it at `/`.
+`npm run dev` runs the Vite dev server on `:5173` with `/api`
+proxied to FastAPI on `:8765`. Storybook on `@storybook/react-vite`
+runs via `npm run storybook` on `:6006`.
 
 ---
 

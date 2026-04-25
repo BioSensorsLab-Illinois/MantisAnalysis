@@ -88,8 +88,18 @@ after the Phase 3 commit was pushed. Findings + dispositions:
 - [x] Phase 4 — ESLint + Prettier (2026-04-24, commit cd560d7)
 - [x] Phase 5a — TypeScript infrastructure + seed (2026-04-24, commit 2bd4ef6)
 - [x] Phase 5b-1 — `isp_settings.jsx` → `isp_settings.tsx` (fully typed) + warning reduction 372→49 (2026-04-24, commit 1fd05f2)
-- [x] Phase 5b-finish — mass migration: every remaining .jsx → .tsx under `@ts-nocheck`; `allowJs` dropped from tsconfig; Phase 5 CLOSED (**this commit**)
+- [x] Phase 5b-finish — mass migration: every remaining .jsx → .tsx under `@ts-nocheck`; `allowJs` dropped (2026-04-24, commit 07736f3)
 - [ ] Phase 5c — type-tightening follow-ups (DEFERRED; drop `@ts-nocheck` file-by-file)
+- [x] Phase 6 — axe-core integration (2026-04-24, **this commit**)
+- [x] Phase 7 — Storybook init + seed story (2026-04-24, **this commit**)
+- [x] Phase 8 — docs + close (2026-04-24, **this commit**)
+
+## **INITIATIVE CLOSED (2026-04-24)**
+
+Phases 1–8 all shipped today under `bundler-migration-v1`. Phase 5c
+(type-tightening follow-up) remains open as BACKLOG tech debt;
+Phase 6's axe-core baseline-tightening tracked under B-0026. See
+`.agent/DECISIONS.md::D-0017` for the final toolchain decision.
 - [ ] Phase 6 — axe-core integration
 - [ ] Phase 7 — Storybook + initial stories
 - [ ] Phase 8 — docs + close

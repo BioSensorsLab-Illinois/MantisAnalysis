@@ -4,6 +4,102 @@ Append-only log of agent sessions. One bullet per session, newest at top.
 
 ---
 
+## 2026-04-24 — bundler-migration-v1 Phases 6 + 7 + 8 CLOSED — B-0014 done (Claude Opus 4.7, 1M context)
+
+User: "continue to finish all remaining phases" (resume after Phase
+5 close).
+
+Shipped the final three phases in a single session: axe-core
+accessibility gate, Storybook install, and the documentation
+close-out. B-0014 is now CLOSED; `.agent/runs/bundler-migration-v1/`
+marked INITIATIVE CLOSED.
+
+### Phase 6 — axe-core integration
+
+- `pyproject.toml` `[web-smoke]` extras — added
+  `axe-playwright-python>=0.1.7`.
+- `tests/web/test_accessibility.py` (new) — loads the built SPA,
+  runs axe-core against WCAG A / AA rule set (`wcag2a`, `wcag2aa`,
+  `wcag21a`, `wcag21aa`), asserts zero regression past the
+  captured baseline.
+- **Baseline captured**: 2 critical (`label`, `select-name`) + 3
+  serious (`aria-command-name`, `color-contrast`, `nested-interactive`)
+  WCAG A/AA violations on the boot page. Test passes at these
+  counts; fails on regression. Lowering the baseline is
+  opportunistic tech debt tracked under B-0026.
+
+### Phase 7 — Storybook
+
+- `package.json` devDeps — added `storybook@^8`,
+  `@storybook/react-vite@^8`, `@storybook/addon-essentials@^8`,
+  `@storybook/addon-interactions@^8`, `@storybook/addon-a11y@^8`,
+  `@storybook/test@^8`. Scripts `storybook` + `build-storybook`.
+- `.storybook/main.ts` — flat config, stories glob covers
+  `web/src/**/*.stories.{ts,tsx,js,jsx,mdx}`; addons:
+  essentials + interactions + a11y; `react-docgen-typescript`.
+- `.storybook/preview.ts` — dark-backdrop default; a11y addon
+  configured with the same WCAG tag set as the Playwright gate
+  (minus `document-title` / `html-has-lang` which only apply to
+  full-app).
+- `web/src/Brand.stories.tsx` — seed story rendering BRAND + the
+  CHANNEL_COLORS palette. Proves the pipeline without pulling in
+  @ts-nocheck'd shared primitives.
+- `storybook-static/` added to `.gitignore`.
+- `npm run build-storybook` verified: static output emits to
+  `storybook-static/` cleanly (3.42 s Preview build).
+
+### Phase 8 — docs + close
+
+- `.agent/DECISIONS.md::D-0017` — final toolchain decision
+  (Vite + TypeScript + ESLint + Prettier + Storybook + axe-core)
+  with options-considered + consequences + revisit triggers.
+- `.agent/REFERENCES.md` — Vite moved from "recommended" to
+  "shipped".
+- `.agent/BACKLOG.md::B-0014` — marked CLOSED, all 8 phases
+  listed. B-0026 opened for a11y-baseline tightening.
+- `.agent/runs/bundler-migration-v1/Status.md` — all 8 phases
+  checked off; marked **INITIATIVE CLOSED**.
+- `.agent/runs/bundler-migration-v1/ExecPlan.md` — Phase 6/7/8
+  sections filled in with concrete shipped work.
+- `.agent/HANDOFF.md` — B-0014 SHIPPED; next-up list reordered
+  (H5 recording-inspection, analysis-page-overhaul-v1 Phase 3,
+  or Phase 5c).
+
+### Consolidated summary: B-0014 / bundler-migration-v1
+
+8 phases shipped across 6 commits on 2026-04-24:
+
+| Commit    | Phase     | What                                            |
+|-----------|-----------|-------------------------------------------------|
+| e5bab0e   | Phase 1   | Vite + React 18 installed alongside CDN path    |
+| (amalgamated) | Phase 2 | Parallel shared-esm.js with live API shell     |
+| cb3cbaf   | Phase 3   | Atomic CDN→ESM cutover                          |
+| febb365   | Phase 3+  | Reviewer findings (PyInstaller, docs, test gap) |
+| cd560d7   | Phase 4   | ESLint 9 + Prettier 3                           |
+| 2bd4ef6   | Phase 5a  | TypeScript infrastructure + main.tsx seed      |
+| 1fd05f2   | Phase 5b-1| isp_settings.tsx typed + warning 372→49         |
+| 07736f3   | Phase 5b-finish | Mass .jsx → .tsx + allowJs off              |
+| (this commit) | Phase 6 + 7 + 8 | axe-core + Storybook + close-out         |
+
+### Honesty
+
+- **Phase 5c is NOT closed** — type-tightening (drop `@ts-nocheck`
+  file-by-file) is tech debt that will reduce the `as any` shim
+  surface and tighten real-bug-catching. Optional, multi-session,
+  not blocking anything.
+- **a11y baseline is real debt** — B-0026 tracks driving the 5
+  critical/serious violations to zero. The axe-core test catches
+  regressions; it doesn't force fixes today.
+- **Storybook has 1 story** — the seed proves the pipeline.
+  Adding stories for Card / Button / Chart / Page / PlotStylePanel
+  pairs naturally with Phase 5c (typed primitives drive story
+  controls).
+- **`@storybook/addon-docs` + automatic component docs** are
+  currently limited because most components have `@ts-nocheck`
+  — docgen can't extract TSDoc through it. Phase 5c lifts this.
+
+---
+
 ## 2026-04-24 — bundler-migration-v1 Phase 5b-finish (Claude Opus 4.7, 1M context)
 
 User: "continue to finish phase 5" (resume after Phase 5b-1 close).

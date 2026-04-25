@@ -197,29 +197,49 @@ is touched.
       share of the tree is actually type-checked.
 - [ ] Update `tests/web/` to use TypeScript-aware Playwright types.
 
-### Phase 6 — axe-core integration
+### Phase 6 — axe-core integration (CLOSED 2026-04-24)
 
-- `@axe-core/playwright` in devDependencies.
-- New `tests/web/test_accessibility.py` that audits the boot page
-  + primary mode panels.
-- Wire into `pytest -m web_smoke`.
+- [x] `axe-playwright-python` added to `.[web-smoke]` optional deps.
+      (JS `@axe-core/playwright` not needed; the Python wrapper
+      injects axe-core from the same origin into the Playwright
+      page and runs it via `page.evaluate`.)
+- [x] `tests/web/test_accessibility.py` — audits the built SPA
+      boot page under WCAG A / AA (`wcag2a`, `wcag2aa`, `wcag21a`,
+      `wcag21aa` tag set). Baseline-gated: 2 critical + 3 serious
+      existing violations captured as the starting line; test fails
+      on any regression. Moderate / minor tracked as stdout logs.
+- [x] Wired under `pytest -m web_smoke`.
+- [x] Tightening work (drive baseline to zero) captured as B-0026.
 
-### Phase 7 — Storybook + initial component stories
+### Phase 7 — Storybook + initial component stories (CLOSED 2026-04-24)
 
-- `@storybook/react-vite`.
-- Stories for each `shared.jsx` primitive (`Card`, `Button`,
-  `Chart`, `Page`, `PlotStylePanel`).
-- Stories for analysis modal tab components (once
-  analysis-page-overhaul-v1 Phase 4 has extracted them).
-- Accessibility + interaction addons wired in.
+- [x] `storybook@^8` + `@storybook/react-vite@^8` +
+      `addon-essentials` + `addon-interactions` + `addon-a11y` +
+      `@storybook/test` installed.
+- [x] `.storybook/main.ts` — flat config; story glob covers
+      `web/src/**/*.stories.{ts,tsx,js,jsx,mdx}`.
+- [x] `.storybook/preview.ts` — dark-backdrop default; a11y addon
+      configured to the same WCAG tag set as the Playwright gate.
+- [x] `web/src/Brand.stories.tsx` — seed story rendering
+      `BRAND.name` + `CHANNEL_COLORS` swatches. Proves the toolchain
+      without pulling in still-@ts-nocheck shared primitives.
+- [x] `npm run storybook` + `npm run build-storybook` operational.
+- [x] `storybook-static/` added to `.gitignore`.
+- [ ] (Deferred) Stories for Card / Button / Chart / Page /
+      PlotStylePanel. Pair with Phase 5c type-tightening so each
+      primitive's exported type drives the story's controls.
 
-### Phase 8 — docs + close
+### Phase 8 — docs + close (CLOSED 2026-04-24)
 
-- `DECISIONS.md` entry for the final toolchain.
-- `REFERENCES.md` update — Vite + Storybook move from "recommended"
-  to "shipped".
-- Onboarding guide rewritten for the new toolchain.
-- Closing review pass + archive.
+- [x] `DECISIONS.md::D-0017` — final toolchain decision with
+      options-considered + consequences.
+- [x] `REFERENCES.md` — Vite moved from "recommended" to "shipped";
+      Storybook + axe-core added.
+- [x] `BACKLOG.md::B-0014` marked CLOSED. B-0026 opened for
+      a11y-baseline tightening.
+- [x] `HANDOFF.md` refreshed. `.agent/manifest.yaml` + `REPO_MAP.md`
+      updated. `TOOLS_AND_SKILLS.md` carries every new tool.
+- [x] `.agent/CHANGELOG_AGENT.md` final consolidated entry.
 
 ## 4. Out of scope
 

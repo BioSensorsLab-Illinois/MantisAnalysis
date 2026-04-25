@@ -3,7 +3,43 @@
 Explicit work that remains. Ordered by impact + readiness. Each item
 has a unique `B-000N` ID. Append-only; do not renumber.
 
-## B-0014 — Adopt a bundler for `web/` — **IN PROGRESS (Phase 1 shipped 2026-04-24)**
+## B-0026 — Drive axe-core violation baseline toward zero — **OPEN**
+
+bundler-migration-v1 Phase 6 (2026-04-24) wired axe-core into
+`pytest -m web_smoke` via `tests/web/test_accessibility.py`. First
+run captured **2 critical + 3 serious** WCAG A/AA violations as the
+baseline (`BASELINE_CRITICAL` / `BASELINE_SERIOUS` constants in the
+test). The test FAILS on new regressions but tolerates the
+inherited set. Each category is a discrete a11y follow-up:
+
+1. **`label`** (2 critical, 10 elements) — form inputs (`<input
+   min="">` `<input max="">` in ISP settings + elsewhere) lack
+   `<label for>` or `aria-label`. Mostly in `isp_settings.tsx::GeomRow`
+   and sliders in `shared.tsx`. Fix: add `aria-label` to each input.
+2. **`select-name`** (2 critical, 2 elements) — `<select>` dropdowns
+   without labels. Fix: add `aria-label`.
+3. **`aria-command-name`** (1 serious) — `span[role="button"]`
+   without accessible text. Probably an icon-only control in a
+   shared primitive.
+4. **`color-contrast`** (1 serious, 44 elements) — theme-color
+   contrast below WCAG AA minimums. Systemic; needs design-tier
+   review of the theme token values. The `textFaint` / `textMuted`
+   tokens against `panel` / `panelAlt` backgrounds are likely
+   culprits.
+5. **`nested-interactive`** (1 serious, 2 elements) — a drag-handle
+   `<button>` is inside a `draggable` container that is itself
+   interactive. Restructure the draggable panel primitive.
+
+Each fix should LOWER the baseline in `test_accessibility.py`
+and commit. Pair well with Phase 5c type-tightening (touching
+shared.tsx anyway).
+
+Related: `.agent/UI_VERIFICATION.md` + WCAG 2.2 rules in
+`.agent/REFERENCES.md`.
+
+
+
+## B-0014 — Adopt a bundler for `web/` — **CLOSED 2026-04-24 (all phases shipped)**
 
 Tracked under `.agent/runs/bundler-migration-v1/`. 8-phase plan:
 
@@ -32,11 +68,20 @@ Tracked under `.agent/runs/bundler-migration-v1/`. 8-phase plan:
   (87%) via dead-code pruning + eslint config cleanup.
 - **Phase 5b-finish** (CLOSED 2026-04-24) — mass rename every
   remaining `.jsx` → `.tsx` with `@ts-nocheck` headers; dropped
-  `allowJs` from tsconfig. Phase 5 CLOSED — every source file
-  is now TypeScript.
+  `allowJs` from tsconfig. Every source file is TypeScript.
 - **Phase 5c** — DEFERRED, multi-session. Drop `@ts-nocheck`
-  file-by-file to incrementally tighten types. Tracked in
-  `.agent/runs/bundler-migration-v1/ExecPlan.md`.
+  file-by-file to tighten types. Tracked in the ExecPlan.
+- **Phase 6** (CLOSED 2026-04-24) — axe-core integration via
+  `axe-playwright-python`. `tests/web/test_accessibility.py`
+  runs under `pytest -m web_smoke`; baseline-gated (2 critical
+  + 3 serious captured; tightening under B-0026).
+- **Phase 7** (CLOSED 2026-04-24) — Storybook 8 on
+  `@storybook/react-vite` + essentials + interactions + a11y
+  addons. `.storybook/main.ts` + `preview.ts` + `Brand.stories.tsx`
+  seed. `npm run storybook` / `build-storybook` operational.
+- **Phase 8** (CLOSED 2026-04-24) — docs + close. D-0017 decision
+  recorded; REFERENCES / HANDOFF / manifest / REPO_MAP refreshed;
+  initiative-level CHANGELOG entry written.
 - Phase 5 — gradual TypeScript (`.jsx` and `.tsx` side-by-side).
 - Phase 6 — axe-core integration under `pytest -m web_smoke`.
 - Phase 7 — Storybook with component stories.

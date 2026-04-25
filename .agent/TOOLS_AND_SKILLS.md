@@ -46,10 +46,11 @@ roles, see [`agents/`](agents/).
 | **dom-to-image-more** | ✅ | `shared.jsx` + `analysis.jsx` (npm) | Export path: rasterizes inline SVG/HTML cards to PNG. |
 | **ESLint 9 (flat config)** | ✅ | `eslint.config.js`, `npm run lint` | React + React Hooks + typescript-eslint. Errors block Tier 0, warnings tracked. Phase 4 (2026-04-24). |
 | **Prettier 3** | ✅ | `.prettierrc.json`, `npm run format[:check]` | Auto-format `web/src/` at 100-col, single quotes, es5 trailing commas. Phase 4 (2026-04-24). |
-| **TypeScript 5** | ✅ | `tsconfig.json`, `npm run typecheck` | Gradual migration (Phase 5a infra shipped 2026-04-24; Phase 5b file migrations ongoing). `main.tsx` is the seed; all other files still `.jsx` under `allowJs: true`. |
+| **TypeScript 5** | ✅ | `tsconfig.json`, `npm run typecheck` | All source files are .ts/.tsx (Phase 5b-finish 2026-04-24). `allowJs: false`. `strict: true`. Most files still `@ts-nocheck`'d pending Phase 5c per-file tightening. |
 | **@types/react, @types/react-dom, @types/node** | ✅ | `package.json` devDeps | TypeScript ambient types for React 18 + Node. |
-| **typescript-eslint** | ✅ | `eslint.config.js` | Adds TS-aware parsing + rules for `.ts`/`.tsx`. `recommendedTypeChecked` gated on meaningful Phase 5b progress. |
-| **Storybook + Chromatic** | 🔵 | — | Phase 7 of `bundler-migration-v1`. Component-level docs + interaction tests + a11y + visual regression. |
+| **typescript-eslint** | ✅ | `eslint.config.js` | TS-aware parsing + rules for `.ts`/`.tsx`. `recommendedTypeChecked` gated on Phase 5c. |
+| **Storybook 8 + react-vite** | ✅ | `.storybook/main.ts` + `preview.ts`, `npm run storybook` | Component gallery. Phase 7 of `bundler-migration-v1` (2026-04-24). Includes addons: essentials + interactions + a11y. Static build via `npm run build-storybook` → `storybook-static/`. |
+| **axe-playwright-python** | ✅ | `tests/web/test_accessibility.py` (`pytest -m web_smoke`) | Runs axe-core against the built SPA boot page; baseline-gated. Phase 6 (2026-04-24). B-0026 tracks driving baseline to zero. |
 | **React DevTools** | 🟡 | Browser extension (manual install) | Used for performance review. |
 
 ## Testing tooling
@@ -61,7 +62,7 @@ roles, see [`agents/`](agents/).
 | **fastapi.testclient** | ✅ | Used in `scripts/smoke_test.py` Tier 3 + `tests/unit/test_isp_modes.py` | In-process ASGI. |
 | **Playwright (chromium)** | 🟡 | `[project.optional-dependencies].web-smoke`, `tests/web/conftest.py + test_web_boot.py` | Opt-in. `pytest -m web_smoke`. |
 | **pytest-playwright** | 🟡 | `[web-smoke]` | Native Playwright integration. |
-| **axe-core (via axe-playwright-python)** | 🔵 | — | Accessibility automation. Install only when an initiative explicitly needs it. |
+| **axe-core (via axe-playwright-python)** | ✅ | `tests/web/test_accessibility.py` | Phase 6 shipped 2026-04-24. WCAG A/AA gate; baseline-mode (B-0026 tracks tightening). |
 | **Visual regression (Playwright toHaveScreenshot)** | 🔵 | — | No baseline today. First initiative to adopt it sets the policy. |
 | **Lighthouse CI** | 🔵 | — | Possible for performance budgets; overkill today. |
 

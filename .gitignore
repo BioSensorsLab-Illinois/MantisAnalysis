@@ -56,8 +56,10 @@ nosetests.xml
 # Vite / npm toolchain (bundler-migration-v1).
 # node_modules/ is re-derivable from package.json + lockfile.
 # web/dist/ is the production bundle output — re-emit via `npm run build`.
+# storybook-static/ is Storybook's bundle — re-emit via `npm run build-storybook`.
 # .vite/ is Vite's local optimization cache.
 node_modules/
 web/dist/
+storybook-static/
 .vite/
 package-lock.json.bak

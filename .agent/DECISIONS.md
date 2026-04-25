@@ -575,3 +575,87 @@ caught had it been mechanical. Following a user directive to
   writing minimal stubs just to pass the check), tighten the
   validator to require substantive content (word count, findings
   structure).
+
+---
+
+## D-0017 — Frontend toolchain: Vite + TypeScript + ESLint + Prettier + Storybook + axe-core (2026-04-24)
+
+**Context**: `web/` shipped originally as React 18 + Babel standalone
+loaded from CDN — no bundler, no type checker, no linter, no
+component gallery, no a11y gate. The decision D-0009 to adopt the
+React frontend made sense at the time (paired with Qt deletion +
+zero-build-friction goals), but past 15 K lines + multiple domain
+modes (USAF / FPN / DoF / ISP / analysis-page-overhaul) the absence
+of tooling compounded: no JS lockfile, in-browser Babel on every
+reload, no type hints for shared primitives, no visual gallery,
+no automated a11y. `B-0014` tracked the migration decision. Closed
+2026-04-24 under `bundler-migration-v1` across 8 phases.
+
+**Decision**: adopt the following toolchain end-to-end:
+
+- **Bundler**: Vite 5.4 + `@vitejs/plugin-react`. Production bundle
+  at `web/dist/`; dev server on `:5173` with HMR + `/api` proxy to
+  FastAPI `:8765`.
+- **Language**: TypeScript 5. `allowJs: false` (every source file
+  is .ts/.tsx post Phase 5b-finish). `strict: true`. Mass-migrated
+  files ship with `@ts-nocheck` for a per-file tighten-later rollout
+  (Phase 5c, deferred).
+- **Formatter**: Prettier 3 (`.prettierrc.json`). Single JS quotes,
+  100-col, es5 trailing commas.
+- **Linter**: ESLint 9 flat config + `eslint-plugin-react` +
+  `eslint-plugin-react-hooks` + `eslint-plugin-react-refresh` +
+  `typescript-eslint` + `eslint-config-prettier`.
+- **Type-checker**: `tsc --noEmit` wired into the Tier 0 gate via
+  `scripts/check_frontend_lint.py`.
+- **Frontend smoke**: Playwright (opt-in via `pytest -m web_smoke`).
+- **Accessibility**: `axe-playwright-python` runs axe-core against
+  the built SPA boot page; baseline-gated pass-mode (B-0026 tracks
+  the tightening work).
+- **Component gallery**: Storybook 8 on `@storybook/react-vite` +
+  `addon-essentials` + `addon-interactions` + `addon-a11y`.
+- **Packaging**: PyInstaller bundles `web/dist/`; spec hard-fails
+  if dist is missing; `packaging/build.py` runs `npm run build`
+  before PyInstaller.
+- **CI**: `.github/workflows/smoke.yml` tiers 1–3 on every push +
+  a `tier4-web-smoke` job that installs Node 20 + Playwright +
+  builds the SPA + runs `pytest -m web_smoke`.
+  `.github/workflows/release.yml` pins Node 20 + runs the full
+  frozen-binary pipeline on tag pushes.
+
+**Options considered**:
+  (a) **Stay on CDN + Babel standalone** — zero build friction,
+      but every downside above (no lockfile, no types, no linter,
+      no HMR, no gallery, no a11y automation). Does not scale.
+  (b) **Parcel** — zero-config, smaller ecosystem, worse React HMR
+      vs. Vite, unclear Storybook story.
+  (c) **esbuild alone** — blazing fast but we want HMR + React Fast
+      Refresh + a plugin ecosystem, which esbuild alone doesn't
+      provide.
+  (d) **Webpack 5 + CRA** — CRA is deprecated; webpack configs are
+      verbose.
+  (e) **Vite 5.4** (chosen) — fast, first-class React support,
+      official Storybook integration, modern ES-module output,
+      compatible with Rollup plugins, TypeScript-native.
+
+**Consequences**:
+- **Must-have for source-checkout devs**: Node ≥ 20 + npm.
+  `scripts/doctor.py` now FAILs without them.
+- **Pre-built binaries unaffected**: the PyInstaller spec bundles
+  `web/dist/` so end-users don't need Node.
+- **Bundle size** 5.35 MB uncompressed / 1.62 MB gzip — dominated
+  by Plotly (~4.4 MB). Bundle-size optimization deferred.
+- **Phase 5c** multi-session optional tightening: drop
+  `@ts-nocheck` file-by-file; type shared.tsx's exported
+  primitives; delete the `as any` shim in `isp_settings.tsx`.
+
+**Revisit**:
+- If the Plotly bundle becomes prohibitive, split with a dynamic
+  `import('plotly.js-dist-min')` gated on the analysis modal
+  opening.
+- If Storybook's dev-server boot becomes slow, adopt `storybook@9`
+  when released.
+- If `axe-playwright-python` drifts from `@axe-core/playwright`'s
+  rule set, switch to the JS lib + call from Python via
+  `page.evaluate`.
+- Phase 5c promoted from optional to mandatory if `@ts-nocheck`
+  is observed masking real type bugs.

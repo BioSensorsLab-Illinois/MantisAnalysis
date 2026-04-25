@@ -71,6 +71,14 @@ major_modules:
     role: "analysis modal — per-mode tabs + CSV/PNG export. TypeScript (@ts-nocheck)"
   - path: web/src/isp_settings.tsx
     role: "ISP settings modal — mode selector + per-channel geometry (TypeScript; typed — Phase 5b-1)"
+  - path: web/src/Brand.stories.tsx
+    role: "Storybook seed story (BRAND swatches) — Phase 7 of bundler-migration-v1"
+  - path: .storybook/main.ts
+    role: "Storybook flat config — bundler-migration-v1 Phase 7"
+  - path: .storybook/preview.ts
+    role: "Storybook preview decorators — dark backdrop + WCAG a11y addon"
+  - path: tests/web/test_accessibility.py
+    role: "axe-core WCAG A/AA gate — bundler-migration-v1 Phase 6"
 
 entry_points:
   - "python -m mantisanalysis"
