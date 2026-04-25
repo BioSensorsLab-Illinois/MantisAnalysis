@@ -33,7 +33,6 @@ import {
   usePlotStyle,
   usePlotStyleState,
   scaled,
-  cardChromeFor,
   PlotStylePanel,
   HeatmapCanvas,
   HeatmapColorBar,
@@ -1492,20 +1491,14 @@ const ProfileCard = ({ ch, spec, m, threshold }) => {
     H = 70;
   if (!m) {
     return (
-      <div
-        style={{
-          background: t.panel,
-          border: `1px solid ${t.border}`,
-          borderRadius: 6,
-          padding: 8,
-          opacity: 0.5,
-        }}
+      <Chart
+        channel={ch}
+        sub={`· G${spec.group}E${spec.element}${spec.direction} — no data`}
+        noExport
+        style={{ opacity: 0.5 }}
       >
-        <div style={{ fontSize: 11, color: t.textFaint }}>
-          {ch} · G{spec.group}E{spec.element}
-          {spec.direction} — no data
-        </div>
-      </div>
+        <div style={{ minHeight: H }} />
+      </Chart>
     );
   }
   const pass = m.modulation_5pt >= threshold;
@@ -1526,32 +1519,26 @@ const ProfileCard = ({ ch, spec, m, threshold }) => {
     ...(m.gap_indices || []).map((j) => ({ j, kind: 'gap' })),
   ];
   return (
-    <div
-      style={{
-        background: t.panel,
-        border: `2px solid ${borderColor}`,
-        borderRadius: 6,
-        padding: 8,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
-        <span
+    <Chart
+      channel={ch}
+      sub={`· G${spec.group}E${spec.element}${spec.direction}`}
+      exportName={`mantis-usaf-profile-${ch}-G${spec.group}E${spec.element}${spec.direction}`}
+      style={{ border: `2px solid ${borderColor}` }}
+      footer={
+        <div
           style={{
-            fontSize: 11,
-            color: t.text,
+            display: 'flex',
+            justifyContent: 'space-between',
             fontFamily: 'ui-monospace,Menlo,monospace',
-            flex: 1,
-            minWidth: 0,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
           }}
         >
-          {ch} · G{spec.group}E{spec.element}
-          {spec.direction}
-        </span>
-      </div>
+          <span>{m.lp_mm.toFixed(2)} lp/mm</span>
+          <span style={{ color: borderColor, fontWeight: 600 }}>
+            M={m.modulation_5pt.toFixed(3)} {belowNyq ? '⚠' : pass ? '✓' : '✗'}
+          </span>
+        </div>
+      }
+    >
       <svg
         viewBox={`0 0 ${W} ${H}`}
         width="100%"
@@ -1584,24 +1571,7 @@ const ProfileCard = ({ ch, spec, m, threshold }) => {
           );
         })}
       </svg>
-      <div
-        style={{
-          fontSize: 10,
-          color: t.textMuted,
-          marginTop: 3,
-          fontFamily: 'ui-monospace,Menlo,monospace',
-          display: 'flex',
-          justifyContent: 'space-between',
-        }}
-      >
-        <span>{m.lp_mm.toFixed(2)} lp/mm</span>
-        <span
-          style={{ color: belowNyq ? '#d97706' : pass ? t.success : t.danger, fontWeight: 600 }}
-        >
-          M={m.modulation_5pt.toFixed(3)} {belowNyq ? '⚠' : pass ? '✓' : '✗'}
-        </span>
-      </div>
-    </div>
+    </Chart>
   );
 };
 
@@ -1921,28 +1891,10 @@ const DetectionHeatmapTab = ({ channels, specs, measurements, threshold, dirFilt
 
 const HeatmapPanel = ({ channel, cells, cmap, threshold }) => {
   const t = useTheme();
-  const { style } = usePlotStyle();
   const groups = [0, 1, 2, 3, 4, 5];
   const elements = [1, 2, 3, 4, 5, 6];
   return (
-    <div style={{ ...cardChromeFor(style, t) }}>
-      <div
-        style={{
-          fontSize: 12,
-          fontWeight: 600,
-          color: t.text,
-          marginBottom: 8,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          fontFamily: 'ui-monospace,Menlo,monospace',
-        }}
-      >
-        <span
-          style={{ width: 9, height: 9, borderRadius: '50%', background: channelColor(channel) }}
-        />
-        {channel}
-      </div>
+    <Chart channel={channel} exportName={`mantis-usaf-heatmap-${channel}`}>
       <div
         style={{
           display: 'grid',
@@ -2024,7 +1976,7 @@ const HeatmapPanel = ({ channel, cells, cmap, threshold }) => {
           </React.Fragment>
         ))}
       </div>
-    </div>
+    </Chart>
   );
 };
 
@@ -3796,25 +3748,23 @@ const RowColCard = ({ ch, label, m }) => {
     );
   };
   return (
-    <div
-      style={{ background: t.panel, border: `1px solid ${t.border}`, borderRadius: 8, padding: 10 }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
-        <span
+    <Chart
+      channel={ch}
+      sub={`· ${label} — μ=${m.mean_signal.toFixed(1)} · σ=${m.dsnu_dn.toFixed(2)} · PRNU=${m.prnu_pct.toFixed(3)}%`}
+      exportName={`mantis-fpn-rowcol-${ch}-${label}`}
+      footer={
+        <div
           style={{
-            fontSize: 12,
-            fontWeight: 600,
-            color: t.text,
+            display: 'flex',
+            justifyContent: 'space-between',
             fontFamily: 'ui-monospace,Menlo,monospace',
           }}
         >
-          {ch} · {label}
-        </span>
-        <span style={{ marginLeft: 'auto', fontSize: 10.5, color: t.textMuted }}>
-          μ={m.mean_signal.toFixed(1)} · σ={m.dsnu_dn.toFixed(2)} · PRNU={m.prnu_pct.toFixed(3)}%
-        </span>
-      </div>
+          <span>σ_row = {m.row_noise_dn.toFixed(3)} DN</span>
+          <span>σ_col = {m.col_noise_dn.toFixed(3)} DN</span>
+        </div>
+      }
+    >
       <div style={{ display: 'grid', gridTemplateRows: 'auto auto', gap: 3 }}>
         <svg
           viewBox={`0 0 ${W} ${H}`}
@@ -3833,20 +3783,7 @@ const RowColCard = ({ ch, label, m }) => {
           {plot('cols →', m.col_means, m.col_stds)}
         </svg>
       </div>
-      <div
-        style={{
-          fontSize: 9.5,
-          color: t.textFaint,
-          marginTop: 4,
-          fontFamily: 'ui-monospace,Menlo,monospace',
-          display: 'flex',
-          justifyContent: 'space-between',
-        }}
-      >
-        <span>σ_row = {m.row_noise_dn.toFixed(3)} DN</span>
-        <span>σ_col = {m.col_noise_dn.toFixed(3)} DN</span>
-      </div>
-    </div>
+    </Chart>
   );
 };
 
