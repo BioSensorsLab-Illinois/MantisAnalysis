@@ -119,6 +119,7 @@ def tier1() -> Tuple[bool, str]:
         # recording-inspection-implementation-v1 M1+ modules.
         "mantisanalysis.recording",
         "mantisanalysis.dark_frame",
+        "mantisanalysis.playback_session",
     ]
     failures = []
     for m in modules:
