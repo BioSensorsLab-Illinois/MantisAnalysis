@@ -147,13 +147,26 @@ asserts both headers and the 304 round-trip.
 
 ---
 
-## B-0036 — Playback Inspector React.memo per section (M12 frontend-react F6)
+## B-0036 — Playback Inspector React.memo per section — **CLOSED 2026-04-25**
 
-Inspector renders all 9 sections in one component; every reducer
-dispatch re-renders the whole tree. Wrap each section body in
-`React.memo` and pass only the slice it needs. Move `mode`
-(Basic/Advanced) state into a per-section context to stop
-section-level re-renders on mode flip.
+The 3 heaviest sub-components (`CcmEditor`, `PresetsPanel`,
+`FrameLruWidget`) now wrap their `Impl` in `React.memo` with
+custom equality:
+
+- `CcmEditor` compares `(ccmOn, onChange, onChangeOn)` by identity +
+  the `ccm` matrix value-by-value via `_ccmMatrixEqual`. Halts the
+  expensive 3×3 det computation on every keystroke into another
+  section.
+- `PresetsPanel` compares `(view.view_id, onApply)`. Halts the
+  network refresh-effect from re-mounting on parent dispatch.
+- `FrameLruWidget` takes no props → default `React.memo` halts
+  re-renders entirely.
+
+Inspector parent now `useCallback`-stabilizes `onCcmChange`,
+`onCcmChangeOn`, `onPresetApply` so identity equality holds across
+unrelated dispatches. Per-section memo of the InspectorSection
+bodies themselves remains a smaller follow-up but the heavy hitters
+are addressed.
 
 ---
 

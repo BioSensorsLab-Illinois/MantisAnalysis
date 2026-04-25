@@ -129,7 +129,21 @@ const ChannelPicker = ({ value, available, onChange }) => {
   );
 };
 
-const CcmEditor = ({ ccm, ccmOn, onChange, onChangeOn }) => {
+// B-0036: ccmEqual short-circuits the parent's per-keystroke
+// re-render. We compare the matrix value-by-value (not by reference)
+// + the on flag; handlers are stabilized in the parent via useCallback.
+const _ccmMatrixEqual = (a, b) => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 3; j++) {
+      if (a[i]?.[j] !== b[i]?.[j]) return false;
+    }
+  }
+  return true;
+};
+
+const CcmEditorImpl = ({ ccm, ccmOn, onChange, onChangeOn }) => {
   const t = useTheme();
   const [busy, setBusy] = useState(false);
   const [targets, setTargets] = useState([]);
@@ -324,7 +338,16 @@ const CcmEditor = ({ ccm, ccmOn, onChange, onChangeOn }) => {
   );
 };
 
-const PresetsPanel = ({ view, onApply }) => {
+const CcmEditor = React.memo(
+  CcmEditorImpl,
+  (prev, next) =>
+    prev.ccmOn === next.ccmOn &&
+    prev.onChange === next.onChange &&
+    prev.onChangeOn === next.onChangeOn &&
+    _ccmMatrixEqual(prev.ccm, next.ccm)
+);
+
+const PresetsPanelImpl = ({ view, onApply }) => {
   const t = useTheme();
   const [presets, setPresets] = useState([]);
   const [savingName, setSavingName] = useState('');
@@ -456,7 +479,12 @@ const PresetsPanel = ({ view, onApply }) => {
   );
 };
 
-const FrameLruWidget = () => {
+const PresetsPanel = React.memo(
+  PresetsPanelImpl,
+  (prev, next) => prev.view?.view_id === next.view?.view_id && prev.onApply === next.onApply
+);
+
+const FrameLruWidgetImpl = () => {
   const t = useTheme();
   const [info, setInfo] = useState(null);
   const refresh = () => playbackApi.getFrameLru().then(setInfo);
@@ -499,6 +527,11 @@ const FrameLruWidget = () => {
   );
 };
 
+// FrameLruWidget takes no props; default React.memo halts re-renders
+// from the parent reducer dispatch. Internal state still re-renders
+// on its own refresh().
+const FrameLruWidget = React.memo(FrameLruWidgetImpl);
+
 const Inspector = () => {
   const t = useTheme();
   const { state, dispatch } = usePlayback();
@@ -507,6 +540,25 @@ const Inspector = () => {
   const view = state.views.find((v) => v.view_id === state.selectedViewId);
   const stream = state.streams.find((s) => s.stream_id === state.activeStreamId);
   const available = stream?.available_channels ?? [];
+
+  // B-0036: stabilize handlers passed to memoized sub-components
+  // (CcmEditor / PresetsPanel) so identity equality holds across
+  // unrelated dispatches.
+  const viewId = view?.view_id;
+  const onCcmChange = React.useCallback(
+    (m) => viewId && dispatch({ type: 'view/update', payload: { id: viewId, patch: { ccm: m } } }),
+    [viewId, dispatch]
+  );
+  const onCcmChangeOn = React.useCallback(
+    (b) =>
+      viewId && dispatch({ type: 'view/update', payload: { id: viewId, patch: { ccm_on: b } } }),
+    [viewId, dispatch]
+  );
+  const onPresetApply = React.useCallback(
+    (payload) =>
+      viewId && dispatch({ type: 'view/update', payload: { id: viewId, patch: payload } }),
+    [viewId, dispatch]
+  );
 
   if (!view) {
     return (
@@ -848,8 +900,8 @@ const Inspector = () => {
           <CcmEditor
             ccm={view.ccm}
             ccmOn={view.ccm_on}
-            onChange={(m) => set({ ccm: m })}
-            onChangeOn={(b) => set({ ccm_on: b })}
+            onChange={onCcmChange}
+            onChangeOn={onCcmChangeOn}
           />
         </InspectorSection>
 
@@ -954,7 +1006,7 @@ const Inspector = () => {
 
         {/* 8. Presets */}
         <InspectorSection title="Presets" mode={mode}>
-          <PresetsPanel view={view} onApply={(payload) => set(payload)} />
+          <PresetsPanel view={view} onApply={onPresetApply} />
         </InspectorSection>
 
         {/* 9. Advanced */}
