@@ -892,3 +892,78 @@ def test_playback_handoff_opens_modal_then_confirms(web_server: str) -> None:
         assert len(handoff_calls) == 1, f"expected 1 handoff POST, got {handoff_calls!r}"
         assert "/handoff/fpn" in handoff_calls[0]
         browser.close()
+
+
+@pytest.mark.web_smoke
+def test_playback_sources_panel_collapses_at_narrow_viewport(
+    web_server: str,
+) -> None:
+    """playback-ux-polish-v1 M4: at viewport < 1180 px, the Sources
+    panel renders as a 44 px icon rail. The chevron expand button
+    floats it as an overlay (position: absolute, z-index high). At
+    >= 1180 px the panel returns to the normal 288 px column.
+    """
+    pytest.importorskip("playwright")
+    from playwright.sync_api import sync_playwright
+
+    if not _DIST_INDEX.is_file():
+        pytest.skip("web/dist not built")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        ctx = browser.new_context(viewport={"width": 1024, "height": 768})
+        page = ctx.new_page()
+        page.add_init_script(
+            """try {
+                localStorage.setItem('mantis/playback/enabled', '1');
+                localStorage.setItem('mantis/mode', JSON.stringify('play'));
+            } catch (e) {}"""
+        )
+        page.goto(web_server, wait_until="networkidle", timeout=15_000)
+        page.wait_for_selector(
+            "[data-screen-label='Playback empty state']", state="visible", timeout=5_000
+        )
+
+        # Narrow viewport → collapsed rail (44 px wide).
+        sources = page.locator('[data-region="sources-panel"]')
+        sources.wait_for(state="visible", timeout=4_000)
+        assert sources.get_attribute("data-collapsed") == "1"
+        box = sources.bounding_box()
+        assert box and 40 <= box["width"] <= 50, f"expected ~44 px rail; got {box}"
+
+        # Chevron expand → overlay.
+        page.locator('[data-action="expand-sources"]').click()
+        page.wait_for_function(
+            "() => document.querySelector('[data-region=\"sources-panel\"]')"
+            "?.getAttribute('data-force-expanded') === '1'",
+            timeout=2_000,
+        )
+        sources_after = page.locator('[data-region="sources-panel"]')
+        box_after = sources_after.bounding_box()
+        assert box_after["width"] >= 240, (
+            f"expanded overlay should reach ~288 px; got {box_after}"
+        )
+        # Overlay (not pushing the workspace).
+        position = page.evaluate(
+            "() => getComputedStyle(document.querySelector('[data-region=\"sources-panel\"]')).position"
+        )
+        assert position == "absolute", f"expected overlay (absolute); got {position}"
+
+        # Collapse via the `‹` button → back to 44 px rail.
+        page.locator('[data-action="collapse-sources"]').click()
+        page.wait_for_function(
+            "() => document.querySelector('[data-region=\"sources-panel\"]')"
+            "?.getAttribute('data-collapsed') === '1'",
+            timeout=2_000,
+        )
+
+        # Resize to wide → panel returns to in-flow column.
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.wait_for_function(
+            "() => document.querySelector('[data-region=\"sources-panel\"]')"
+            "?.getAttribute('data-collapsed') === '0'",
+            timeout=2_000,
+        )
+        box_wide = page.locator('[data-region="sources-panel"]').bounding_box()
+        assert box_wide["width"] >= 240, f"expected wide-mode column; got {box_wide}"
+        browser.close()

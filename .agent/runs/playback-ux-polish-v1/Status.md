@@ -56,8 +56,21 @@ flip).
       Existing M11 test updated to click Confirm; new M3 test
       `test_playback_handoff_opens_modal_then_confirms` exercises
       Cancel + Confirm. Browser-verified via preview MCP.
-- [ ] **M4** — Responsive collapse: Sources panel → 44 px icon
-      rail at viewport < 1180 px.
+- [x] **M4** — Responsive collapse for Sources panel. New
+      `CollapsedSourcesRail` sub-component renders a 44 px icon
+      rail (chevron expand · recordings tile with badge · darks
+      tile with badge) when `useViewport().isNarrow` (viewport <
+      1180 px). Chevron expand sets `forceExpanded=true` →
+      panel re-renders at 288 px wide as an `position: absolute`
+      overlay over the workspace (z-index 50, top: 34 px below
+      stream header, left: 44 px past mode rail) so the workspace
+      keeps its width. Collapse `‹` button in the expanded
+      header reverts. At ≥ 1180 px the panel returns to its
+      normal in-flow column. Tracked via `data-collapsed` and
+      `data-force-expanded` attrs. New Tier 4 test exercises all
+      transitions (narrow → collapsed → overlay → collapsed →
+      wide → in-flow). Browser-verified via preview MCP at 1024
+      and 1440 widths.
 - [ ] **M5** — ViewerCardContextMenu (right-click → Send to
       USAF/FPN/DoF, Lock, Duplicate, Remove).
 - [ ] **M6** — Inspector body text 10 → 11.5 px (M12 react-ui-ux P2)
@@ -71,6 +84,7 @@ flip).
 | 2026-04-25 | M1 — Tier 0 + pytest -q (263 PASS) + web_smoke (22 PASS, +1) | PASS | ~55s + ~42s |
 | 2026-04-25 | M2 — Tier 0 + pytest -q (264 PASS) + web_smoke (23 PASS, +1) | PASS | ~56s + ~44s |
 | 2026-04-25 | M3 — Tier 0 + pytest -q (265 PASS) + web_smoke (24 PASS, +1) | PASS | ~58s + ~46s |
+| 2026-04-25 | M4 — Tier 0 + pytest -q (266 PASS) + web_smoke (25 PASS, +1) | PASS | ~59s + ~47s |
 
 ## Smoke status (from prior initiative close)
 

@@ -5,12 +5,124 @@
 // user 2026-04-24.
 
 import React from 'react';
-import { Icon, useTheme } from '../shared.tsx';
+import { Icon, useTheme, useViewport } from '../shared.tsx';
 import { DarkFrameRow } from './DarkFrameRow.tsx';
 import { FilePill } from './FilePill.tsx';
 import { usePlayback } from './state.tsx';
 
 const { useState } = React;
+
+// playback-ux-polish-v1 M4 — collapsed icon-rail variant.
+// At viewport < 1180 px, the Sources panel collapses to a 44 px icon
+// rail with three tools: expand, recordings count + open, darks
+// count + open. Per UI_IMPLEMENTATION_NOTES §12 + react-ui-ux M12 P1.
+const CollapsedSourcesRail = ({
+  recordings,
+  darks,
+  totalIssues,
+  onExpand,
+  onOpenRecording,
+  onOpenDark,
+}) => {
+  const t = useTheme();
+  const tile = (props) => (
+    <button
+      type="button"
+      {...props}
+      style={{
+        width: 36,
+        height: 36,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'transparent',
+        border: `1px solid ${t.border}`,
+        borderRadius: 4,
+        cursor: 'pointer',
+        color: t.textMuted,
+        position: 'relative',
+        ...props.style,
+      }}
+    />
+  );
+  const Badge = ({ n, tone = 'neutral' }) => {
+    if (!n) return null;
+    const palette = tone === 'warn' ? { bg: t.warn, fg: '#fff' } : { bg: t.accent, fg: '#fff' };
+    return (
+      <span
+        style={{
+          position: 'absolute',
+          top: -4,
+          right: -4,
+          minWidth: 14,
+          height: 14,
+          padding: '0 3px',
+          borderRadius: 7,
+          background: palette.bg,
+          color: palette.fg,
+          fontSize: 9,
+          fontWeight: 700,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontFamily: 'ui-monospace, Menlo, monospace',
+        }}
+      >
+        {n}
+      </span>
+    );
+  };
+  return (
+    <div
+      data-region="sources-panel"
+      data-collapsed="1"
+      style={{
+        width: 44,
+        minWidth: 44,
+        background: t.panel,
+        borderRight: `1px solid ${t.border}`,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        padding: '8px 4px',
+        gap: 6,
+        flexShrink: 0,
+      }}
+    >
+      {tile({
+        'aria-label': 'Expand Sources panel',
+        title: 'Expand Sources panel',
+        'data-action': 'expand-sources',
+        onClick: onExpand,
+        children: <span style={{ fontSize: 14, fontWeight: 700, lineHeight: 1 }}>›</span>,
+      })}
+      {tile({
+        'aria-label': `Open recording (${recordings.length} loaded${totalIssues ? `, ${totalIssues} warning${totalIssues === 1 ? '' : 's'}` : ''})`,
+        title: `Recordings: ${recordings.length}${totalIssues ? ` · ${totalIssues} warning${totalIssues === 1 ? '' : 's'}` : ''}`,
+        'data-action': 'collapsed-open-recording',
+        onClick: onOpenRecording,
+        children: (
+          <>
+            <Icon name="film" size={14} />
+            <Badge n={recordings.length} tone={totalIssues ? 'warn' : 'neutral'} />
+          </>
+        ),
+      })}
+      {tile({
+        'aria-label': `Open dark frame (${darks.length} loaded)`,
+        title: `Dark frames: ${darks.length}`,
+        'data-action': 'collapsed-open-dark',
+        onClick: onOpenDark,
+        children: (
+          <>
+            <Icon name="moon" size={14} />
+            <Badge n={darks.length} />
+          </>
+        ),
+      })}
+    </div>
+  );
+};
 
 const microBtn = (t) => ({
   padding: '3px 8px',
@@ -46,14 +158,38 @@ export const SourcesPanel = ({
   const [showRecordings, setShowRecordings] = useState(true);
   const [showDarks, setShowDarks] = useState(true);
 
+  // playback-ux-polish-v1 M4: responsive collapse. At < 1180 px the
+  // panel renders as a 44 px icon rail with badge counts; the user
+  // can expand back via the chevron tile (forceExpanded), and the
+  // expanded state floats over the workspace as an overlay rather
+  // than narrowing the workspace further.
+  const { isNarrow } = useViewport();
+  const [forceExpanded, setForceExpanded] = useState(false);
+  const collapsed = isNarrow && !forceExpanded;
+
   const totalIssues = recordings.reduce(
     (acc, r) => acc + (r.warnings?.length ?? 0) + (r.errors?.length ?? 0),
     0
   );
 
+  if (collapsed) {
+    return (
+      <CollapsedSourcesRail
+        recordings={recordings}
+        darks={darks}
+        totalIssues={totalIssues}
+        onExpand={() => setForceExpanded(true)}
+        onOpenRecording={onOpenRecording}
+        onOpenDark={onOpenDark}
+      />
+    );
+  }
+
   return (
     <div
       data-region="sources-panel"
+      data-collapsed="0"
+      data-force-expanded={forceExpanded ? '1' : '0'}
       style={{
         width: 288,
         minWidth: 240,
@@ -63,6 +199,19 @@ export const SourcesPanel = ({
         display: 'flex',
         flexDirection: 'column',
         minHeight: 0,
+        // When forceExpanded over a narrow viewport, float the panel
+        // as an overlay so the workspace doesn't get squeezed below
+        // the per-cell minimum.
+        ...(isNarrow && forceExpanded
+          ? {
+              position: 'absolute',
+              top: 34, // below stream header
+              left: 44, // mode rail width
+              bottom: 0,
+              zIndex: 50,
+              boxShadow: t.shadowLg,
+            }
+          : {}),
       }}
     >
       <div
@@ -87,6 +236,34 @@ export const SourcesPanel = ({
         >
           Sources
         </div>
+        {isNarrow && forceExpanded && (
+          <button
+            type="button"
+            aria-label="Collapse Sources panel"
+            title="Collapse Sources panel"
+            data-action="collapse-sources"
+            onClick={() => setForceExpanded(false)}
+            style={{
+              marginLeft: 'auto',
+              width: 22,
+              height: 22,
+              padding: 0,
+              background: 'transparent',
+              border: `1px solid ${t.border}`,
+              borderRadius: 3,
+              cursor: 'pointer',
+              color: t.textMuted,
+              fontSize: 14,
+              fontWeight: 700,
+              lineHeight: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            ‹
+          </button>
+        )}
         {totalIssues > 0 && (
           <span
             title={`${totalIssues} warning${totalIssues > 1 ? 's' : ''}`}
