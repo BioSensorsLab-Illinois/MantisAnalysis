@@ -38,8 +38,11 @@ the gate is read at app construction (per risk-skeptic P1-I).
 
 from __future__ import annotations
 
+import multiprocessing
 import os
 import tempfile
+import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -56,6 +59,16 @@ from .dark_frame import (
     Strategy as DarkStrategy,
     average_dark_h5,
     match_dark_by_exposure,
+)
+from .playback_export import (
+    GIF_FRAME_CAP,
+    RENDER_PIPELINE_VERSION,
+    export_image_bytes,
+    has_ffmpeg as _exp_has_ffmpeg,
+    render_frame_for_export,
+    render_views_for_frame,
+    write_sidecar,
+    write_video,
 )
 from .playback_pipeline import (
     BlendMode,
@@ -268,6 +281,44 @@ class FrameLruOut(BaseModel):
     cap_bytes: int
     current_bytes: int
     n_frames: int
+
+
+class ImageExportRequest(BaseModel):
+    stream_id: str
+    frame: int
+    compose: str = "contactSheet"     # single | contactSheet | grid
+    tile_arrangement: Optional[Tuple[int, int]] = None
+    fmt: str = "png"                  # png | tif | jpg
+    bit_depth: int = 8
+    include_labels: bool = True
+    include_badges: bool = True
+    views: List[Dict[str, Any]]
+
+
+class VideoExportRequest(BaseModel):
+    stream_id: str
+    frame_range: Tuple[int, int]
+    fmt: str = "mp4"                  # mp4 | apng | gif | png-seq
+    fps: int = 30
+    quality: str = "high"             # low | med | high
+    compose: str = "contactSheet"
+    tile_arrangement: Optional[Tuple[int, int]] = None
+    include_labels: bool = True
+    views: List[Dict[str, Any]]
+
+
+class ExportJobOut(BaseModel):
+    job_id: str
+    kind: str
+    status: str
+    progress: float
+    current_frame: int
+    total_frames: int
+    elapsed_s: float
+    eta_s: float
+    output_url: Optional[str]
+    sidecar_url: Optional[str]
+    error: Optional[str]
 
 
 # ---------------------------------------------------------------------------
@@ -882,6 +933,227 @@ def mount_playback_api(app: FastAPI,
         cur, cap, n = store.frame_lru_bytes()
         return {"cap_bytes": cap, "current_bytes": cur, "n_frames": n}
 
+    # --- Export · image (synchronous) -----------------------------------
+
+    @app.post("/api/playback/exports/image")
+    def export_image(req: ImageExportRequest) -> Response:
+        try:
+            stream = store.get_stream(req.stream_id)
+        except KeyError:
+            if store.was_evicted("stream", req.stream_id):
+                raise HTTPException(410, _evicted_detail("stream", req.stream_id))
+            raise HTTPException(404, f"unknown stream id: {req.stream_id}")
+        if req.frame < 0 or req.frame >= stream.total_frames:
+            raise HTTPException(422, f"frame {req.frame} out of range")
+        if not req.views:
+            raise HTTPException(422, "at least one view required")
+        try:
+            channels = store.get_frame(req.stream_id, req.frame)
+        except IndexError as e:
+            raise HTTPException(422, str(e)) from e
+
+        from .playback_pipeline import ViewState as _VS
+        views = [
+            _VS(**{k: v for k, v in vp.items() if k in _VS.__dataclass_fields__})
+            for vp in req.views
+        ]
+        # Build a burn-in context if labels are on.
+        ctx = None
+        if req.include_labels:
+            from .playback_session import frame_lookup as _lookup
+            try:
+                boundary, rec_id, local = _lookup(stream, req.frame)
+                ctx = BurnInContext(
+                    frame_index=req.frame,
+                    timestamp_s=boundary.ts_start_s + (local / max(stream.fps, 1e-9)),
+                    source_filename=Path(store.get_recording(rec_id).path).name,
+                )
+            except Exception:
+                ctx = None
+        rgbs = render_views_for_frame(views, channels, max_dim=1024,
+                                       burn_ctx=ctx)
+        try:
+            data, mime = export_image_bytes(
+                rgbs, compose=req.compose,
+                tile_arrangement=tuple(req.tile_arrangement) if req.tile_arrangement else None,
+                fmt=req.fmt, bit_depth=req.bit_depth,
+            )
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+
+        # Persist to disk so the user can browse later; sidecar JSON.
+        out_dir = Path("outputs/playback") / req.stream_id
+        out_dir.mkdir(parents=True, exist_ok=True)
+        suffix = {"image/png": "png", "image/tiff": "tiff", "image/jpeg": "jpg"}[mime]
+        out_path = out_dir / f"frame-{req.frame:06d}.{suffix}"
+        out_path.write_bytes(data)
+        write_sidecar(
+            out_path,
+            stream_payload={"stream_id": stream.stream_id,
+                             "name": stream.name,
+                             "total_frames": stream.total_frames},
+            views=views, frame_range=(req.frame, req.frame),
+            fps=int(stream.fps), fmt=req.fmt, compose=req.compose,
+            build_version=__version__,
+        )
+        return Response(
+            content=data, media_type=mime,
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Disposition": f'attachment; filename="frame-{req.frame:06d}.{suffix}"',
+                "X-Output-Path": str(out_path),
+            },
+        )
+
+    # --- Export · video (asynchronous job) ------------------------------
+
+    @app.post("/api/playback/exports/video")
+    def export_video(req: VideoExportRequest) -> Dict[str, Any]:
+        try:
+            stream = store.get_stream(req.stream_id)
+        except KeyError:
+            raise HTTPException(404, f"unknown stream id: {req.stream_id}")
+        lo, hi = req.frame_range
+        if not (0 <= lo <= hi < stream.total_frames):
+            raise HTTPException(422, f"range {req.frame_range} out of stream bounds")
+        if not req.views:
+            raise HTTPException(422, "at least one view required")
+        if req.fmt == "gif" and (hi - lo + 1) > GIF_FRAME_CAP:
+            raise HTTPException(422, {
+                "detail": f"GIF export limited to {GIF_FRAME_CAP} frames; "
+                          "reduce range or choose another format",
+                "code": "W-EXPORT-GIF-CAP",
+            })
+        if req.fmt in ("mp4",) and not _exp_has_ffmpeg():
+            raise HTTPException(503, {
+                "detail": "ffmpeg not available — install imageio-ffmpeg",
+                "code": "W-FFMPEG-MISSING",
+            })
+
+        from .playback_session import ExportJob, frame_lookup
+        job = ExportJob(
+            job_id=uuid.uuid4().hex[:12],
+            kind="video",
+            request=req.model_dump(),
+            status="queued",
+            total_frames=hi - lo + 1,
+            cancel_event=multiprocessing.Event(),
+            pinned_recording_ids=tuple(stream.recording_ids),
+            pinned_stream_id=stream.stream_id,
+        )
+        store.submit_export(job)
+
+        # Run the encode in a background thread; frame rendering pulls from
+        # the same in-process channel cache via store.get_frame (which is
+        # thread-safe). We chose threads over multiprocessing here so the
+        # cache hit-rate stays high; the worker pool plumbing in
+        # render_frame_for_export remains usable for future scale-out.
+        def _run() -> None:
+            t0 = time.time()
+            out_dir = Path("outputs/playback") / req.stream_id
+            out_dir.mkdir(parents=True, exist_ok=True)
+            ext = {"mp4": "mp4", "apng": "png", "gif": "gif", "png-seq": "zip"}[req.fmt]
+            out_path = out_dir / f"video-{job.job_id}.{ext}"
+            from .playback_pipeline import ViewState as _VS
+            views = [
+                _VS(**{k: v for k, v in vp.items() if k in _VS.__dataclass_fields__})
+                for vp in req.views
+            ]
+            try:
+                def _frames():
+                    for fi in range(lo, hi + 1):
+                        if job.cancel_event.is_set():
+                            return
+                        try:
+                            channels = store.get_frame(req.stream_id, fi)
+                        except Exception as exc:
+                            job.error = f"frame {fi} decode failed: {exc}"
+                            job.status = "failed"
+                            return
+                        b, _, local = frame_lookup(stream, fi)
+                        ctx = BurnInContext(
+                            frame_index=fi,
+                            timestamp_s=b.ts_start_s + (local / max(stream.fps, 1e-9)),
+                            source_filename=Path(store.get_recording(b.recording_id).path).name,
+                        ) if req.include_labels else None
+                        rgbs = render_views_for_frame(views, channels,
+                                                       max_dim=1024, burn_ctx=ctx)
+                        if len(rgbs) > 1:
+                            yield render_views_compose(rgbs, req.compose,
+                                                        req.tile_arrangement)
+                        else:
+                            yield rgbs[0]
+                        job.current_frame = fi - lo + 1
+                        job.progress = job.current_frame / max(1, job.total_frames)
+                        job.elapsed_s = time.time() - t0
+                        if job.progress > 0:
+                            job.eta_s = job.elapsed_s * (1 - job.progress) / job.progress
+
+                job.status = "rendering"
+                write_video(_frames(), out_path=out_path, fmt=req.fmt,
+                            fps=req.fps, quality=req.quality)
+                if job.cancel_event.is_set():
+                    job.status = "cancelled"
+                else:
+                    job.status = "done"
+                    job.output_path = out_path
+                    job.sidecar_path = write_sidecar(
+                        out_path,
+                        stream_payload={"stream_id": stream.stream_id,
+                                         "name": stream.name,
+                                         "total_frames": stream.total_frames},
+                        views=views,
+                        frame_range=(lo, hi),
+                        fps=req.fps,
+                        fmt=req.fmt,
+                        compose=req.compose,
+                        build_version=__version__,
+                    )
+                    job.progress = 1.0
+            except Exception as exc:
+                job.error = f"{type(exc).__name__}: {exc}"
+                job.status = "failed"
+
+        threading.Thread(target=_run, daemon=True).start()
+        return _job_payload(job)
+
+    @app.get("/api/playback/exports/{job_id}")
+    def get_job(job_id: str) -> Dict[str, Any]:
+        try:
+            job = store.get_job(job_id)
+        except KeyError:
+            raise HTTPException(404, f"unknown job id: {job_id}")
+        return _job_payload(job)
+
+    @app.delete("/api/playback/exports/{job_id}")
+    def cancel_job(job_id: str) -> Dict[str, Any]:
+        try:
+            job = store.cancel_job(job_id)
+        except KeyError:
+            raise HTTPException(404, f"unknown job id: {job_id}")
+        return _job_payload(job)
+
+    @app.get("/api/playback/exports/{job_id}/file")
+    def get_job_file(job_id: str) -> Response:
+        try:
+            job = store.get_job(job_id)
+        except KeyError:
+            raise HTTPException(404, f"unknown job id: {job_id}")
+        if job.status != "done" or job.output_path is None:
+            raise HTTPException(404, f"job {job_id} has no output yet")
+        data = job.output_path.read_bytes()
+        mime_for = {
+            ".mp4": "video/mp4",
+            ".png": "image/apng",
+            ".gif": "image/gif",
+            ".zip": "application/zip",
+        }
+        mime = mime_for.get(job.output_path.suffix, "application/octet-stream")
+        return Response(content=data, media_type=mime, headers={
+            "Cache-Control": "no-store",
+            "Content-Disposition": f'attachment; filename="{job.output_path.name}"',
+        })
+
     # Test-only synthetic endpoints (gated)
     if test_mode:
         @app.post("/api/playback/recordings/load-sample")
@@ -916,6 +1188,37 @@ def _badges_for(view: ViewState) -> List[str]:
     if view.overlay_on:
         badges.append("OVL")
     return badges
+
+
+def render_views_compose(rgbs: List[np.ndarray], compose: str,
+                          tile_arrangement: Optional[Tuple[int, int]]
+                          ) -> np.ndarray:
+    """Compose multiple rendered RGBs into one frame for video export."""
+    from .playback_export import _compose_tiled
+    if compose == "single" or len(rgbs) == 1:
+        return rgbs[0]
+    if compose == "grid":
+        cols, _rows = tile_arrangement or (2, 2)
+        return _compose_tiled(rgbs, cols=cols)
+    return _compose_tiled(rgbs, cols=len(rgbs))
+
+
+def _job_payload(job) -> Dict[str, Any]:
+    out_path = job.output_path
+    sidecar_path = job.sidecar_path
+    return {
+        "job_id": job.job_id,
+        "kind": job.kind,
+        "status": job.status,
+        "progress": job.progress,
+        "current_frame": job.current_frame,
+        "total_frames": job.total_frames,
+        "elapsed_s": job.elapsed_s,
+        "eta_s": job.eta_s,
+        "output_url": f"/api/playback/exports/{job.job_id}/file" if out_path else None,
+        "sidecar_url": str(sidecar_path) if sidecar_path else None,
+        "error": job.error,
+    }
 
 
 def _evicted_detail(kind: str, item_id: str) -> Dict[str, Any]:

@@ -121,6 +121,7 @@ def tier1() -> Tuple[bool, str]:
         "mantisanalysis.dark_frame",
         "mantisanalysis.playback_session",
         "mantisanalysis.playback_pipeline",
+        "mantisanalysis.playback_export",
         "mantisanalysis.playback_api",
     ]
     failures = []

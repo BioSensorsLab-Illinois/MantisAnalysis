@@ -423,6 +423,107 @@ def test_playback_overlay_builder_apply(web_server: str) -> None:
 
 
 @pytest.mark.web_smoke
+def test_playback_export_image_round_trip(web_server: str) -> None:
+    """M10: Image export modal POSTs and surfaces a download link."""
+    pytest.importorskip("playwright")
+    from playwright.sync_api import sync_playwright
+
+    if not _DIST_INDEX.is_file():
+        pytest.skip("web/dist not built")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        ctx = browser.new_context()
+        page = ctx.new_page()
+        page.add_init_script(
+            "try { localStorage.setItem('mantis/playback/enabled', '1'); } catch (e) {}"
+        )
+        page.goto(web_server, wait_until="networkidle", timeout=15_000)
+        page.evaluate(
+            """async () => {
+                const streams = await fetch('/api/playback/streams').then(r => r.json());
+                for (const s of streams || []) await fetch(`/api/playback/streams/${s.stream_id}`, { method: 'DELETE' });
+                const recs = await fetch('/api/playback/recordings').then(r => r.json());
+                for (const r of recs || []) await fetch(`/api/playback/recordings/${r.recording_id}`, { method: 'DELETE' });
+            }"""
+        )
+        page.evaluate("() => window.location.reload()")
+        page.wait_for_load_state("networkidle")
+        page.locator('[data-mode-tile="play"]').first.click()
+        page.get_by_role("button", name="Load synthetic sample").first.click()
+        page.wait_for_selector('[data-region="inspector"]', state="visible",
+                                timeout=8_000)
+        # Open Export Image modal via StreamHeader.
+        page.locator('[data-action="export-image"]').click()
+        page.wait_for_selector('[data-region="export-image-modal"]',
+                                state="visible", timeout=4_000)
+        # Click Export inside the modal (avoid matching the rail Image button).
+        modal = page.locator('[data-region="export-image-modal"]').locator('xpath=..')
+        modal.get_by_role("button", name="Export", exact=True).first.click()
+        # Done banner appears with a download link.
+        page.wait_for_selector('[data-region="export-image-done"]',
+                                state="visible", timeout=10_000)
+        browser.close()
+
+
+@pytest.mark.web_smoke
+def test_playback_export_video_png_seq_round_trip(web_server: str) -> None:
+    """M10: Video export (PNG-seq, ffmpeg-free path) submits + completes."""
+    pytest.importorskip("playwright")
+    from playwright.sync_api import sync_playwright
+
+    if not _DIST_INDEX.is_file():
+        pytest.skip("web/dist not built")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        ctx = browser.new_context()
+        page = ctx.new_page()
+        page.add_init_script(
+            "try { localStorage.setItem('mantis/playback/enabled', '1'); } catch (e) {}"
+        )
+        page.goto(web_server, wait_until="networkidle", timeout=15_000)
+        page.evaluate(
+            """async () => {
+                const streams = await fetch('/api/playback/streams').then(r => r.json());
+                for (const s of streams || []) await fetch(`/api/playback/streams/${s.stream_id}`, { method: 'DELETE' });
+                const recs = await fetch('/api/playback/recordings').then(r => r.json());
+                for (const r of recs || []) await fetch(`/api/playback/recordings/${r.recording_id}`, { method: 'DELETE' });
+            }"""
+        )
+        page.evaluate("() => window.location.reload()")
+        page.wait_for_load_state("networkidle")
+        page.locator('[data-mode-tile="play"]').first.click()
+        page.get_by_role("button", name="Load synthetic sample").first.click()
+        page.wait_for_selector('[data-region="inspector"]', state="visible",
+                                timeout=8_000)
+        page.locator('[data-action="export-video"]').click()
+        page.wait_for_selector('[data-region="export-video-modal"]',
+                                state="visible", timeout=4_000)
+        # Pick PNG-seq (ffmpeg not required) by aria-labeled Format select.
+        # Wait briefly for the modal's children to mount.
+        page.wait_for_function(
+            """() => {
+                const sel = document.querySelector('[data-region=\"export-video-modal\"] select[aria-label=\"Format\"]');
+                return !!sel;
+            }""",
+            timeout=4_000,
+        )
+        page.evaluate(
+            """() => {
+                const sel = document.querySelector('[data-region=\"export-video-modal\"] select[aria-label=\"Format\"]');
+                sel.value = 'png-seq';
+                sel.dispatchEvent(new Event('change', { bubbles: true }));
+            }"""
+        )
+        page.get_by_role("button", name="Start export").first.click()
+        # Job widget appears + transitions to done within 15 s.
+        page.wait_for_selector('[data-region="export-video-job"][data-job-status="done"]',
+                                state="visible", timeout=15_000)
+        browser.close()
+
+
+@pytest.mark.web_smoke
 def test_playback_eviction_kind_filter(web_server: str) -> None:
     """Risk-skeptic P0-B regression: dispatching `mantis:source-evicted`
     with `detail.kind='stream'` must NOT trigger /api/sources/load-sample."""

@@ -12,6 +12,8 @@
 import React from 'react';
 import { useLocalStorageState, useTheme } from '../shared.tsx';
 import { playbackApi } from './api.ts';
+import { ExportImageModal } from './ExportImageModal.tsx';
+import { ExportVideoModal } from './ExportVideoModal.tsx';
 import { Inspector } from './Inspector.tsx';
 import { OverlayBuilderModal } from './OverlayBuilderModal.tsx';
 import { PlaybackEmptyState } from './EmptyState.tsx';
@@ -270,7 +272,8 @@ const PlaybackInner = ({ say }) => {
       <StreamHeader
         onOpenBuilder={openBuilder}
         onOpenWarnings={() => say && say('Warning Center lands at M11.', 'info')}
-        onExport={() => say && say('Export modal lands at M10.', 'info')}
+        onExportImage={() => dispatch({ type: 'modal/open', payload: { kind: 'export-image' } })}
+        onExportVideo={() => dispatch({ type: 'modal/open', payload: { kind: 'export-video' } })}
       />
       {!showWorkspace && (
         <div style={{ flex: 1, display: 'flex', minHeight: 0 }} data-region="playback-empty-shell">
@@ -404,6 +407,8 @@ const PlaybackInner = ({ say }) => {
           say={say}
         />
       )}
+      {state.modal?.kind === 'export-image' && <ExportImageModal onClose={closeModal} say={say} />}
+      {state.modal?.kind === 'export-video' && <ExportVideoModal onClose={closeModal} say={say} />}
     </div>
   );
 };

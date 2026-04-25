@@ -7,7 +7,7 @@ import React from 'react';
 import { Icon, useTheme } from '../shared.tsx';
 import { usePlayback } from './state.tsx';
 
-export const StreamHeader = ({ onOpenBuilder, onOpenWarnings, onExport }) => {
+export const StreamHeader = ({ onOpenBuilder, onOpenWarnings, onExportImage, onExportVideo }) => {
   const t = useTheme();
   const { state } = usePlayback();
   const stream = state.streams.find((s) => s.stream_id === state.activeStreamId);
@@ -115,9 +115,10 @@ export const StreamHeader = ({ onOpenBuilder, onOpenWarnings, onExport }) => {
 
       <button
         type="button"
-        aria-label="Export…"
+        aria-label="Export image"
+        data-action="export-image"
         disabled={!stream}
-        onClick={onExport}
+        onClick={onExportImage}
         style={{
           display: 'inline-flex',
           alignItems: 'center',
@@ -133,7 +134,30 @@ export const StreamHeader = ({ onOpenBuilder, onOpenWarnings, onExport }) => {
           fontFamily: 'inherit',
         }}
       >
-        <Icon name="download" size={11} /> Export
+        <Icon name="download" size={11} /> Image
+      </button>
+      <button
+        type="button"
+        aria-label="Export video"
+        data-action="export-video"
+        disabled={!stream}
+        onClick={onExportVideo}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 5,
+          padding: '4px 10px',
+          background: stream ? t.panel : t.panelAlt,
+          color: stream ? t.text : t.textFaint,
+          border: `1px solid ${stream ? t.accent : t.border}`,
+          borderRadius: 4,
+          cursor: stream ? 'pointer' : 'not-allowed',
+          fontSize: 11,
+          fontWeight: 600,
+          fontFamily: 'inherit',
+        }}
+      >
+        <Icon name="film" size={11} /> Video
       </button>
     </div>
   );

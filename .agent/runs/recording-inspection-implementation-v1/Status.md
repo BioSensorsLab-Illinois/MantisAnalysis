@@ -65,8 +65,8 @@ Next concrete actions for M6:
 - [x] **M6** — Frontend: file loading, dark manager, Stream Builder modal.
 - [x] **M7** — Frontend: ViewerGrid + ViewerCard + TimelineStrip + play-head ticker + keyboard map.
 - [x] **M8** — Frontend: 9-section Inspector + CCM editor + presets + frame-LRU widget; backend solve_ccm_from_patches + 7 new routes.
-- [x] **M9** — Overlay system end-to-end (Overlay Builder modal w/ live preview + Apply commits to view) (commit pending).
-- [ ] **M10** — Export system: image + video (parallelized ProcessPool).
+- [x] **M9** — Overlay system end-to-end (Overlay Builder modal w/ live preview + Apply commits to view).
+- [x] **M10** — Export system: image (synchronous, byte-equal WYSIWYG) + video (async job, MP4/APNG/GIF/PNG-seq, GIF cap, sidecar JSON, ffmpeg gate) (commit pending).
 - [ ] **M11** — Polish, a11y, responsive, perf, handoff routing, Storybook.
 - [ ] **M12** — Final verification + visual-regression baselines + CI wiring.
 
