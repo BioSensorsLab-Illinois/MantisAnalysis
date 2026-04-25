@@ -9,7 +9,7 @@ outputs:
   - the change rendered and verified in a browser
   - screenshots on disk (outputs/verify/ or .agent/runs/<slug>/screenshots/)
   - updated / new Playwright test when the flow is testable
-related_agents: react-ui-ux-reviewer, frontend-react-engineer, playwright-verifier, accessibility-reviewer, performance-reviewer
+related_agents: react-ui-ux-reviewer, frontend-react-engineer, playwright-verifier, performance-reviewer
 ---
 
 # react-browser-ui-change
@@ -154,7 +154,6 @@ At minimum:
 For larger changes, add:
 
 - `frontend-react-engineer` — state / perf / maintainability.
-- `accessibility-reviewer` — WCAG 2.2.
 - `performance-reviewer` — responsiveness / payload.
 
 See [`independent-review-loop`](../independent-review-loop/SKILL.md).
@@ -175,7 +174,6 @@ See [`independent-review-loop`](../independent-review-loop/SKILL.md).
 
 - If the server doesn't boot, halt UI work — fix backend first.
 - If a console error appears, treat as P1 — fix before claiming done.
-- If a flow isn't keyboard-accessible, flag `accessibility-reviewer`.
 - If the change ripples beyond the originally-listed components,
   consider scoping as an initiative (this skill's scope is
   single-change, not initiative).

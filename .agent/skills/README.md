@@ -39,8 +39,6 @@ which are always-loaded context.
   web-first assertions, screenshots, console / network checks).
 - [`visual-regression`](visual-regression/SKILL.md) — screenshot
   comparison discipline if / when baselines exist.
-- [`accessibility-check`](accessibility-check/SKILL.md) — WCAG 2.2
-  A/AA quick check + automation options.
 - [`performance-profiling`](performance-profiling/SKILL.md) — browser
   responsiveness, re-render count, payload size, server throughput.
 - [`independent-review-loop`](independent-review-loop/SKILL.md) — how

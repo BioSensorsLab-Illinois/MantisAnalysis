@@ -74,8 +74,7 @@ Mandatory: browser render + screenshot + console + network + keyboard
 8. Invoke [`react-ui-ux-reviewer`](agents/react-ui-ux-reviewer.md)
    + [`playwright-verifier`](agents/playwright-verifier.md).
 9. For substantial UI: also
-   [`accessibility-reviewer`](agents/accessibility-reviewer.md)
-   + [`performance-reviewer`](agents/performance-reviewer.md).
+   [`performance-reviewer`](agents/performance-reviewer.md).
 
 ## F. FastAPI route / schema / session change
 
@@ -102,8 +101,8 @@ See [`skills/h5-io-data-pipeline-change/SKILL.md`](skills/h5-io-data-pipeline-ch
 3. Add / extend `tests/unit/test_bayer.py` or a new
    `tests/unit/test_<feature>.py`.
 4. Tier 1 + Tier 2 + Tier 3 smoke.
-5. Spot-check with a real recording via
-   `python scripts/inspect_recording.py …` on the lab workstation.
+5. Spot-check with a real recording in the browser preview on the
+   lab workstation.
 6. Update `ARCHITECTURE.md` Channel schema invariant if anything
    changed.
 
@@ -137,8 +136,8 @@ See [`skills/visualization-canvas-image-pipeline/SKILL.md`](skills/visualization
 2. For new plotStyle tokens, wire through `tokens(style)` in
    `shared.jsx`.
 3. Browser-verify both themes on every mode.
-4. Invoke [`accessibility-reviewer`](agents/accessibility-reviewer.md)
-   for contrast.
+4. Live-render a sample of every mode and capture screenshots for the
+   record.
 
 ## K. Packaging / dependency change
 

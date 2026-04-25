@@ -403,10 +403,6 @@ def create_app() -> FastAPI:
     )
 
     _mount_api(app)
-    # recording-inspection-implementation-v1 M4 — additive Playback routes
-    # under /api/playback/*. See mantisanalysis/playback_api.py.
-    from .playback_api import mount_playback_api
-    mount_playback_api(app)
     _mount_static(app)
     return app
 

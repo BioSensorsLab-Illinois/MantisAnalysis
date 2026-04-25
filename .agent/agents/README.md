@@ -23,7 +23,6 @@ live Claude Code subagents, the same files apply.
 | [`frontend-react-engineer`](frontend-react-engineer.md) | React state, component structure, rendering performance, maintainability | After any non-trivial React refactor |
 | [`fastapi-backend-reviewer`](fastapi-backend-reviewer.md) | FastAPI routes, Pydantic schemas, session state, contract with frontend | After any `server.py` / `session.py` / `figures.py` change |
 | [`playwright-verifier`](playwright-verifier.md) | Playwright test design, locators, web-first assertions, screenshots, console/network checks | After any browser-verifiable UI change; before stopping |
-| [`accessibility-reviewer`](accessibility-reviewer.md) | WCAG 2.2 A/AA basics: labels, roles, contrast, keyboard, focus, ARIA | After any substantial UI change |
 | [`performance-reviewer`](performance-reviewer.md) | Responsiveness, re-renders, large payloads, canvas/image, export throughput | After any data/visualization/export change |
 | [`test-coverage-reviewer`](test-coverage-reviewer.md) | Do unit + integration + API + browser tests cover risk added by change | Before closing any initiative |
 | [`risk-skeptic`](risk-skeptic.md) | Adversarial review — edge cases, race conditions, stale assumptions, failure modes | Before major surgery; before stopping |

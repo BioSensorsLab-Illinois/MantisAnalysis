@@ -6,7 +6,7 @@ Invoked: 2026-04-24 (mid-M8 reviewer loop).
 
 ## Summary
 
-Review of `.agent/UI_VERIFICATION.md`, `.agent/skills/react-browser-ui-change/SKILL.md`, `.agent/skills/accessibility-check/SKILL.md`, `.agent/skills/visualization-canvas-image-pipeline/SKILL.md`, and `.agent/agents/react-ui-ux-reviewer.md`.
+Review of `.agent/UI_VERIFICATION.md`, `.agent/skills/react-browser-ui-change/SKILL.md`, the (then-extant) `accessibility-check` skill, `.agent/skills/visualization-canvas-image-pipeline/SKILL.md`, and `.agent/agents/react-ui-ux-reviewer.md`.
 
 Macro coverage is complete (states, keyboard, responsive, theme, exports, scientific-UI). But many checks are stated as principles without measurable thresholds — two agents following the docs would produce different pass/fail calls.
 

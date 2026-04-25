@@ -1553,9 +1553,6 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
     >
       <span
         role="button"
-        // B-0026: aria-label so axe-core has an accessible name. The icon
-        // alone has no text node; without a label screen readers read
-        // nothing. Mirrors the Tip's title prop.
         aria-label={
           profileFloating ? 'dock profile back into sidebar' : 'pop out profile to floating window'
         }

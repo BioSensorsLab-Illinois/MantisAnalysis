@@ -151,8 +151,9 @@ recommended; don't install today.
 
 **Where**: <https://www.w3.org/WAI/WCAG22/quickref/>.
 
-**Takeaways (A / AA the harness enforces via
-[`skills/accessibility-check`](skills/accessibility-check/SKILL.md))**:
+**Takeaways (kept here as informational; the project does not enforce
+WCAG via an axe-core gate or accessibility skill — verification is
+live render only)**:
 
 - **1.1.1** Non-text alternatives. `alt` on images.
 - **1.3.1** Info + relationships. `<label for>`, heading hierarchy.

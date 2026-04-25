@@ -58,12 +58,9 @@ build = [
 # `playwright install chromium` once to fetch the headless browser.
 # The Playwright smoke test lives at `tests/web/test_web_boot.py` and is
 # skipped automatically when the package isn't installed.
-# axe-playwright-python: bundler-migration-v1 Phase 6 (2026-04-24) — runs
-# axe-core against the built SPA under `tests/web/test_accessibility.py`.
 web-smoke = [
     "playwright>=1.40",
     "pytest-playwright>=0.5",
-    "axe-playwright-python>=0.1.7",
 ]
 
 [project.urls]

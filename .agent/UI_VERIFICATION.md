@@ -294,9 +294,7 @@ and treat the change as incomplete.
 - Workflow: [`skills/react-browser-ui-change`](skills/react-browser-ui-change/SKILL.md)
 - Test authoring: [`skills/playwright-e2e-verification`](skills/playwright-e2e-verification/SKILL.md)
 - Visual regression: [`skills/visual-regression`](skills/visual-regression/SKILL.md)
-- Accessibility: [`skills/accessibility-check`](skills/accessibility-check/SKILL.md)
 - Performance: [`skills/performance-profiling`](skills/performance-profiling/SKILL.md)
 - Reviewers: [`agents/react-ui-ux-reviewer`](agents/react-ui-ux-reviewer.md),
   [`agents/playwright-verifier`](agents/playwright-verifier.md),
-  [`agents/accessibility-reviewer`](agents/accessibility-reviewer.md),
   [`agents/performance-reviewer`](agents/performance-reviewer.md)

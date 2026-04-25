@@ -53,7 +53,6 @@ Markdown review with:
 | localStorage contract | Playwright test + a unit test in JS if logic is complex |
 | Session store | Unit test | `tests/unit/test_session.py` (new if not present) |
 | Export pipeline | Playwright + size assertion on the generated PNG bytes |
-| Accessibility | Playwright + axe-core where the gap justifies the setup cost |
 
 ### Unit-test checklist
 

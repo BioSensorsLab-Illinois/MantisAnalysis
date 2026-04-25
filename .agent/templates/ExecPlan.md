@@ -59,7 +59,6 @@ Which tiers + which test files will gate the initiative.
 - API: Tier 3 in `scripts/smoke_test.py` OR `tests/unit/test_<route>.py`
 - Browser: Tier 4 via `tests/web/test_<feature>.py` (if UI changed)
 - Visual regression: `tests/web/__baselines__/` (only if in scope)
-- a11y: per [`../../skills/accessibility-check/SKILL.md`](../../skills/accessibility-check/SKILL.md)
 - Performance: per [`../../skills/performance-profiling/SKILL.md`](../../skills/performance-profiling/SKILL.md)
 
 ## 10. Verification agents to invoke (at close)

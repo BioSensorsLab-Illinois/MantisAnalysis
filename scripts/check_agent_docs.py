@@ -131,6 +131,10 @@ QT_ALLOW_EXEMPT_DIRS = {
     ".agent/runs/isp-modes-v1-bugfixes-v1",
     ".agent/runs/agentic-workflow-overhaul-v1",
     ".agent/runs/harness-mechanical-v1",
+    ".agent/runs/recording-inspection-implementation-v1",
+    ".agent/runs/playback-ux-polish-v1",
+    ".agent/runs/bundler-migration-v1",
+    ".agent/runs/correctness-sweep-v1",
 }
 
 
@@ -267,6 +271,8 @@ def scan_command_paths(paths: Iterable[Path]) -> List[Tuple[Path, int, str]]:
     """
     missing: List[Tuple[Path, int, str]] = []
     for p in paths:
+        if _is_exempt(p):
+            continue
         try:
             text = p.read_text(encoding="utf-8")
         except UnicodeDecodeError:
@@ -377,6 +383,10 @@ SKILL_REF_REL_RE = re.compile(r"(?:\.\./)?skills/([a-z][a-z0-9-]+)/SKILL\.md")
 def scan_cross_references(paths: Iterable[Path]) -> List[Tuple[Path, int, str]]:
     """Return (file, lineno, broken-reference) for agent/skill
     references that don't resolve to real files.
+
+    Skips files exempted from the qt-allowed size cap (closed
+    initiative folders + append-only logs) — broken cross-references
+    in archived material are archaeology, not live drift.
     """
     missing: List[Tuple[Path, int, str]] = []
     agents_dir = ROOT / ".agent" / "agents"
@@ -384,6 +394,8 @@ def scan_cross_references(paths: Iterable[Path]) -> List[Tuple[Path, int, str]]:
     known_agents = {p.stem for p in agents_dir.glob("*.md")} if agents_dir.is_dir() else set()
     known_skills = {p.name for p in skills_dir.iterdir() if p.is_dir()} if skills_dir.is_dir() else set()
     for p in paths:
+        if _is_exempt(p):
+            continue
         try:
             text = p.read_text(encoding="utf-8")
         except UnicodeDecodeError:

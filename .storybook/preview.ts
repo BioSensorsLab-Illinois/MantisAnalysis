@@ -20,18 +20,6 @@ const preview: Preview = {
         { name: 'white', value: '#ffffff' },
       ],
     },
-    a11y: {
-      // Match the same WCAG A/AA ruleset the Playwright gate uses (see
-      // tests/web/test_accessibility.py).
-      config: {
-        rules: [
-          // The component-level check shouldn't enforce rules that only
-          // make sense on a full-app layout (e.g. document-title).
-          { id: 'document-title', enabled: false },
-          { id: 'html-has-lang', enabled: false },
-        ],
-      },
-    },
   },
 };
 

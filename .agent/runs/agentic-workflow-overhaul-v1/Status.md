@@ -108,7 +108,7 @@ A  .agent/agents/react-ui-ux-reviewer.md
 A  .agent/agents/frontend-react-engineer.md
 A  .agent/agents/fastapi-backend-reviewer.md
 A  .agent/agents/playwright-verifier.md
-A  .agent/agents/accessibility-reviewer.md
+A  (deleted) accessibility-reviewer.md
 A  .agent/agents/performance-reviewer.md
 A  .agent/agents/test-coverage-reviewer.md
 A  .agent/agents/risk-skeptic.md

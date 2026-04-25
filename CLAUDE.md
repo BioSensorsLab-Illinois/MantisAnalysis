@@ -117,9 +117,6 @@ python -m pytest tests/web/ -q -m web_smoke
 # Lint + types
 python -m ruff check mantisanalysis scripts tests
 python -m mypy mantisanalysis
-
-# H5 one-shot inspector
-python scripts/inspect_recording.py "path/to/recording.h5" outputs/inspect/
 ```
 
 ## 8. Where things live

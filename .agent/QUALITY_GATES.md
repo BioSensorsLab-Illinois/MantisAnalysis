@@ -93,13 +93,7 @@ standing baseline; first initiative to adopt it establishes the
 policy. See
 [`skills/visual-regression/SKILL.md`](skills/visual-regression/SKILL.md).
 
-### Tier 7 — Accessibility 🟡 mandatory on substantial UI changes
-
-Manual WCAG 2.2 A/AA quick-check per
-[`skills/accessibility-check/SKILL.md`](skills/accessibility-check/SKILL.md).
-axe-core optional.
-
-### Tier 8 — Performance 🟡 mandatory on data-heavy / export / visualization changes
+### Tier 7 — Performance 🟡 mandatory on data-heavy / export / visualization changes
 
 Input latency + re-render count + response time + payload size.
 See [`skills/performance-profiling/SKILL.md`](skills/performance-profiling/SKILL.md).

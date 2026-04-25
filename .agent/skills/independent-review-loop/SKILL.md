@@ -8,7 +8,7 @@ when_to_use:
 outputs:
   - a consolidated findings list with severity + disposition
   - Status.md section: "Reviewer findings"
-related_agents: planner-architect, react-ui-ux-reviewer, frontend-react-engineer, fastapi-backend-reviewer, playwright-verifier, accessibility-reviewer, performance-reviewer, test-coverage-reviewer, risk-skeptic, docs-handoff-curator
+related_agents: planner-architect, react-ui-ux-reviewer, frontend-react-engineer, fastapi-backend-reviewer, playwright-verifier, performance-reviewer, test-coverage-reviewer, risk-skeptic, docs-handoff-curator
 ---
 
 # independent-review-loop
@@ -50,8 +50,7 @@ For UI changes add:
 
 - `react-ui-ux-reviewer`
 - `playwright-verifier`
-- Optionally `accessibility-reviewer`, `performance-reviewer`,
-  `frontend-react-engineer`.
+- Optionally `performance-reviewer`, `frontend-react-engineer`.
 
 For backend changes add:
 

@@ -117,15 +117,6 @@ Orthogonal to the web app; produces per-gain panel + overlay +
 summary PNGs. Decision re: long-term fate pending — see
 [`DECISIONS.md`](DECISIONS.md) D-0004.
 
-## Inspect a recording from the shell
-
-```bash
-python scripts/inspect_recording.py path/to/h5 [out-dir]
-```
-
-Dumps metadata to stdout + writes a preview PNG of HG/LG × R/G/B
-with a composite.
-
 ## Test commands
 
 ```bash

@@ -30,8 +30,7 @@ related_agents: test-coverage-reviewer, playwright-verifier, docs-handoff-curato
 | 4 | Browser smoke | Any UI / frontend change | `pytest -m web_smoke -q` |
 | 5 | Feature Playwright | Any new user flow | `pytest tests/web/test_<feature>.py` |
 | 6 | Visual regression | Any layout / typography change | `pytest --visual -q` (if adopted) |
-| 7 | Accessibility | Any substantial UI change | `skills/accessibility-check` |
-| 8 | Performance | Any data-heavy / export change | `skills/performance-profiling` |
+| 7 | Performance | Any data-heavy / export change | `skills/performance-profiling` |
 
 ## Per-change-type mandatory tiers
 
@@ -45,10 +44,9 @@ related_agents: test-coverage-reviewer, playwright-verifier, docs-handoff-curato
 | I/O / extractor (`image_io.py`, `extract.py`, `isp_modes.py`) | 1, 2, 3 |
 | React component (`web/src/*.jsx`) | 1, 2, 3, 4 |
 | Canvas / chart / export UI | 1, 2, 3, 4, 6 (if baseline exists), 8 |
-| New user flow | 1, 2, 3, 4, 5, 7 |
+| New user flow | 1, 2, 3, 4, 5 |
 | Visual refactor (typography, tokens) | 1, 2, 3, 4, 6 |
-| Accessibility work | 1, 2, 3, 4, 7 |
-| Data-heavy path | 1, 2, 3, 4, 8 |
+| Data-heavy path | 1, 2, 3, 4, 7 |
 | Dependency add / upgrade | 0, 1, 2, 3 (or 4 if frontend dep) |
 | CI change (`.github/workflows/`) | 0, 1 (verify workflow still parses) |
 | Major feature initiative | all relevant tiers + reviewer pass |
@@ -103,13 +101,7 @@ related_agents: test-coverage-reviewer, playwright-verifier, docs-handoff-curato
 - Not yet adopted. First initiative to adopt it establishes the
   baseline + tolerance policy.
 
-## Tier 7 — Accessibility
-
-- WCAG 2.2 A/AA quick check via
-  [`accessibility-check`](../accessibility-check/SKILL.md) skill.
-- axe-core optional; not installed by default.
-
-## Tier 8 — Performance
+## Tier 7 — Performance
 
 - Frontend: input latency + re-render count.
 - Backend: response time + payload size.

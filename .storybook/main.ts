@@ -1,7 +1,3 @@
-// bundler-migration-v1 Phase 7 — Storybook main config.
-// Pairs with web/src/ (Vite-bundled) + the React 18 + TypeScript stack.
-// `addon-a11y` complements the Phase 6 axe-core pytest gate so component-
-// level a11y issues surface during story authoring, not at CI time.
 import type { StorybookConfig } from '@storybook/react-vite';
 
 const config: StorybookConfig = {
@@ -9,7 +5,6 @@ const config: StorybookConfig = {
   addons: [
     '@storybook/addon-essentials',
     '@storybook/addon-interactions',
-    '@storybook/addon-a11y',
   ],
   framework: {
     name: '@storybook/react-vite',

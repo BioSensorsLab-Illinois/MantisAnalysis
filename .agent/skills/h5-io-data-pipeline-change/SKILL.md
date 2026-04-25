@@ -100,13 +100,8 @@ python -m pytest tests/unit/ -q
 
 ### Phase 6 — manually verify with a real sample
 
-Load a real H5 via the UI or:
-
-```bash
-python scripts/inspect_recording.py "path/to/recording.h5" outputs/inspect/
-```
-
-Inspect the generated preview PNG. Confirm channel counts +
+Load a real H5 via the UI and inspect the rendered frame in the
+browser preview. Confirm channel counts +
 dimensions are what you expect. If you're on the lab workstation,
 also open the file in the full app:
 

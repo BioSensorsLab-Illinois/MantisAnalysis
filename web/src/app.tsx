@@ -33,8 +33,8 @@ import {
 } from './shared.tsx';
 import { USAFMode } from './usaf.tsx';
 import { FPNMode } from './fpn.tsx';
-import { PlaybackMode, playbackEnabled } from './playback';
 import { DoFMode } from './dof.tsx';
+import { PlaybackMode, playbackEnabled } from './playback';
 import { AnalysisShell } from './analysis/shell';
 import { ISPSettingsWindow } from './isp_settings.tsx';
 const {
@@ -227,9 +227,6 @@ const App = () => {
       } else if (e.key === '1') setMode('usaf');
       else if (e.key === '2') setMode('fpn');
       else if (e.key === '3') setMode('dof');
-      // recording-inspection-implementation-v1 M5 — Playback rail tile.
-      // B-0032 (2026-04-25): default ON; opt-out via
-      // `mantis/playback/enabled='0'` in localStorage.
       else if (e.key === '4' && playbackEnabled()) setMode('play');
       // ISP settings window — uppercase `I` (shift+i) avoids clashing with
       // common text-insert patterns elsewhere in the app.
@@ -292,19 +289,6 @@ const App = () => {
         icon: 'dof',
         run: () => setMode('dof'),
       },
-      // recording-inspection-implementation-v1 M5 — Playback palette entry,
-      // flag-gated.
-      ...(playbackEnabled()
-        ? [
-            {
-              id: 'mode.play',
-              label: 'Switch to Playback (Recording Inspection)',
-              kbd: '4',
-              icon: 'film',
-              run: () => setMode('play'),
-            },
-          ]
-        : []),
       {
         id: 'isp.settings',
         label: 'ISP settings…',
@@ -425,25 +409,8 @@ const App = () => {
                     onOpenFile={() => fileInputRef.current?.click()}
                   />
                 )}
-                {/* recording-inspection-implementation-v1 M5 — Playback
-                    has its own PlaybackStore, so it does NOT gate on
-                    `source`. Rail tile + key `4` are flag-gated. */}
                 {playbackEnabled() && mode === 'play' && (
-                  <PlaybackMode
-                    say={say}
-                    onOpenFile={() => fileInputRef.current?.click()}
-                    onHandoff={async (targetMode, result) => {
-                      try {
-                        const s = await apiFetch(`/api/sources/${result.source_id}`, {
-                          method: 'GET',
-                        });
-                        setSource(s);
-                        setMode(targetMode);
-                      } catch (err) {
-                        say(`Handoff bind failed: ${err.message || err}`, 'danger');
-                      }
-                    }}
-                  />
+                  <PlaybackMode say={say} onOpenFile={() => fileInputRef.current?.click()} />
                 )}
               </div>
             </div>
@@ -564,10 +531,8 @@ const ModeRail = ({ mode, setMode }) => {
     { id: 'usaf', label: 'USAF', title: 'USAF Resolution (1)', icon: 'usaf' },
     { id: 'fpn', label: 'FPN', title: 'FPN Analysis (2)', icon: 'fpn' },
     { id: 'dof', label: 'DoF', title: 'Depth of Field (3)', icon: 'dof' },
-    // recording-inspection-implementation-v1 M5 — visible by default
-    // (B-0032, 2026-04-25); opt-out via mantis/playback/enabled='0'.
     ...(playbackEnabled()
-      ? [{ id: 'play', label: 'Play', title: 'Playback / Recording Inspection (4)', icon: 'film' }]
+      ? [{ id: 'play', label: 'Play', title: 'Playback / Recording Inspection (4)', icon: 'play' }]
       : []),
   ];
   return (

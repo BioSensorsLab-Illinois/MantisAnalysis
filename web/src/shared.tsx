@@ -918,13 +918,6 @@ const Icon = ({ name, size = 14, style }) => {
         <path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15" />
       </g>
     ),
-    // recording-inspection-implementation-v1 M5 — Playback (film-strip).
-    film: (
-      <g>
-        <rect x="2" y="3" width="12" height="10" rx="1" />
-        <path d="M2 6h12M2 10h12M5 3v10M11 3v10" />
-      </g>
-    ),
     open: (
       <g>
         <path d="M2 5l2-2h4l1 1h5v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5z" />
@@ -2493,34 +2486,8 @@ const apiFetch = async (path, init = {}) => {
     // can flush the cached source_id and auto-recover via load-sample.
     if (r.status === 410 && typeof window !== 'undefined') {
       try {
-        // R-0009 + recording-inspection-implementation-v1 risk-skeptic P0-B
-        // + planner-architect P1-4 + P3-W. Single canonical event name
-        // (mantis:source-evicted) with `detail.kind` so the existing USAF/
-        // FPN/DoF listener filters out Playback evictions instead of
-        // auto-reloading /api/sources/load-sample on every Playback 410.
-        let kind = 'source';
-        let sidMatch = path.match(/\/api\/sources\/([a-z0-9]+)/i);
-        if (!sidMatch) {
-          sidMatch = path.match(
-            /\/api\/playback\/(streams|recordings|darks|exports)\/([a-z0-9]+)/i
-          );
-          if (sidMatch) {
-            const seg = sidMatch[1];
-            kind =
-              seg === 'streams'
-                ? 'stream'
-                : seg === 'recordings'
-                  ? 'recording'
-                  : seg === 'darks'
-                    ? 'dark'
-                    : 'job';
-            // Repack as [_, id] for downstream code expecting that shape.
-            sidMatch = [sidMatch[0], sidMatch[2]];
-          }
-        }
-        // Try to lift kind from the body too (server emits it).
-        const bodyKind = data?.detail?.kind;
-        if (typeof bodyKind === 'string') kind = bodyKind;
+        const kind = 'source';
+        const sidMatch = path.match(/\/api\/sources\/([a-z0-9]+)/i);
         const evictedId = sidMatch ? sidMatch[1] : (data?.detail?.evicted_id ?? null);
         window.dispatchEvent(
           new CustomEvent('mantis:source-evicted', {
