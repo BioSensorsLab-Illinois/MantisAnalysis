@@ -3,6 +3,171 @@
 Explicit work that remains. Ordered by impact + readiness. Each item
 has a unique `B-000N` ID. Append-only; do not renumber.
 
+---
+
+## B-0029 — `playback-multiproc-v1` follow-up
+
+`recording-inspection-implementation-v1` M12 risk-skeptic A1 +
+performance F2.
+
+The video export currently runs in a single `threading.Thread` with
+a `multiprocessing.Event` cancel flag (acts as a thread-shared flag
+in single-process mode). Documented honestly in
+`mantisanalysis/playback_export.py` and `playback_session.py`.
+Open if/when:
+
+- Wall-clock for the §Tier 8 budget case (1080p tiled-2×2 mp4 ≤ 8 s)
+  is consistently breached on real workloads.
+- Deployment switches to `uvicorn --workers N>1` and cancel needs
+  to cross worker boundaries.
+
+Plan: route through `ProcessPoolExecutor(max_workers=cpu/2)` reused
+per job; swap `multiprocessing.Event()` for `Manager().Event()`.
+Estimated: 2-3 day spike + perf bench.
+
+---
+
+## B-0030 — `playback-ux-polish-v1` follow-up
+
+`recording-inspection-implementation-v1` M12 react-ui-ux P1
+deferred batch:
+
+1. Implement the W11 `HandoffModal` confirmation (currently the
+   `→U/→F/→D` toolbar buttons fire immediately).
+2. Wire the empty-state drop zone (`EmptyState.tsx:76-87` is
+   decorative — no `onDragOver/onDrop` handlers).
+3. Add destructive-action confirm/undo on `FilePill.tsx` Remove +
+   `DarkFrameRow.tsx` Remove + ViewerCard Remove.
+4. Implement responsive collapse: at viewport < 1180 px, Sources
+   panel collapses to a 44 px icon rail; Inspector auto-collapses
+   when a modal opens (per UI_IMPLEMENTATION_NOTES §12).
+5. Implement W11 `ViewerCardContextMenu.tsx` (right-click → Send
+   to USAF/FPN/DoF, Lock, Duplicate, Remove).
+6. Bump Inspector body text 10 → 11.5 px (M12 react-ui-ux P2).
+7. Per-cell placeholder for 2×2 / 3+1 layouts when fewer views.
+
+---
+
+## B-0031 — `playback-test-cleanup-v1` follow-up
+
+M12 playwright-verifier P1 batch:
+
+- Replace `page.wait_for_selector(...)` calls with web-first
+  `expect(locator).to_be_visible()` across `tests/web/test_playback_boot.py`
+  (~17 sites).
+- Attach `page.on("console")` + `page.on("pageerror")` + `assert not
+  errors` to all 13 active boot tests (currently only 6 do).
+- Add `aria-label="Colormap"` to the inspector colormap select +
+  switch the test to `page.get_by_label("Colormap").select_option`.
+- Add `aria-pressed`/`data-active` attribute to mode rail tile
+  buttons + switch USAF active-tile test from computed-style to
+  attribute assertion.
+- Migrate `with sync_playwright() as p: …` blocks to the
+  `pytest-playwright page` fixture for faster runs + auto-trace.
+- Add `data-action="export-confirm"` to ExportImageModal CTA;
+  drop the brittle xpath walk-up in
+  `test_playback_export_image_modal_round_trip`.
+
+---
+
+## B-0032 — Playback feature-flag default flip (`mantis/playback/enabled=1`)
+
+The Playback mode was shipped behind a `mantis/playback/enabled`
+localStorage flag (default OFF) per risk-skeptic P1-K. Open this
+when:
+
+- B-0030 polish is in;
+- B-0029 perf work has either landed or has been formally
+  deferred with measured numbers showing the single-thread path is
+  acceptable for the deployment;
+- A docs/help update exists explaining the new mode + the rail
+  tile.
+
+Plan: change `playbackEnabled()` default from
+`localStorage.getItem(...) === '1'` to `localStorage.getItem(...) !== '0'`
+so opt-out is the new opt-in. One-line frontend change + visual
+release notes.
+
+---
+
+## B-0033 — Playback test-coverage gaps (M12 test-coverage P1 deferred)
+
+- `test_video_export_cancel_halts_mid_batch`: assert
+  `current_frame < total_frames` after a mid-render DELETE.
+- `test_image_export_byte_equal_contactsheet_2views` /
+  `..._grid_2x2`: extend WYSIWYG byte-equality across all 3
+  compose modes (currently only `single`).
+- `test_lru_global_cap_evicts_across_streams`: 4 streams × 80 MB
+  into a 256 MB cap, assert eviction crosses streams.
+- `test_preset_64_per_kind_lru_via_api`: POST 65 presets, assert
+  64 returned (currently only the unit cap=3 is tested).
+- `test_playback_eviction_kind_source_still_reloads`: confirm the
+  kind=source path (not kind=stream) still triggers the existing
+  reload behavior (M12 covered the negative case only).
+- `test_video_perceptual_parity_mp4_vs_pngseq`: per TEST_PLAN
+  §Tier 8 (mean per-channel < 5 LSB, max < 20 LSB), gated on
+  `_has_ffmpeg()`.
+- `test_ccm_solve_n3_collinear_returns_unstable`.
+
+---
+
+## B-0034 — Playback perf test (TEST_PLAN §Tier 8) automation
+
+`tests/web/test_playback_perf.py` was specced in TEST_PLAN §Tier 8
+(1080p tiled-2×2 mp4 ≤ 8 s) but never written. Add a Playwright
+benchmark that loads a synthetic 1080p stream, runs the export,
+and asserts wall-clock under budget. Otherwise B-0029 perf
+regressions land silently.
+
+---
+
+## B-0035 — Playback Cache-Control on preview PNGs (M12 perf F5)
+
+Preview PNGs at `/api/playback/streams/{sid}/frame/{n}.png`
+currently send `Cache-Control: no-store`. PNG bytes are pure
+functions of the URL (channel + view + frame), so a backward
+scrub re-decodes/re-encodes a frame the browser still has. Switch
+to `Cache-Control: max-age=300, immutable` once the hash-of-view
+component is in the URL (avoid serving stale on view changes).
+Optionally add an `lru_cache` server-side on
+`(stream_id, frame, hash(view)) → PNG bytes`.
+
+---
+
+## B-0036 — Playback Inspector React.memo per section (M12 frontend-react F6)
+
+Inspector renders all 9 sections in one component; every reducer
+dispatch re-renders the whole tree. Wrap each section body in
+`React.memo` and pass only the slice it needs. Move `mode`
+(Basic/Advanced) state into a per-section context to stop
+section-level re-renders on mode flip.
+
+---
+
+## B-0037 — Playback hot-path module hoisting (M12 perf F7/F8)
+
+`playback_pipeline.py:_apply_colormap` calls `importlib.import_module
+("matplotlib")` + `matplotlib.use("Agg")` per call;
+`playback_pipeline.py:_downscale` does the same with `PIL.Image`.
+Hoist both to module top, cache cmap by name. ~10 ms/frame win on
+RGB+grade renders.
+
+---
+
+## B-0038 — Visual-regression diff infrastructure (`visual-regression-infra-v1`)
+
+`tests/web/test_playback_visual_baselines.py` writes 5 PNG
+baselines but does NOT diff against prior runs. The follow-up:
+
+- Adopt `pytest-playwright`'s `expect(page).to_have_screenshot()`
+  snapshot fixture, OR pixel-diff via `Pillow.ImageChops.difference`
+  with a per-pixel + total-delta threshold.
+- Wire into CI so baselines regress visibly.
+- Decide retention policy for baselines (committed to git vs
+  CI artifact only).
+
+
+
 ## B-0026 — Drive axe-core violation baseline toward zero — **CLOSED 2026-04-24**
 
 All 5 critical/serious violations remediated in one pass:

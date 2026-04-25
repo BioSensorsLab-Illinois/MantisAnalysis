@@ -173,28 +173,44 @@ const PlaybackInner = ({ say, onHandoffApp }) => {
   const stream = state.streams.find((s) => s.stream_id === state.activeStreamId);
   const showWorkspace = stream != null;
 
+  // M12 frontend-react F2 + F10 + performance F3: keep the latest
+  // frame in a ref so the ticker / keyboard handlers don't depend on
+  // `state.frame`. Without this, the setInterval and keydown
+  // useEffects would tear down + recreate on every frame tick →
+  // jitter at 60 fps + 200+ network requests per 2 s play (per
+  // performance-reviewer measurements).
+  const frameRef = useRef(state.frame ?? 0);
+  useEffect(() => {
+    frameRef.current = state.frame ?? 0;
+  }, [state.frame]);
+
   // Play-head ticker. Steps `frame` by 1 every `1000 / (fps × speed)` ms.
   // Wraps at the end of the stream. Stops when `playing` is false or no
   // stream is active.
+  // `dispatch` is stable per React's useReducer contract; we read
+  // `frameRef` not `state.frame` so this effect does NOT need
+  // `state.frame` in deps (M12 frontend-react F2).
   useEffect(() => {
     if (!state.playing || !stream) return;
     const intervalMs = Math.max(
-      8,
+      16, // ≥ 60 fps cap (M12 perf F3); was 8 ms (125 fps)
       1000 / Math.max(1, (state.playbackFps || 30) * (state.playbackSpeed || 1))
     );
+    const total = Math.max(1, stream.total_frames);
     const id = setInterval(() => {
       dispatch({
         type: 'frame/set',
-        payload: ((state.frame ?? 0) + 1) % Math.max(1, stream.total_frames),
+        payload: (frameRef.current + 1) % total,
       });
     }, intervalMs);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.playing, state.playbackFps, state.playbackSpeed, state.frame, stream?.total_frames]);
+  }, [state.playing, state.playbackFps, state.playbackSpeed, stream?.total_frames]);
 
-  // Keyboard shortcuts inside Playback mode (Space, ←, →, [, ], L, +).
+  // Keyboard shortcuts inside Playback mode (Space, ←, →, Home, End).
   useEffect(() => {
     if (!showWorkspace) return undefined;
+    const total = stream?.total_frames ?? 1;
     const onKey = (e) => {
       const tgt = e.target;
       const typing =
@@ -208,27 +224,27 @@ const PlaybackInner = ({ say, onHandoffApp }) => {
         const step = e.shiftKey ? 10 : 1;
         dispatch({
           type: 'frame/set',
-          payload: Math.min((stream?.total_frames ?? 1) - 1, (state.frame ?? 0) + step),
+          payload: Math.min(total - 1, frameRef.current + step),
         });
       } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
         const step = e.shiftKey ? 10 : 1;
         dispatch({
           type: 'frame/set',
-          payload: Math.max(0, (state.frame ?? 0) - step),
+          payload: Math.max(0, frameRef.current - step),
         });
       } else if (e.key === 'Home') {
         e.preventDefault();
         dispatch({ type: 'frame/set', payload: 0 });
       } else if (e.key === 'End') {
         e.preventDefault();
-        dispatch({ type: 'frame/set', payload: (stream?.total_frames ?? 1) - 1 });
+        dispatch({ type: 'frame/set', payload: total - 1 });
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showWorkspace, stream?.total_frames, state.frame]);
+  }, [showWorkspace, stream?.total_frames]);
 
   const openBuilder = () => dispatch({ type: 'modal/open', payload: { kind: 'stream-builder' } });
   const closeModal = () => dispatch({ type: 'modal/close' });

@@ -1,25 +1,103 @@
 # HANDOFF — current live state pointer
 
-Last updated: **2026-04-25**, end of `analysis-page-overhaul-v1`
-**INITIATIVE CLOSED** — all 8 phases delivered (Phases 6 + 7 are
-partial with deferred follow-ups documented). 9 commits ahead of
-origin/main, push pending (Claude Opus 4.7, 1M context).
+Last updated: **2026-04-25**, end of
+`recording-inspection-implementation-v1` **INITIATIVE CLOSED** —
+all 12 milestones delivered (M0 audit + reviewer pass; M1-M3 backend
+H5/dark/stream; M4 render pipeline; M5-M7 frontend rail/sources/
+viewers; M8 9-section Inspector + CCM + presets + frame-LRU; M9
+overlay; M10 image+video export; M11 send-to-mode handoff +
+Storybook + skill doc; **M12 final verification + visual-regression
+baselines + 8 reviewer agents serially + P0/P1 inline resolution +
+docs sync**). 28 commits ahead of origin/main once the pending M12 close commit (this set) lands; `git status -sb` currently reports `[ahead 27]`, push pending (Claude
+Opus 4.7, 1M context).
+
+Prior initiative (`analysis-page-overhaul-v1`) closed earlier this
+session; details preserved at end of this file.
 
 ## Current state of the working tree
 
-- Branch: `main`.
-- Commits already pushed today: `isp-modes-v1`,
-  `agentic-workflow-overhaul-v1`, `isp-modes-v1-bugfixes-v1`,
-  `harness-mechanical-v1`, upstream `release` merge,
-  `correctness-sweep-v1`, `bundler-migration-v1` Phase 1, Phase 2,
-  Phase 3 atomic cutover (`cb3cbaf`), Phase 3 follow-up fixes
-  (this session's pending push).
+- Branch: `main`. 28 commits ahead of origin/main once the pending M12 close commit (this set) lands; `git status -sb` currently reports `[ahead 27]` (push pending).
+- Active initiative: **none** — `recording-inspection-implementation-v1`
+  closed at M12 today.
+- Outstanding deferred work tracked as B-0029..B-0038 in
+  [`.agent/BACKLOG.md`](BACKLOG.md):
+  - B-0029 `playback-multiproc-v1` (cross-process video encode +
+    Manager().Event() — unblocked when scale-out is needed)
+  - B-0030 `playback-ux-polish-v1` (HandoffModal, drop zone, remove
+    confirm, responsive collapse, context menu, Inspector text size)
+  - B-0031 `playback-test-cleanup-v1` (Playwright migration to
+    web-first locators + page fixture + console-error attachment)
+  - B-0032 Playback feature-flag default flip
+  - B-0033 Playback test-coverage gaps (cancel mid-batch, byte-equal
+    contactsheet/grid, LRU cross-stream, preset 64-cap, perceptual
+    parity, CCM n=3 collinear, eviction kind=source positive)
+  - B-0034 Playback perf test (TEST_PLAN §Tier 8 budget)
+  - B-0035 Preview PNG Cache-Control
+  - B-0036 Inspector React.memo per section
+  - B-0037 Hot-path module hoisting
+  - B-0038 Visual-regression diff infrastructure
+    (`visual-regression-infra-v1`)
 
 ## What just shipped
 
+**`recording-inspection-implementation-v1`** — M0 → M12 in one
+multi-day session. New mode `Playback (Recording Inspection)`
+behind the `mantis/playback/enabled` localStorage flag (default
+OFF until B-0032 polish lands). Surface:
+
+- 6 new backend modules (`recording.py`, `dark_frame.py`,
+  `playback_session.py`, `playback_pipeline.py`,
+  `playback_export.py`, `playback_api.py` — 24+ routes), all
+  preserving AGENT_RULES rule 7 (analysis purity) — pure NumPy/
+  h5py/PIL/matplotlib/imageio.
+- 16 React frontend components under `web/src/playback/` +
+  `ProcessingBadge.stories.tsx` Storybook.
+- WYSIWYG single-render-entry-point invariant: preview-PNG and
+  export-PNG share `playback_pipeline.render_frame`; byte-equal
+  for image (incl. with dark applied — fixed in M12); perceptual
+  parity for video.
+- Send-to-mode handoff route `POST /api/playback/streams/{sid}/
+  handoff/{mode}` registers a fresh `LoadedSource` in the
+  analysis-mode `STORE` via the new public
+  `STORE.register_external` (eviction-tracking honored).
+  `dark_already_subtracted: true` enforced at the receiving mode's
+  `attach_dark_*` (refuses double-subtract).
+- 5 ISP modes supported from M1 (rgb_nir / bare_single /
+  bare_dualgain / polarization_single / polarization_dual).
+- All stretch features in scope per user 2026-04-24: GIF export
+  (300-frame cap), CCM editor + auto-from-patches against X-Rite
+  whites, calibrated WB, send-to-mode handoff,
+  parallelized-via-thread video encode (per-frame cancel — full
+  ProcessPool deferred to B-0029 with honest docs).
+- 8 reviewer agents (M0 + M12) — every P0 and most P1 resolved
+  inline; P2/P3 + 4 deferred P1 tracked as B-0029..B-0038.
+- 5 visual baselines (`screenshots/M12_baseline_*.png`) committed
+  for review evidence; on-disk diff is B-0038.
+- CI: `tier4-web-smoke` job now installs ffmpeg + uploads
+  `screenshots/*.png` as a CI artifact.
+
+**Verification ladder at M12 close:**
+
+- Tier 0 — agent-doc consistency PASS (5 scanners).
+- Tier 1 — 21 modules imported.
+- Tier 2 — figures rendered (Agg).
+- Tier 3 — `pytest -q tests/headless` 84 PASS (45 playback + 39 prior).
+- Tier 4 — `pytest -m web_smoke` 21 PASS.
+- Full `pytest -q` 262 PASS (was 109 before this initiative; +153 tests).
+- `npm run build` clean (606 kB main + 4.8 MB plotly chunk).
+- `npm run lint` 0 errors / 0 warnings.
+- `npm run typecheck` 0 errors.
+- `npm run build-storybook` clean.
+
+## Earlier in this session: `analysis-page-overhaul-v1` close
+
+(Pre-existing prior-initiative content preserved below for
+context — `analysis-page-overhaul-v1` was closed earlier this
+session; M11 + M12 of `recording-inspection-implementation-v1`
+both happened after.)
+
 **analysis-page-overhaul-v1 — all 8 phases delivered, initiative
-CLOSED.** 9 commits ahead of origin/main, push pending. Major
-refactor of the analysis-results modal complete:
+CLOSED.** Major refactor of the analysis-results modal complete:
 
 - New `web/src/analysis/` type-clean subtree (zero `@ts-nocheck`)
   with `<AnalysisShell>`, typed `ModeSpec` registry, shared
@@ -113,7 +191,18 @@ more Storybook stories, H5 deferred-feature mentions removed**.
 (For Phases 3–5a detail, see
 `.agent/CHANGELOG_AGENT.md` + `.agent/runs/bundler-migration-v1/Status.md`.)
 
-## Smoke status, last verified 2026-04-24
+---
+
+# Prior session context (preserved verbatim — not authoritative)
+
+The block below is the analysis-page-overhaul-v1 close-out from
+earlier this same session (2026-04-25). It predates the
+recording-inspection-implementation-v1 close above and is
+preserved for archaeological context. **Where the two contradict,
+the top of this file wins.** New agents reading cold should treat
+the M12 truth above as the live state.
+
+## Smoke status, last verified 2026-04-24 (pre-Playback)
 
 - ✅ Tier 0 — 5 scanners pass (docs, skills, stopping-criteria,
   reviewer-evidence, frontend-lint — now with prettier + eslint + tsc)
@@ -149,10 +238,16 @@ python -m mantisanalysis --no-browser --port 8773
 # "Frontend bundle not built" placeholder.
 ```
 
-## Active initiative
+## Active initiative (from earlier in this session — pre-Playback)
 
-**None.** `analysis-page-overhaul-v1` closed this session. Status
-pointer: `.agent/runs/analysis-page-overhaul-v1/Status.md`.
+**None at the time this block was written.** `analysis-page-overhaul-v1`
+closed earlier this session. Status pointer:
+`.agent/runs/analysis-page-overhaul-v1/Status.md`.
+
+**Update from later in this same session:** the active initiative
+became `recording-inspection-implementation-v1`, which is now also
+closed (M12 done). See top of file for the authoritative current
+state.
 
 Outstanding tech debt:
 
@@ -163,10 +258,11 @@ Outstanding tech debt:
   to `typescript-eslint/recommendedTypeChecked`. Not blocking
   anything.
 
-## Where to pick up next
+## Where to pick up next (pre-Playback view — superseded)
 
-The big initiative is closed. Remaining product work + deferred
-polish:
+**Superseded** by the M12 BACKLOG additions B-0029..B-0038 at the
+top of this file. The list below is preserved verbatim for context
+but is not the authoritative "next" action list.
 
 1. **Per-mode Playwright interaction suite** —
    `test_analysis_{usaf,fpn,dof}.py`,

@@ -13,8 +13,14 @@ Frozen contracts (DATA_MODEL §1):
   * Frame LRU is **process-global byte-capped** (default 2 GB,
     [256 MB..8 GB]). Single OrderedDict keyed by
     ``(stream_id, recording_id, local_frame)``.
-  * ExportJob.cancel_event is a ``multiprocessing.Event`` so cancel
-    crosses ProcessPoolExecutor worker boundaries.
+  * ExportJob.cancel_event is a ``multiprocessing.Event``.
+    **M12 honesty:** the export currently runs in a single
+    ``threading.Thread`` (see ``playback_export.py`` module
+    docstring), so the Event acts as a simple thread-shared flag
+    today. The ``multiprocessing`` flavor is kept so a future
+    scale-out to ``ProcessPoolExecutor`` (deferred to
+    ``playback-multiproc-v1``) can adopt ``Manager().Event()`` as
+    a drop-in replacement without changing call sites.
   * Eviction events surface via the ``mantis:source-evicted`` window
     event with ``detail.kind`` field. Server emits HTTP 410 with the
     same ``kind`` payload.
@@ -136,9 +142,15 @@ class ExportJob:
 
     Per risk-skeptic P0-A, ``cancel_event`` is a
     :class:`multiprocessing.Event` (not :class:`threading.Event`) so a
-    parent-process ``set()`` is observable in worker processes spawned
-    via :class:`concurrent.futures.ProcessPoolExecutor`. Cancel
-    granularity is one batch.
+    future ``ProcessPoolExecutor`` migration can swap in
+    ``Manager().Event()`` without changing call sites. **M12 honesty
+    (risk-skeptic A1):** the encode currently runs in a single
+    ``threading.Thread`` and the Event behaves like a thread-shared
+    flag (single-process scope). Cross-process cancel is gated on a
+    future ``playback-multiproc-v1`` initiative.
+
+    Cancel granularity is one frame: ``_frames()`` polls the event
+    between yields and returns early when it sees ``set()``.
     """
 
     job_id: str

@@ -4,6 +4,145 @@ Append-only log of agent sessions. One bullet per session, newest at top.
 
 ---
 
+## 2026-04-25 — recording-inspection-implementation-v1 CLOSED (M0 → M12) (Claude Opus 4.7, 1M context)
+
+User: "Plan & implement Recording Inspection Mode (Play tab) per the
+Claude Design template. Ultra planning effort first; don't stop
+halfway; Playwright before every milestone close; work directly on
+main; all stretch features in scope (GIF, CCM, calibrated WB,
+send-to-mode handoff)."
+
+A 12-milestone build delivered in one continuous session
+(`recording-inspection-implementation-v1`). Initiative folder:
+`.agent/runs/recording-inspection-implementation-v1/`.
+
+**Milestones (28 commits):**
+
+- **M0** — ExecPlan + API_DESIGN + DATA_MODEL + UI_IMPLEMENTATION_NOTES
+  + TEST_PLAN + reviewer pass (planner-architect + risk-skeptic
+  serially). 6 P0 + 21 P1 + 17 P2 resolved inline before code.
+- **M1** — Backend H5 metadata inspection + flexible 7-fallback
+  layout detection (`recording.py`). 22 unit tests on synthetic H5
+  fixtures (per AGENT_RULES rule 11 — never real recordings in git).
+- **M2** — Dark-frame averaging (mean / median / sigma_clipped)
+  + exposure-matching (`dark_frame.py`). 17 unit tests. Revert-
+  rehearsal logged per risk-skeptic P1-F.
+- **M3** — `PlaybackStore` with multi-file stream + global frame
+  mapping + process-global byte-capped LRU (risk-skeptic P0-C).
+  26 unit tests.
+- **M4** — Render pipeline (`playback_pipeline.py::render_frame`
+  is the WYSIWYG single entry point) + `/api/playback/*` preview
+  PNG endpoint. 23 unit + 18 Tier 3 tests.
+- **M5** — Frontend rail tile + empty state + Sources skeleton +
+  Stream header + eviction kind-routing (`shared.tsx`/`app.tsx`,
+  risk-skeptic P0-B). 4 new Playwright tests.
+- **M6** — File loading + Stream Builder modal + Dark Manager +
+  warning banners.
+- **M7** — ViewerGrid + ViewerCard (race-aware epoch counter) +
+  TimelineStrip + transport keyboard map.
+- **M8** — 9-section Inspector + CCM editor + presets API +
+  frame-LRU widget; `solve_ccm_from_patches` + 7 new routes.
+- **M9** — Overlay system end-to-end (Overlay Builder modal w/ live
+  preview + Apply commits to view).
+- **M10** — Image (synchronous, byte-equal WYSIWYG) + video
+  (asynchronous, MP4 / APNG / GIF / PNG-seq, GIF cap, sidecar JSON,
+  ffmpeg gate) export.
+- **M11** — Send-to-mode handoff (`POST /api/playback/streams/{sid}/
+  handoff/{mode}`) + 3 viewer-toolbar handoff buttons (`→U/→F/→D`)
+  + Storybook ProcessingBadge story + skill-doc updates.
+- **M12** — Visual-regression baselines (5 PNGs at canonical
+  states); CI Tier 4 job picks up ffmpeg + uploads screenshots
+  artifact; **8 reviewer agents fired in parallel (fastapi-backend,
+  frontend-react, react-ui-ux, accessibility, performance,
+  playwright-verifier, test-coverage, risk-skeptic)**; every P0 +
+  most P1 resolved inline; deferred P1/P2/P3 tracked as
+  B-0029..B-0038 in BACKLOG.
+
+**M12 inline fix highlights** (resolved before close):
+
+- WYSIWYG dark on export (fastapi-backend P0 #1) — `render_views_for_frame`
+  now applies `dark` per-view from `view.dark_on`.
+- Handoff via public `STORE.register_external` (fastapi-backend P0 #2
+  + risk-skeptic B1) — eviction-tracking honored (R-0009).
+- `dark_already_subtracted` contract end-to-end (test-coverage P0-B
+  + planner-architect P0-2) — receiving mode's `attach_dark_*`
+  refuses to subtract again.
+- Handoff `LoadedSource` carries `isp_mode_id` from the source stream
+  (risk-skeptic A3) — ISP Settings round-trip on handed-off sources
+  no longer lies.
+- `match_dark_by_exposure` refuses target=0.0 (risk-skeptic A5).
+- Cancelled/failed exports unlink partial output (risk-skeptic A2).
+- Dead `render_frame_for_export` + `ProcessPoolExecutor` import
+  removed (risk-skeptic A1 — honest downgrade; ProcessPool deferred
+  to `playback-multiproc-v1`/B-0029).
+- Frontend reducer-internal `stream/evict` action (frontend-react F1).
+- `frameRef` for ticker + keyboard so they don't tear down per
+  tick (frontend-react F2/F10 + performance F3).
+- ViewerCard `useDebounced(view, 80)` + stable `_viewSig` URL key
+  (frontend-react F8/F9 + performance F1).
+- Viewer epoch in `useLayoutEffect` + handler reads ref directly
+  (frontend-react F3).
+- ExportVideoModal poll lifecycle via refs (frontend-react F4).
+- Modal `role="dialog"` + `aria-modal` + focus trap + focus return
+  (a11y P0 + react-ui-ux P0).
+- ViewerCard root `role="group"` (was `role="button"` with
+  nested-interactive + invalid `aria-selected` — axe critical/serious).
+- Toolbar always-mounted (opacity gates visibility) so keyboard users
+  reach the controls (a11y P0).
+- Toolbar buttons 22→24 px (WCAG 2.5.8 target size).
+- Handoff button `title=` tooltips (react-ui-ux P1).
+- Toast `role={status|alert}` + `aria-live` (a11y P2).
+- ExportVideo progress bar `role="progressbar"` + valuenow/min/max/text
+  + `aria-live="polite"` (a11y P1).
+- Global `:focus-visible` ring (a11y P1 + react-ui-ux P1).
+- Playwright `wait_for_timeout` removed (playwright-verifier P0).
+- Cold-start flake fix: `mantis/mode='play'` set in init script before
+  goto (playwright-verifier P0).
+- `tests/web/conftest.py` autouse fixture clears both PlaybackStore
+  and analysis-mode STORE before every Tier 4 test (playwright-verifier
+  P0 + test-coverage P1-D).
+- Light/dark baselines now byte-differ (react-ui-ux P2 — theme flip
+  fix in baseline test fixture).
+
+**Verification:**
+
+- 262/262 pytest pass (was 109 at session start; +153 tests across
+  unit / headless / web_smoke).
+- 21/21 web_smoke pass.
+- Tier 0 + Tier 1 + Tier 2 + Tier 3 ladder PASS.
+- `npm run build` / `lint` / `typecheck` / `build-storybook` clean.
+
+**Stretch features delivered:**
+
+- GIF export (300-frame cap).
+- 3×3 CCM editor + auto-from-patches against X-Rite whites
+  (`d50_white` / `d65_white` / `d75_white`).
+- Calibrated WB.
+- Send-to-mode handoff with `dark_already_subtracted` contract.
+- All 5 ISP modes from M1 (rgb_nir / bare_single / bare_dualgain /
+  polarization_single / polarization_dual).
+
+**Deferred work** (tracked in BACKLOG):
+
+- B-0029 `playback-multiproc-v1` — cross-process video encode +
+  Manager().Event() if/when scale-out is needed.
+- B-0030 `playback-ux-polish-v1` — HandoffModal, drop zone, remove
+  confirm, responsive collapse, context menu, Inspector text size,
+  per-cell placeholder.
+- B-0031 `playback-test-cleanup-v1` — Playwright migration to
+  web-first locators + `pytest-playwright page` fixture +
+  console-error attachment.
+- B-0032 — Flag default flip.
+- B-0033 — Test-coverage gaps (cancel mid-batch, byte-equal
+  contactsheet/grid, LRU cross-stream, etc).
+- B-0034 — Tier 8 perf test automation.
+- B-0035 — Preview PNG `Cache-Control`.
+- B-0036 — Inspector React.memo per section.
+- B-0037 — Hot-path module hoisting.
+- B-0038 — Visual-regression diff infra.
+
+---
+
 ## 2026-04-25 — analysis-page-overhaul-v1 CLOSED (Phase 6 + 7 + 8 final) (Claude Opus 4.7, 1M context)
 
 User: "finish all left overs."

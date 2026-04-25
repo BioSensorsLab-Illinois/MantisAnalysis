@@ -101,7 +101,12 @@ jobs:
     # test would skip and CI would have zero browser coverage of the new
     # bundle. Linux-only because Playwright Chromium is heaviest there +
     # the other matrix tiers already cover Python portability.
-    name: tier4 web smoke (Vite build + Playwright)
+    #
+    # recording-inspection-implementation-v1 M12 — also installs `ffmpeg`
+    # so the M10 video-export tests (`test_export_video_*`) actually
+    # run instead of skipping (per ExecPlan §M10 — `imageio-ffmpeg` is a
+    # hard prerequisite for M10 close).
+    name: tier4 web smoke (Vite build + Playwright + ffmpeg)
     runs-on: ubuntu-latest
     needs: unit-and-tier1
 
@@ -125,6 +130,12 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e .[dev,web-smoke]
 
+      - name: Install ffmpeg (for video export tests)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffmpeg -version | head -1
+
       - name: Install Playwright Chromium
         run: python -m playwright install --with-deps chromium
 
@@ -135,3 +146,19 @@ jobs:
 
       - name: Pytest -m web_smoke
         run: python -m pytest -m web_smoke -q
+
+      # recording-inspection-implementation-v1 M12 — Tier 6 visual
+      # baselines: tests/web/test_playback_visual_baselines.py writes
+      # canonical PNGs to .agent/runs/recording-inspection-implementation-v1/
+      # screenshots/. Upload them as a CI artifact so reviewers can
+      # eyeball the rendered states without re-booting locally. This
+      # is *not* a diff-against-baseline gate — that's a follow-up
+      # initiative (visual-regression-infra-v1 in BACKLOG).
+      - name: Upload Playback visual baselines (artifact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playback-visual-baselines-${{ github.run_id }}
+          path: .agent/runs/recording-inspection-implementation-v1/screenshots/*.png
+          if-no-files-found: warn
+          retention-days: 14

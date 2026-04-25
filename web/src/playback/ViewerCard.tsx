@@ -6,10 +6,53 @@
 // lock indicator amber; selection accent.
 
 import React from 'react';
-import { Icon, useTheme } from '../shared.tsx';
+import { Icon, useTheme, useDebounced } from '../shared.tsx';
 import { previewPngUrl } from './api.ts';
 
-const { useEffect, useMemo, useRef, useState } = React;
+const { useLayoutEffect, useMemo, useRef, useState } = React;
+
+// recording-inspection-implementation-v1 M12 frontend-react F9 +
+// performance F1: stable signature for the URL `useMemo` key. Without
+// this, every reducer dispatch produces a fresh `view` object identity
+// and the URL is rebuilt → image network stampede on slider drags.
+// We hash only the fields `previewPngUrl` actually reads.
+const _viewSig = (v) =>
+  v == null
+    ? ''
+    : [
+        v.type,
+        v.channel,
+        (v.channels || []).join('|'),
+        v.dark_on ? 1 : 0,
+        v.gain,
+        v.offset,
+        v.normalize ? 1 : 0,
+        v.low,
+        v.high,
+        v.colormap,
+        v.invert ? 1 : 0,
+        v.show_clipped ? 1 : 0,
+        (v.rgb_gain || []).join(','),
+        (v.rgb_offset || []).join(','),
+        v.gamma,
+        v.brightness,
+        v.contrast,
+        v.saturation,
+        v.wb_k,
+        v.wb_mode,
+        v.ccm_on ? 1 : 0,
+        v.ccm_on ? JSON.stringify(v.ccm) : '',
+        v.overlay_on ? 1 : 0,
+        v.overlay_on
+          ? `${v.overlay_channel}|${v.overlay_low}|${v.overlay_high}|${v.overlay_blend}|${v.overlay_strength}|${v.overlay_cmap}|${v.overlay_below}|${v.overlay_above}`
+          : '',
+        v.labels_timestamp ? 1 : 0,
+        v.labels_frame ? 1 : 0,
+        v.labels_channel ? 1 : 0,
+        v.labels_source ? 1 : 0,
+        v.labels_scale_bar ? 1 : 0,
+        v.labels_badges ? 1 : 0,
+      ].join('§');
 
 const BADGE_DEF = [
   { id: 'RAW', tone: 'neutral', title: 'Raw channel · no processing' },
@@ -82,15 +125,34 @@ export const ViewerCard = ({
   const t = useTheme();
   const isLocked = view.locked_frame != null;
   const effectiveFrame = isLocked ? view.locked_frame : frame;
+  // M12 frontend-react F8 + performance F1: debounce the view at
+  // 80 ms so slider drags don't fire a fresh PNG request per
+  // mousemove. AGENT_RULES "drag debouncing ≥ 80 ms" rule.
+  const dview = useDebounced(view, 80);
+  // M12 frontend-react F9 + performance F1: key the URL memo on the
+  // signature of fields the URL actually depends on, not the object
+  // identity. Reducer dispatches create fresh `view` objects → without
+  // signature, every dispatch rebuilds the URL.
+  const sig = _viewSig(dview);
   const url = useMemo(
-    () => (streamId ? previewPngUrl(streamId, effectiveFrame, view) : ''),
-    [streamId, effectiveFrame, view]
+    () => (streamId ? previewPngUrl(streamId, effectiveFrame, dview) : ''),
+    // M12 frontend-react F9: keying on `sig` (a stable signature of
+    // `dview`'s URL-relevant fields) is intentional — `dview` itself
+    // is a fresh object identity per reducer dispatch and would
+    // invalidate the memo on every unrelated state change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [streamId, effectiveFrame, sig]
   );
 
   const epoch = useRef(0);
   const [imgState, setImgState] = useState('loading');
   const [hover, setHover] = useState(false);
-  useEffect(() => {
+  // M12 frontend-react F3: bump epoch in a useLayoutEffect so it
+  // increments synchronously *before* the new <img> mounts and its
+  // onLoad/onError fire. The handlers read epoch.current directly
+  // (not via captured-at-render IIFE) so a late-arriving response
+  // for an old URL is correctly dropped.
+  useLayoutEffect(() => {
     epoch.current += 1;
     setImgState('loading');
   }, [url]);
@@ -99,12 +161,10 @@ export const ViewerCard = ({
   const badges = badgesFor(view);
   const chipColor = view.type === 'rgb' ? t.accent : t.text;
 
-  const handleLoad = (myEpoch) => {
-    if (myEpoch !== epoch.current) return; // stale (race-aware, P3-X)
+  const handleLoad = () => {
     setImgState('ok');
   };
-  const handleError = (myEpoch) => {
-    if (myEpoch !== epoch.current) return;
+  const handleError = () => {
     setImgState('failed');
   };
 
@@ -113,12 +173,20 @@ export const ViewerCard = ({
       data-view-id={view.view_id}
       data-selected={selected ? '1' : '0'}
       data-locked={isLocked ? '1' : '0'}
+      data-active={selected ? 'true' : undefined}
       onClick={() => onSelect?.(view.view_id)}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      role="button"
+      // M12 accessibility P0: previously this was role="button"
+      // with `aria-selected="true"` (axe critical: aria-allowed-attr)
+      // AND it contained nested `<button>`s (axe serious:
+      // nested-interactive). Switching to role="group" with an
+      // `aria-label` keeps the wrapper a discoverable region while
+      // allowing the inner buttons (handoff, lock, remove,
+      // duplicate) to be reachable. Selection is still surfaced via
+      // `data-selected` for tests/visual styling.
+      role="group"
       aria-label={`Viewer ${view.name}${selected ? ' (selected)' : ''}${isLocked ? ' (locked)' : ''}`}
-      aria-selected={selected ? 'true' : 'false'}
       style={{
         position: 'relative',
         background: '#0a0a0a',
@@ -132,22 +200,19 @@ export const ViewerCard = ({
         cursor: selected ? 'default' : 'pointer',
       }}
     >
-      {/* Frame image */}
+      {/* Frame image. M12 frontend-react F3: drop `key={url}` so React
+          swaps `src` on the same DOM node; epoch is bumped in
+          useLayoutEffect *before* this img remounts/repaints, and the
+          onLoad/onError read `epoch.current` directly via the closure
+          handlers above (no stale captured value). */}
       {url && (
         <img
-          key={url}
           src={url}
           alt={`Frame ${effectiveFrame} of ${view.name}`}
           decoding="async"
           loading="eager"
-          onLoad={(
-            (cur) => () =>
-              handleLoad(cur)
-          )(epoch.current)}
-          onError={(
-            (cur) => () =>
-              handleError(cur)
-          )(epoch.current)}
+          onLoad={handleLoad}
+          onError={handleError}
           style={{
             position: 'absolute',
             inset: 0,
@@ -270,174 +335,194 @@ export const ViewerCard = ({
         )}
       </div>
 
-      {/* Hover toolbar */}
-      {(hover || selected) && (
-        <div
-          data-region="viewer-hover-toolbar"
+      {/* Hover toolbar.
+          M12 accessibility P0 + react-ui-ux P1: always mount the
+          toolbar (hidden via opacity + pointer-events for sighted
+          users) so keyboard users can reach the inner controls via
+          Tab regardless of hover state. The buttons are also bumped
+          22→24 px to clear WCAG 2.2 SC 2.5.8 (target size). */}
+      <div
+        data-region="viewer-hover-toolbar"
+        data-visible={hover || selected ? '1' : '0'}
+        style={{
+          position: 'absolute',
+          right: 8,
+          top: 36,
+          display: 'flex',
+          gap: 2,
+          background: 'rgba(14,16,20,0.85)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: 3,
+          padding: 2,
+          opacity: hover || selected ? 1 : 0,
+          pointerEvents: hover || selected ? 'auto' : 'none',
+          transition: 'opacity 100ms ease-out',
+        }}
+        onFocusCapture={() => setHover(true)}
+        onBlurCapture={(ev) => {
+          // keep visible while focus is inside; collapse when it leaves.
+          const next = ev.relatedTarget;
+          const tb = ev.currentTarget;
+          if (!tb.contains(next)) setHover(false);
+        }}
+      >
+        <button
+          type="button"
+          aria-label={isLocked ? 'Unlock view' : 'Lock view to current frame'}
+          title={isLocked ? 'Unlock view' : 'Lock view to current frame'}
+          data-action="lock"
+          onClick={(ev) => {
+            ev.stopPropagation();
+            onToggleLock?.(view.view_id);
+          }}
           style={{
-            position: 'absolute',
-            right: 8,
-            top: 36,
+            width: 24,
+            height: 24,
+            border: 'none',
+            cursor: 'pointer',
+            borderRadius: 2,
+            background: isLocked ? 'rgba(197, 127, 0, 0.25)' : 'transparent',
+            color: isLocked ? '#ffc36f' : '#d8dde6',
             display: 'flex',
-            gap: 2,
-            background: 'rgba(14,16,20,0.85)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: 3,
-            padding: 2,
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 0,
           }}
         >
-          <button
-            type="button"
-            aria-label={isLocked ? 'Unlock view' : 'Lock view to current frame'}
-            data-action="lock"
-            onClick={(ev) => {
-              ev.stopPropagation();
-              onToggleLock?.(view.view_id);
-            }}
-            style={{
-              width: 22,
-              height: 22,
-              border: 'none',
-              cursor: 'pointer',
-              borderRadius: 2,
-              background: isLocked ? 'rgba(197, 127, 0, 0.25)' : 'transparent',
-              color: isLocked ? '#ffc36f' : '#d8dde6',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: 0,
-            }}
-          >
-            <Icon name={isLocked ? 'unlock' : 'lock'} size={12} />
-          </button>
-          <button
-            type="button"
-            aria-label="Duplicate view"
-            data-action="duplicate"
-            onClick={(ev) => {
-              ev.stopPropagation();
-              onDuplicate?.(view.view_id);
-            }}
-            style={{
-              width: 22,
-              height: 22,
-              border: 'none',
-              cursor: 'pointer',
-              borderRadius: 2,
-              background: 'transparent',
-              color: '#d8dde6',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: 0,
-            }}
-          >
-            <Icon name="copy" size={12} />
-          </button>
-          <button
-            type="button"
-            aria-label="Send frame to USAF"
-            data-action="handoff-usaf"
-            onClick={(ev) => {
-              ev.stopPropagation();
-              onHandoff?.(view.view_id, 'usaf');
-            }}
-            style={{
-              width: 22,
-              height: 22,
-              border: 'none',
-              cursor: 'pointer',
-              borderRadius: 2,
-              background: 'transparent',
-              color: '#d8dde6',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: 0,
-              fontSize: 9,
-              fontWeight: 700,
-            }}
-          >
-            →U
-          </button>
-          <button
-            type="button"
-            aria-label="Send frame to FPN"
-            data-action="handoff-fpn"
-            onClick={(ev) => {
-              ev.stopPropagation();
-              onHandoff?.(view.view_id, 'fpn');
-            }}
-            style={{
-              width: 22,
-              height: 22,
-              border: 'none',
-              cursor: 'pointer',
-              borderRadius: 2,
-              background: 'transparent',
-              color: '#d8dde6',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: 0,
-              fontSize: 9,
-              fontWeight: 700,
-            }}
-          >
-            →F
-          </button>
-          <button
-            type="button"
-            aria-label="Send frame to DoF"
-            data-action="handoff-dof"
-            onClick={(ev) => {
-              ev.stopPropagation();
-              onHandoff?.(view.view_id, 'dof');
-            }}
-            style={{
-              width: 22,
-              height: 22,
-              border: 'none',
-              cursor: 'pointer',
-              borderRadius: 2,
-              background: 'transparent',
-              color: '#d8dde6',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: 0,
-              fontSize: 9,
-              fontWeight: 700,
-            }}
-          >
-            →D
-          </button>
-          <button
-            type="button"
-            aria-label="Remove view"
-            data-action="remove"
-            onClick={(ev) => {
-              ev.stopPropagation();
-              onRemove?.(view.view_id);
-            }}
-            style={{
-              width: 22,
-              height: 22,
-              border: 'none',
-              cursor: 'pointer',
-              borderRadius: 2,
-              background: 'transparent',
-              color: '#d8dde6',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: 0,
-            }}
-          >
-            <Icon name="close" size={12} />
-          </button>
-        </div>
-      )}
+          <Icon name={isLocked ? 'unlock' : 'lock'} size={12} />
+        </button>
+        <button
+          type="button"
+          aria-label="Duplicate view"
+          title="Duplicate view"
+          data-action="duplicate"
+          onClick={(ev) => {
+            ev.stopPropagation();
+            onDuplicate?.(view.view_id);
+          }}
+          style={{
+            width: 24,
+            height: 24,
+            border: 'none',
+            cursor: 'pointer',
+            borderRadius: 2,
+            background: 'transparent',
+            color: '#d8dde6',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 0,
+          }}
+        >
+          <Icon name="copy" size={12} />
+        </button>
+        <button
+          type="button"
+          aria-label="Send frame to USAF Resolution"
+          title="Send frame to USAF Resolution"
+          data-action="handoff-usaf"
+          onClick={(ev) => {
+            ev.stopPropagation();
+            onHandoff?.(view.view_id, 'usaf');
+          }}
+          style={{
+            width: 24,
+            height: 24,
+            border: 'none',
+            cursor: 'pointer',
+            borderRadius: 2,
+            background: 'transparent',
+            color: '#d8dde6',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 0,
+            fontSize: 10,
+            fontWeight: 700,
+          }}
+        >
+          →U
+        </button>
+        <button
+          type="button"
+          aria-label="Send frame to FPN"
+          title="Send frame to FPN"
+          data-action="handoff-fpn"
+          onClick={(ev) => {
+            ev.stopPropagation();
+            onHandoff?.(view.view_id, 'fpn');
+          }}
+          style={{
+            width: 24,
+            height: 24,
+            border: 'none',
+            cursor: 'pointer',
+            borderRadius: 2,
+            background: 'transparent',
+            color: '#d8dde6',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 0,
+            fontSize: 10,
+            fontWeight: 700,
+          }}
+        >
+          →F
+        </button>
+        <button
+          type="button"
+          aria-label="Send frame to Depth of Field"
+          title="Send frame to Depth of Field"
+          data-action="handoff-dof"
+          onClick={(ev) => {
+            ev.stopPropagation();
+            onHandoff?.(view.view_id, 'dof');
+          }}
+          style={{
+            width: 24,
+            height: 24,
+            border: 'none',
+            cursor: 'pointer',
+            borderRadius: 2,
+            background: 'transparent',
+            color: '#d8dde6',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 0,
+            fontSize: 10,
+            fontWeight: 700,
+          }}
+        >
+          →D
+        </button>
+        <button
+          type="button"
+          aria-label="Remove view"
+          title="Remove view"
+          data-action="remove"
+          onClick={(ev) => {
+            ev.stopPropagation();
+            onRemove?.(view.view_id);
+          }}
+          style={{
+            width: 24,
+            height: 24,
+            border: 'none',
+            cursor: 'pointer',
+            borderRadius: 2,
+            background: 'transparent',
+            color: '#d8dde6',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 0,
+          }}
+        >
+          <Icon name="close" size={12} />
+        </button>
+      </div>
 
       {imgState === 'failed' && (
         <div

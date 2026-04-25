@@ -144,6 +144,15 @@ function reducer(state, action) {
           ...state.streams.filter((s) => s.stream_id !== action.payload.stream_id),
         ],
       };
+    case 'stream/evict': {
+      // recording-inspection-implementation-v1 M12 frontend-react F1.
+      // Reducer-internal eviction so the listener doesn't have to
+      // close over a fresh `state.streams` snapshot every render.
+      const id = action.payload;
+      const streams = state.streams.filter((s) => s.stream_id !== id);
+      const activeStreamId = state.activeStreamId === id ? null : state.activeStreamId;
+      return { ...state, streams, activeStreamId };
+    }
     case 'stream/active': {
       const s = state.streams.find((x) => x.stream_id === action.payload);
       const layout = state.layout || 'single';
@@ -251,6 +260,10 @@ export const PlaybackProvider = ({ children }) => {
   // ----- Eviction kind-routing (risk-skeptic P0-B) -----
   // Subscribe to mantis:source-evicted events and clear local cache
   // for stream/recording/dark/job kinds.
+  // M12 frontend-react F1: subscribe once with `[]` deps and route
+  // through the reducer (`stream/evict`) so the handler doesn't
+  // capture a stale `state.streams` snapshot. The reducer reads
+  // current state via its own argument.
   useEffect(() => {
     const onEvicted = (ev) => {
       const kind = ev.detail?.kind ?? 'source';
@@ -258,15 +271,11 @@ export const PlaybackProvider = ({ children }) => {
       if (!id) return;
       if (kind === 'recording') dispatch({ type: 'recording/removed', payload: id });
       else if (kind === 'dark') dispatch({ type: 'dark/removed', payload: id });
-      else if (kind === 'stream')
-        dispatch({
-          type: 'streams/set',
-          payload: state.streams.filter((s) => s.stream_id !== id),
-        });
+      else if (kind === 'stream') dispatch({ type: 'stream/evict', payload: id });
     };
     window.addEventListener('mantis:source-evicted', onEvicted);
     return () => window.removeEventListener('mantis:source-evicted', onEvicted);
-  }, [state.streams]);
+  }, []);
 
   const value = useMemo(() => ({ state, dispatch }), [state]);
   return <PlaybackCtx.Provider value={value}>{children}</PlaybackCtx.Provider>;

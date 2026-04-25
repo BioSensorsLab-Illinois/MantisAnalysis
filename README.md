@@ -8,13 +8,14 @@
 Browser-based analysis suite for **MantisCam GSense BSI dual-gain RGB-NIR**
 recordings, plus generic PNG / TIFF / JPG images. A local FastAPI server
 wraps pure-NumPy / SciPy analysis; a React single-page app in `web/` is the
-UI. Three modes:
+UI. Four modes:
 
 | Mode | What it does |
 |---|---|
 | **USAF Resolution** | Pick profile lines across USAF-1951 chart bar groups; per-line Michelson contrast (percentile / FFT / min-max) and per-channel detection limit are computed server-side. Six-tab analysis window. |
 | **FPN Analysis** | Drag a rectangular ROI on any channel; live DSNU / PRNU / row-σ / col-σ / residual-σ updates from the server on every ROI / ISP / channel change. Four figure types per channel. |
 | **Depth of Field** | Drop focus probe points or draw scan lines; four focus metrics (variance of Laplacian, Brenner, Tenengrad, FFT-HF). Optional H/V reference-length calibration converts all readouts to μm / mm / cm. |
+| **Playback (Recording Inspection)** *(preview)* | Inspect MantisCam HDF5 recordings frame-by-frame: multi-file streams, dark-frame averaging by exposure, per-view rendering (5 ISP modes), 9-section Inspector with CCM editor + presets + frame-LRU controls, image (PNG/TIFF/JPEG) + video (MP4/APNG/GIF/PNG-seq) export, and send-to-mode handoff into USAF/FPN/DoF. Behind the `mantis/playback/enabled='1'` localStorage flag (set in DevTools Console then reload). Shipped 2026-04-25 in `recording-inspection-implementation-v1`. |
 
 Designed by **Zhongmin Zhu** (`j@polarxphotonics.com`) — **BioSensors Lab @ UIUC**.
 Released under the [MIT License](LICENSE).

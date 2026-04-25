@@ -3,6 +3,11 @@
 As of D-0009 the app is a local web tool: FastAPI backend + React SPA.
 The PyQt desktop surface has been deleted.
 
+Four user-facing modes: USAF Resolution, FPN, Depth of Field, and
+**Playback (Recording Inspection)** — added by
+`recording-inspection-implementation-v1` (2026-04-25). Playback is
+flag-gated behind `mantis/playback/enabled` localStorage key.
+
 ## Layered view (outer → inner)
 
 ```
@@ -23,11 +28,41 @@ The PyQt desktop surface has been deleted.
 │   web/src/fpn.jsx      — FPN mode (drag ROI → live DSNU/PRNU)     │
 │   web/src/dof.jsx      — DoF mode (points + lines + H/V refs)     │
 │   web/src/analysis.jsx — analysis results modal (server PNGs)     │
+│   web/src/playback/    — Playback mode (16 components, M5–M11):    │
+│                          index, state, EmptyState, SourcesPanel,   │
+│                          StreamHeader, StreamBuilderModal,         │
+│                          FilePill, DarkFrameRow, ViewerCard,       │
+│                          ViewerGrid, TimelineStrip, Inspector,     │
+│                          OverlayBuilderModal, ExportImageModal,    │
+│                          ExportVideoModal, api                     │
 ├───────────────────────────────────────────────────────────────────┤
 │ HTTP API — FastAPI + uvicorn                                       │
-│   mantisanalysis/server.py   — route definitions + Pydantic schemas│
-│   mantisanalysis/session.py  — in-memory session store (LRU)       │
-│   mantisanalysis/figures.py  — matplotlib → PNG bytes             │
+│   mantisanalysis/server.py        — route definitions + Pydantic    │
+│                                    schemas (analysis modes)         │
+│   mantisanalysis/session.py       — in-memory analysis-source store │
+│                                    (LRU)                            │
+│   mantisanalysis/figures.py       — matplotlib → PNG bytes          │
+│   mantisanalysis/playback_api.py  — `/api/playback/*` (Playback     │
+│                                    mode — 24+ routes incl. handoff) │
+├───────────────────────────────────────────────────────────────────┤
+│ PLAYBACK PIPELINE (M1-M11, pure NumPy/h5py/PIL/matplotlib/imageio)  │
+│   mantisanalysis/recording.py        — H5 metadata inspection +     │
+│                                       extract_frame (5 ISP modes)   │
+│   mantisanalysis/dark_frame.py       — average_dark_h5 (mean /      │
+│                                       median / sigma_clipped) +     │
+│                                       match_dark_by_exposure        │
+│   mantisanalysis/playback_session.py — PlaybackStore: recordings /  │
+│                                       darks / streams / jobs /      │
+│                                       presets + process-global      │
+│                                       byte-capped frame LRU         │
+│   mantisanalysis/playback_pipeline.py — single render entry point   │
+│                                       (WYSIWYG): render_frame +     │
+│                                       solve_ccm_from_patches +      │
+│                                       CCM_TARGETS catalog           │
+│   mantisanalysis/playback_export.py  — image + video export         │
+│                                       (mp4 / apng / gif / png-seq), │
+│                                       ProcessPoolExecutor for video,│
+│                                       ffmpeg gate, sidecar JSON     │
 ├───────────────────────────────────────────────────────────────────┤
 │ FIGURE BUILDERS (pure matplotlib — post D-0014 the files are Qt-free)│
 │   mantisanalysis/usaf_render.py    — `build_analysis_figures`      │
@@ -62,8 +97,26 @@ The PyQt desktop surface has been deleted.
 - `figures` → `usaf_render`, `fpn_render`, `dof_render`.
 - `session` → `image_io`.
 - `server` → `figures`, `session`, `usaf_groups`, `fpn_analysis`,
-  `dof_analysis`.
+  `dof_analysis`, `playback_api` (mounts the `/api/playback/*` routes).
 - `app` → `server` (imports `mantisanalysis.server:app` via uvicorn).
+
+**Playback subgraph** (recording-inspection-implementation-v1):
+- `recording` → `image_io` (`extract_with_mode`, `luminance_from_rgb`).
+- `dark_frame` → `recording`.
+- `playback_session` → `recording`, `dark_frame`.
+- `playback_pipeline` → `recording`, `dark_frame`, `playback_session`.
+- `playback_export` → `playback_pipeline`, `playback_session`.
+- `playback_api` → `recording`, `dark_frame`, `playback_session`,
+  `playback_pipeline`, `playback_export`, `session` (only on the
+  send-to-mode handoff path, to register a `LoadedSource` in the
+  analysis-mode `STORE`).
+
+Analysis-purity (AGENT_RULES rule 7) enforced: `recording`,
+`dark_frame`, `playback_session`, `playback_pipeline`, `playback_export`
+import only from numpy/h5py/PIL/matplotlib/imageio. They never import
+fastapi / uvicorn / server. The analysis-mode `STORE` entry happens
+exclusively from `playback_api.handoff`, the only API-aware module on
+the Playback side.
 
 Acyclic. The pre-D-0014 cross-module reach from `dof_render` into
 `fpn_render` (R-0007) is gone; both now share `plotting`.

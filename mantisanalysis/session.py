@@ -131,6 +131,27 @@ class SessionStore:
             except OSError:
                 pass
 
+    def register_external(self, src: LoadedSource) -> LoadedSource:
+        """Register a `LoadedSource` built outside the file-loader path.
+
+        Used by the Playback `handoff` route (recording-inspection-
+        implementation-v1 M11 + M12 fastapi-backend P0 #2 + risk-
+        skeptic B1) so the analysis-mode `STORE` honors its own
+        eviction-tracking invariant: when the registered source later
+        gets LRU-evicted, `was_evicted(source_id)` correctly returns
+        True and the server can surface 410 Gone (R-0009) instead of
+        404. Direct `STORE._items[id] = src` poking does not honor
+        this contract.
+
+        The caller is responsible for constructing the `LoadedSource`
+        with a fresh `source_id`. The store still enforces the LRU
+        cap immediately after insertion.
+        """
+        with self._lock:
+            self._items[src.source_id] = src
+            self._evict_locked()
+        return src
+
     def get(self, source_id: str) -> LoadedSource:
         with self._lock:
             if source_id not in self._items:
@@ -144,6 +165,20 @@ class SessionStore:
                     sorted(self._items.values(), key=lambda s: s.loaded_at, reverse=True)]
 
     # ---- Dark-frame attachment ------------------------------------------
+    def _refuse_if_dark_already_subtracted(self, src: "LoadedSource") -> None:
+        """Refuse a dark-attach against a source whose channels were
+        already dark-subtracted upstream — typically a Playback handoff
+        where ``attrs["dark_already_subtracted"] = "true"``. Per
+        recording-inspection-implementation-v1 fastapi-backend P1 +
+        risk-skeptic A3 + planner-architect P0-2: the contract is that
+        the receiving mode does NOT subtract a second dark."""
+        if str(src.attrs.get("dark_already_subtracted", "")).lower() == "true":
+            raise ValueError(
+                "source already had dark subtracted on the Playback handoff "
+                "(attrs.dark_already_subtracted=true); detach via clear_dark "
+                "first if you want to attach a different dark"
+            )
+
     def attach_dark_from_path(self, source_id: str, path: str | Path,
                               name: Optional[str] = None) -> "LoadedSource":
         """Load a dark frame from disk and attach it to `source_id`.
@@ -152,9 +187,11 @@ class SessionStore:
         config so the key set matches after any reconfigure_isp call.
         Validates that the dark file produces the same channel keys +
         shapes as the parent source. Raises `KeyError` on unknown source,
-        `ValueError` on shape / key mismatch.
+        `ValueError` on shape / key mismatch *or* on a Playback-handoff
+        source whose `attrs["dark_already_subtracted"] == "true"`.
         """
         src = self.get(source_id)
+        self._refuse_if_dark_already_subtracted(src)
         dark_channels, _attrs, _raw, _mode_id, _cfg, _kind = load_any_detail(
             path,
             isp_mode_id=src.isp_mode_id,
@@ -178,6 +215,7 @@ class SessionStore:
             tmp_path = Path(f.name)
         try:
             src = self.get(source_id)
+            self._refuse_if_dark_already_subtracted(src)
             dark_channels, _attrs, _raw, _mode_id, _cfg, _kind = load_any_detail(
                 tmp_path,
                 isp_mode_id=src.isp_mode_id,

@@ -7,6 +7,46 @@ mitigation. Append new risks as discovered.
 
 ## Open risks
 
+### R-0017 — Playback video encode is single-process; cancel granularity is "one frame" (severity: low)
+
+**Where**: `mantisanalysis/playback_api.py::export_video::_run`
+runs the encoder in a `threading.Thread`; `cancel_event` is a
+`multiprocessing.Event` that acts as a thread-shared flag.
+`playback_export.write_video` does not poll the event inside
+`imageio_ffmpeg.write_frames` — only between frames yielded by
+the inner generator. So a cancel mid-mp4-flush still produces a
+file (which we then `unlink(missing_ok=True)` per risk-skeptic A2),
+but the user sees ~1 frame of latency between Cancel click and the
+encoder noticing.
+
+**Mitigation**: documented honestly in the modules' docstrings.
+Track in B-0029 (`playback-multiproc-v1`) — when scale-out lands,
+swap `multiprocessing.Event()` for `Manager().Event()` and route
+through `ProcessPoolExecutor`.
+
+### R-0018 — Playback feature flag is OFF by default (severity: low — intentional)
+
+**Where**: `mantis/playback/enabled` localStorage key, default
+absent → mode hidden. Per risk-skeptic P1-K (M0). Without the
+flag, the rail tile + `4` keyboard shortcut + ⌘K Playback entry
+are all hidden.
+
+**Mitigation**: document in README + intend to flip in B-0032
+once UX polish (B-0030) and per-cell perf (B-0035..B-0037) land.
+Not a real risk; flagged for visibility.
+
+### R-0019 — Visual baselines on disk; no CI diff yet (severity: low)
+
+**Where**: `tests/web/test_playback_visual_baselines.py` writes 5
+PNGs to `.agent/runs/recording-inspection-implementation-v1/
+screenshots/` per run. CI uploads them as an artifact (`smoke.yml`
+M12 edit). Diff against a committed baseline is **not** wired —
+visual regressions ship silently.
+
+**Mitigation**: track in B-0038
+(`visual-regression-infra-v1`). Today the baselines are review
+evidence, not a regression gate.
+
 ### R-0005 — Sharpen-to-analysis can produce unphysical Michelson > 1 (severity: low — **CLOSED 2026-04-24 via correctness-sweep-v1**)
 
 **Where**: `mantisanalysis/usaf_groups.py::measure_modulation_5pt`

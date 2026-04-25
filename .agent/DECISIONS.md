@@ -659,3 +659,84 @@ no automated a11y. `B-0014` tracked the migration decision. Closed
   `page.evaluate`.
 - Phase 5c promoted from optional to mandatory if `@ts-nocheck`
   is observed masking real type bugs.
+
+
+## D-0018 — Playback (Recording Inspection) mode behind a feature flag (2026-04-25)
+
+**Context**: `recording-inspection-implementation-v1` shipped a
+substantial new mode (16 React components, 6 backend modules, 24+
+routes, multi-file H5 streams, dark-frame averaging, single-render-
+entry-point WYSIWYG, image+video export, send-to-mode handoff). The
+mode lives in the same FastAPI app + React SPA but has its own
+state surface (`PlaybackStore` parallel to analysis `STORE`,
+new `mantis:source-evicted` `detail.kind` routing, frame-LRU,
+preset CRUD).
+
+**Decision**: ship with `mantis/playback/enabled` localStorage
+flag (default OFF) until UX/perf polish is in (B-0030 + B-0035..B-0037).
+
+- Rail tile + `4` keyboard shortcut + \⌘K Playback entry are all
+  flag-gated.
+- Risk-skeptic P1-K (M0).
+- Eviction listener in `web/src/app.tsx` filters non-`source` kinds
+  so non-Playback modes are not affected by the new event traffic.
+- Default flip tracked as B-0032.
+
+**Implications**:
+
+- Existing USAF/FPN/DoF flows untouched; users opt in.
+- CI runs the flag-on path (the `mantis/playback/enabled='1'`
+  init-script is set in `tests/web/` Tier 4 tests).
+- README mentions Playback only in a 'preview features' subsection
+  with the localStorage opt-in.
+
+## D-0019 — Playback video encode is single-process; ProcessPool deferred (2026-04-25)
+
+**Context**: M0 ExecPlan promised cross-process video encode via
+`ProcessPoolExecutor` + `Manager().Event()` per risk-skeptic
+P0-A. Implementation chose threads to keep the in-process
+`_FrameLRU` cache hot. M12 risk-skeptic A1 caught the documentation
+drift.
+
+**Decision**: honest single-process for now. Documented in
+`mantisanalysis/playback_export.py`, `playback_session.py`, and
+`playback_api.py` docstrings. Dead `render_frame_for_export`
+function + `ProcessPoolExecutor` import removed.
+`multiprocessing.Event()` retained on `ExportJob.cancel_event` so
+a future swap to `Manager().Event()` doesn't change call sites.
+Tracked as B-0029 (`playback-multiproc-v1`).
+
+**Implications**:
+
+- Cancel granularity = one frame (not one batch).
+- Burst exports serialize on the encoder.
+- §Tier 8 perf budget (1080p tiled-2×2 mp4 ≤ 8 s) untested in
+  automation; tracked as B-0034.
+
+## D-0020 — Playback handoff carries `dark_already_subtracted` contract (2026-04-25)
+
+**Context**: `POST /api/playback/streams/{sid}/handoff/{mode}`
+sends post-dark, pre-display channels to the analysis-mode
+`STORE`. Without an explicit contract, the receiving mode's
+dark-attach would re-subtract the same dark and silently halve the
+already-corrected signal.
+
+**Decision**: the handed-off `LoadedSource` carries
+`attrs["dark_already_subtracted"] = "true"` whenever dark was
+applied. `SessionStore.attach_dark_from_path` and
+`attach_dark_from_bytes` refuse the attach with `ValueError`
+when the attr is set. The route also passes
+`stream.isp_mode_id` and `isp_config={}` so the receiving mode's
+ISP Settings round-trip works (re-extract from raw_frame is not
+supported — handoff is 'frozen frame as-is').
+
+**Implications**:
+
+- USAF/FPN/DoF receive the post-dark luminance directly; double-dark
+  is impossible.
+- `STORE.register_external` is the public hook; `STORE._items`
+  poking is forbidden (eviction-tracking R-0009 contract).
+- The new source's UI hint string includes "·handoff from
+  {stream}" so the user knows it's not a normal load.
+
+

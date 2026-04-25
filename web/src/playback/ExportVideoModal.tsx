@@ -6,7 +6,7 @@ import { Button, Checkbox, Icon, Modal, Select, useTheme } from '../shared.tsx';
 import { playbackApi } from './api.ts';
 import { usePlayback } from './state.tsx';
 
-const { useEffect, useState } = React;
+const { useEffect, useRef, useState } = React;
 
 const FORMATS_BASE = [
   { value: 'mp4', label: 'MP4 (H.264)', requiresFfmpeg: true },
@@ -46,6 +46,23 @@ export const ExportVideoModal = ({ onClose, say }) => {
   const [hasFfmpeg, setHasFfmpeg] = useState(true);
   const [job, setJob] = useState(null);
   const [error, setError] = useState(null);
+
+  // M12 frontend-react F4: poll lifecycle. Track the active timeout
+  // and an alive flag in refs so the loop terminates cleanly when
+  // the modal unmounts. Without this the poll keeps calling
+  // setJob() on an unmounted component (warning + memory).
+  const pollAliveRef = useRef(true);
+  const pollTimeoutRef = useRef(null);
+  useEffect(() => {
+    pollAliveRef.current = true;
+    return () => {
+      pollAliveRef.current = false;
+      if (pollTimeoutRef.current != null) {
+        clearTimeout(pollTimeoutRef.current);
+        pollTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   const range =
     state.range && state.range[0] != null
@@ -117,31 +134,40 @@ export const ExportVideoModal = ({ onClose, say }) => {
   };
 
   const pollJob = (jobId) => {
-    let alive = true;
     const tick = async () => {
-      if (!alive) return;
+      if (!pollAliveRef.current) return;
       try {
         const r = await fetch(`/api/playback/exports/${jobId}`);
         const j = await r.json();
+        if (!pollAliveRef.current) return;
         setJob(j);
         if (j.status === 'done' || j.status === 'failed' || j.status === 'cancelled') {
           if (j.status === 'done') say && say('Video export complete', 'success');
           return;
         }
-        setTimeout(tick, 250);
+        pollTimeoutRef.current = setTimeout(tick, 250);
       } catch {
         /* ignore transient */
       }
     };
     tick();
-    return () => {
-      alive = false;
-    };
   };
 
   const cancel = async () => {
     if (!job) return;
-    await fetch(`/api/playback/exports/${job.job_id}`, { method: 'DELETE' });
+    // M12 frontend-react F4: stop polling immediately so a stale
+    // setJob() doesn't overwrite the user-cancelled state with a
+    // server-side 'rendering' status mid-flight.
+    pollAliveRef.current = false;
+    if (pollTimeoutRef.current != null) {
+      clearTimeout(pollTimeoutRef.current);
+      pollTimeoutRef.current = null;
+    }
+    try {
+      await fetch(`/api/playback/exports/${job.job_id}`, { method: 'DELETE' });
+    } finally {
+      pollAliveRef.current = true; // re-arm in case user retries
+    }
   };
 
   const formats = FORMATS_BASE.filter((f) => !f.requiresFfmpeg || hasFfmpeg);
@@ -245,6 +271,10 @@ export const ExportVideoModal = ({ onClose, say }) => {
             <div
               data-region="export-video-job"
               data-job-status={job.status}
+              // M12 accessibility P1: announce progress + status
+              // updates politely so screen readers don't have to
+              // poll.
+              aria-live="polite"
               style={{
                 padding: 10,
                 background: t.panelAlt,
@@ -259,6 +289,16 @@ export const ExportVideoModal = ({ onClose, say }) => {
                 job · {job.job_id} · {job.status}
               </div>
               <div
+                role="progressbar"
+                aria-valuenow={Math.round((job.progress || 0) * 100)}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuetext={
+                  job.total_frames
+                    ? `${job.current_frame || 0} of ${job.total_frames} frames`
+                    : `${Math.round((job.progress || 0) * 100)} percent`
+                }
+                aria-label="Video export progress"
                 style={{
                   marginTop: 6,
                   height: 6,

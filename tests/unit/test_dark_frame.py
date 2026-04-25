@@ -211,6 +211,28 @@ def test_match_dark_empty_pool() -> None:
     assert alts == []
 
 
+def test_match_dark_zero_target_exposure_returns_none() -> None:
+    """recording-inspection-implementation-v1 risk-skeptic-m12 A5:
+    when target exposure is ~zero (missing/unset metadata), refuse
+    to match — including against a dark with the same zero exposure
+    (which would naively divide-by-eps to delta=0)."""
+    bogus = _make_master(0.0, name="zero_exp")  # also zero
+    real = _make_master(20_000.0, name="d20")
+    best, alts = match_dark_by_exposure(0.0, [bogus, real], tolerance=0.10)
+    assert best is None
+    assert alts == []
+
+
+def test_match_dark_skips_zero_exposure_dark_against_real_target() -> None:
+    """A dark whose own exposure is zero is meaningless; skip it."""
+    zero = _make_master(0.0, name="zero")
+    real = _make_master(20_000.0, name="real")
+    best, alts = match_dark_by_exposure(20_000.0, [zero, real], tolerance=0.10)
+    assert best is not None and best.name == "real"
+    # The zero dark must not appear as an alternative either.
+    assert all(m.dark.name != "zero" for m in alts)
+
+
 def test_match_dark_skips_masters_without_exposure() -> None:
     """A master with `exposure=None` cannot be matched."""
     pool = [

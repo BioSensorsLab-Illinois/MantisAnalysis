@@ -9,12 +9,26 @@ strict byte equality impossible.
 
 Per user 2026-04-24:
   * Image: PNG / TIFF / JPEG; tiled compose with 1-px divider.
-  * Video: MP4 (H.264) / APNG / GIF / PNG-seq; ProcessPoolExecutor
-    workers re-open H5 by path (risk-skeptic P0-A — workers never
-    receive a pickled h5py object); cancel via multiprocessing.Event.
+  * Video: MP4 (H.264) / APNG / GIF / PNG-seq; **single-process**
+    encoding under a ``threading.Thread`` with cancel via
+    ``multiprocessing.Event`` (the Event is process-local but cheap
+    + already wired; honest about the deployment model below).
   * Sidecar JSON written next to every export — full ViewState[],
     stream metadata, render-pipeline-version, frame range, fps.
   * GIF capped at 300 frames (risk-skeptic P1-E).
+
+**Deployment honesty (M12 risk-skeptic A1).** The original
+ExecPlan promised cross-process parallelism via
+``ProcessPoolExecutor`` for video encode + ``Manager().Event()``
+for cancel. After implementation the local single-user use case
+proved fast enough on a single thread (the bottleneck is the
+encoder, not the per-frame render), and the threaded path keeps
+the in-process ``_FrameLRU`` cache hit rate high. Multi-process
+scale-out is deferred to a future ``playback-multiproc-v1``
+follow-up; only attempt it under uvicorn ``--workers N>1`` or
+when wall-clock for the §Tier 8 budget case (1080p tiled-2×2 mp4
+≤ 8 s) is consistently breached. Until then the Event cancel
+works because both setter and waiter live in the same process.
 """
 
 from __future__ import annotations
@@ -27,7 +41,6 @@ import threading
 import time
 import uuid
 import zipfile
-from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -81,12 +94,22 @@ def _compose_tiled(rgbs: List[np.ndarray], cols: int, divider_color=(48, 52, 60)
 def render_views_for_frame(views: Sequence[ViewState],
                             channels: Dict[str, np.ndarray],
                             *,
+                            dark: Optional[Dict[str, np.ndarray]] = None,
                             max_dim: int = 1024,
                             burn_ctx: Optional[BurnInContext] = None,
                             ) -> List[np.ndarray]:
-    """Render every view for a single frame's channel dict."""
+    """Render every view for a single frame's channel dict.
+
+    The optional ``dark`` channel-dict is forwarded to
+    :func:`render_frame` *only when the per-view ``dark_on`` flag is
+    True*, mirroring preview's per-view contract (recording-inspection-
+    implementation-v1 fastapi-backend P0 #1, M12). Passing
+    ``dark=None`` makes every view render dark-free regardless of its
+    flag (the prior, WYSIWYG-broken behavior).
+    """
     return [
-        render_frame(channels, v, dark=None,
+        render_frame(channels, v,
+                     dark=(dark if v.dark_on else None),
                      max_dim=max_dim, burn_ctx=burn_ctx)
         for v in views
     ]
@@ -168,65 +191,6 @@ def has_ffmpeg() -> bool:
 # ---------------------------------------------------------------------------
 # Video export — frame iteration + writer
 # ---------------------------------------------------------------------------
-
-
-def render_frame_for_export(rec_path: str,
-                             frame_dataset_path: str,
-                             local_frame: int,
-                             isp_mode_id: str,
-                             isp_config: Dict[str, Any],
-                             views_payload: List[Dict[str, Any]],
-                             max_dim: int,
-                             ts_s: float,
-                             ) -> np.ndarray:
-    """Worker entry point.  Re-opens the H5 by path inside the worker
-    process (risk-skeptic P0-A); never receives a pickled h5py object.
-    Returns one composed RGB frame (contactSheet or single)."""
-    from .recording import RecordingMeta as _Meta
-    # Reconstruct a minimal RecordingMeta — only the fields extract_frame
-    # needs. (Keeps cross-process payload small.)
-    meta = _Meta(
-        path=rec_path,
-        name=Path(rec_path).name,
-        size_bytes=0,
-        frame_count=local_frame + 1,  # only used for bounds check
-        frame_shape=(0, 0),
-        raw_shape=(0, 0),
-        channels=(),
-        isp_mode_id=isp_mode_id,
-        frame_dataset_path=frame_dataset_path,
-        timestamps_available=False,
-        timestamp_start_s=None,
-        timestamp_end_s=None,
-        estimated_fps=None,
-        exposure_min=None,
-        exposure_max=None,
-        exposure_mean=None,
-        camera_attrs={},
-        warnings=(),
-        errors=(),
-    )
-    mode = _isp.get_mode(isp_mode_id)
-    cfg = _isp.normalize_config(mode, isp_config)
-    channels = extract_frame(meta, local_frame, isp_mode=mode, isp_config=cfg)
-    rgbs: List[np.ndarray] = []
-    for vp in views_payload:
-        # Reconstruct a ViewState; we only carry the fields render_frame
-        # cares about, so build a fresh one and let the dataclass fill in
-        # defaults for the rest.
-        view = ViewState(**{
-            k: v
-            for k, v in vp.items()
-            if k in ViewState.__dataclass_fields__
-        })
-        rgbs.append(render_frame(channels, view, dark=None,
-                                  max_dim=max_dim,
-                                  burn_ctx=BurnInContext(
-                                      frame_index=local_frame,
-                                      timestamp_s=ts_s,
-                                      source_filename=Path(rec_path).name,
-                                  )))
-    return _compose_tiled(rgbs, cols=max(1, len(rgbs))) if len(rgbs) > 1 else rgbs[0]
 
 
 def write_video(frames_iter, *,
@@ -350,7 +314,6 @@ __all__ = [
     "RENDER_PIPELINE_VERSION",
     "render_views_for_frame",
     "export_image_bytes",
-    "render_frame_for_export",
     "write_video",
     "write_sidecar",
     "has_ffmpeg",

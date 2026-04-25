@@ -348,11 +348,24 @@ def match_dark_by_exposure(target: float,
     if not pool:
         return None, []
     eps = 1e-12
+    # recording-inspection-implementation-v1 risk-skeptic-m12 A5:
+    # When target exposure is ~zero (missing/unset metadata), the
+    # ``delta = abs(d.exposure - 0) / eps`` formula explodes for any
+    # nonzero dark exposure (correct: no match) — but a dark whose
+    # own ``exposure`` is also ~zero would give ``delta = 0/eps = 0``
+    # and "match" any target, which is wrong. Refuse the match
+    # outright when the target itself is degenerate.
+    if abs(float(target)) < eps:
+        return None, []
     target_abs = max(abs(float(target)), eps)
 
     cands: List[DarkMatch] = []
     for d in pool:
         if d.exposure is None:
+            continue
+        # Same guard for dark side — a zero-exposure dark cannot be
+        # a meaningful match for any positive-exposure recording.
+        if abs(float(d.exposure)) < eps:
             continue
         delta = abs(float(d.exposure) - float(target)) / target_abs
         cands.append(DarkMatch(dark=d, delta_pct=float(delta)))

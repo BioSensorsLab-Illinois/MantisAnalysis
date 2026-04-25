@@ -1,7 +1,7 @@
 project:
   name: MantisAnalysis
   version: "0.2.0"
-  description: "Analysis suite for MantisCam GSense BSI dual-gain RGB-NIR recordings — USAF resolution, FPN, depth-of-field. FastAPI + React 18 browser app."
+  description: "Analysis suite for MantisCam GSense BSI dual-gain RGB-NIR recordings — USAF resolution, FPN, depth-of-field, and Playback (Recording Inspection — flag-gated). FastAPI + React 18 browser app."
   license: MIT
   author:
     name: Zhongmin Zhu
@@ -53,6 +53,18 @@ major_modules:
     role: "DoF matplotlib figure builders"
   - path: mantisanalysis/resolution.py
     role: "LEGACY auto-strip FFT MTF (kept per D-0004)"
+  - path: mantisanalysis/recording.py
+    role: "Playback: H5 metadata inspection + extract_frame (5 ISP modes; AGENT_RULES rule 7 pure)"
+  - path: mantisanalysis/dark_frame.py
+    role: "Playback: average_dark_h5 (mean / median / sigma_clipped) + match_dark_by_exposure (zero-target guard per risk-skeptic A5)"
+  - path: mantisanalysis/playback_session.py
+    role: "Playback: PlaybackStore + RecordingHandle/DarkHandle/StreamHandle/ExportJob + process-global byte-capped frame LRU"
+  - path: mantisanalysis/playback_pipeline.py
+    role: "Playback: WYSIWYG single render entry (render_frame) + solve_ccm_from_patches + CCM_TARGETS"
+  - path: mantisanalysis/playback_export.py
+    role: "Playback: image (PNG/TIFF/JPEG) + video (mp4/apng/gif/png-seq) export + ffmpeg gate; render_views_for_frame applies dark per-view (M12 fastapi-backend P0 #1)"
+  - path: mantisanalysis/playback_api.py
+    role: "Playback: 24+ /api/playback/* routes (incl. handoff via STORE.register_external; HandoffRequest Pydantic; W-HANDOFF-NOLUM error-code shape)"
   - path: web/index.html
     role: "React 18 SPA entry — Vite root; loads /src/main.tsx as ES module"
   - path: web/src/main.tsx
@@ -73,12 +85,32 @@ major_modules:
     role: "ISP settings modal — mode selector + per-channel geometry (TypeScript; typed — Phase 5b-1)"
   - path: web/src/Brand.stories.tsx
     role: "Storybook seed story (BRAND swatches) — Phase 7 of bundler-migration-v1"
+  - path: web/src/ProcessingBadge.stories.tsx
+    role: "Playback: Storybook story for the ProcessingBadge primitive (8 variants) — recording-inspection-implementation-v1 M11"
+  - path: web/src/playback/
+    role: "Playback (Recording Inspection) mode — 16 React components: api, state, EmptyState, SourcesPanel, StreamHeader, StreamBuilderModal, FilePill, DarkFrameRow, ViewerCard (race-aware epoch + 6-button hover toolbar incl. handoff), ViewerGrid (5 layout presets), TimelineStrip (file-boundary shading + locked pins), Inspector (9 collapsible sections + CCM editor + presets + frame-LRU widget), OverlayBuilderModal, ExportImageModal, ExportVideoModal (W12/W13), index (mode entry, ticker, keyboard map, modal mounts). Flag-gated by mantis/playback/enabled localStorage key (default OFF — B-0032 will flip)."
   - path: .storybook/main.ts
     role: "Storybook flat config — bundler-migration-v1 Phase 7"
   - path: .storybook/preview.ts
     role: "Storybook preview decorators — dark backdrop + WCAG a11y addon"
   - path: tests/web/test_accessibility.py
     role: "axe-core WCAG A/AA gate — bundler-migration-v1 Phase 6"
+  - path: tests/unit/_h5_fixtures.py
+    role: "Playback: synthetic H5 builder (8 layout variants) — recording-inspection-implementation-v1 M1"
+  - path: tests/unit/test_recording_inspect.py
+    role: "Playback M1: H5 inspection + 7-fallback layout detection (22 tests)"
+  - path: tests/unit/test_dark_frame.py
+    role: "Playback M2: dark-frame averaging strategies + exposure matching (19 tests)"
+  - path: tests/unit/test_playback_stream.py
+    role: "Playback M3: PlaybackStore multi-file streams + frame LRU (26 tests)"
+  - path: tests/unit/test_playback_pipeline.py
+    role: "Playback M4 + M8: render_frame WYSIWYG + CCM solve (23 tests)"
+  - path: tests/headless/test_playback_api.py
+    role: "Playback Tier 3: /api/playback/* round-trip (45 tests including byte-equal WYSIWYG with dark, CCM, handoff with double-dark refusal, frame-LRU)"
+  - path: tests/web/test_playback_boot.py
+    role: "Playback Tier 4: rail tile, empty state, Sources panel, Stream Builder, ViewerGrid, Inspector, Overlay, Export, Handoff (16 web_smoke tests)"
+  - path: tests/web/test_playback_visual_baselines.py
+    role: "Playback M12: 5 visual-regression baselines (light + dark empty state + sample loaded single + 2x2 + 1024 narrow) — diff is B-0038 follow-up"
 
 entry_points:
   - "python -m mantisanalysis"
@@ -133,6 +165,10 @@ risky_areas:
   - "localStorage keys under mantis/ — schema migrations need care"
   - "matplotlib font rendering differs between CI and local (visual regression)"
   - "Rotate / flip silently invalidates picks (no coordinate remap)"
+  - "Playback video encode is single-process (R-0017); cancel granularity = 1 frame; ProcessPool migration deferred to B-0029"
+  - "Playback feature flag is OFF by default (R-0018) — set mantis/playback/enabled=1 in DevTools then reload"
+  - "Playback visual baselines (R-0019) committed for review evidence; diff against prior is B-0038"
+  - "Playback handoff carries dark_already_subtracted contract (D-0020); STORE.attach_dark_* refuses double-subtract"
 
 important_docs:
   root_entry:     CLAUDE.md

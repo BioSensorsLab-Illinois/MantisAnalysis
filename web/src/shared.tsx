@@ -2120,9 +2120,61 @@ const Kbd = ({ children, tone = 'default' }) => {
 // Modal — dimmed overlay with click-outside
 const Modal = ({ children, onClose, width = 480, label, padding = 20 }) => {
   const t = useTheme();
+  // recording-inspection-implementation-v1 M12 accessibility P0 +
+  // react-ui-ux P0: dialog ARIA semantics + focus trap + focus
+  // return.
+  const dialogRef = useRef(null);
+  const triggerRef = useRef(null);
+  useEffect(() => {
+    triggerRef.current = (typeof document !== 'undefined' && document.activeElement) || null;
+    // Move focus into the dialog on mount.
+    const node = dialogRef.current;
+    if (node) {
+      const first =
+        node.querySelector(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        ) || node;
+      try {
+        first.focus({ preventScroll: true });
+      } catch {
+        /* ignore */
+      }
+    }
+    return () => {
+      // Restore focus to trigger on close, if still in the document.
+      const trig = triggerRef.current;
+      if (trig && typeof trig.focus === 'function' && document.contains(trig)) {
+        try {
+          trig.focus({ preventScroll: true });
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+  }, []);
   useEffect(() => {
     const h = (e) => {
-      if (e.key === 'Escape') onClose?.();
+      if (e.key === 'Escape') {
+        onClose?.();
+        return;
+      }
+      // Focus trap.
+      if (e.key !== 'Tab') return;
+      const node = dialogRef.current;
+      if (!node) return;
+      const focusables = node.querySelectorAll(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      if (!focusables.length) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
@@ -2130,7 +2182,6 @@ const Modal = ({ children, onClose, width = 480, label, padding = 20 }) => {
   return (
     <div
       onClick={onClose}
-      aria-label={label}
       style={{
         position: 'fixed',
         inset: 0,
@@ -2143,6 +2194,11 @@ const Modal = ({ children, onClose, width = 480, label, padding = 20 }) => {
       }}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         style={{
           background: t.panel,
@@ -2186,6 +2242,10 @@ const Toast = ({ msg, kind = 'info', onDone, duration = 2200 }) => {
   }[kind];
   return (
     <div
+      // M12 accessibility P2/P3: announce status / errors. `info` and
+      // `success` use polite live region; `warn`/`danger` use alert.
+      role={kind === 'danger' ? 'alert' : 'status'}
+      aria-live={kind === 'danger' ? 'assertive' : 'polite'}
       style={{
         position: 'fixed',
         bottom: 38,
@@ -2335,6 +2395,8 @@ const pickImageFile = () =>
   });
 
 // Inject a one-time stylesheet for toast animation + selection + slider thumb
+// + global :focus-visible ring (recording-inspection-implementation-v1
+// M12 accessibility P1 + react-ui-ux P1).
 if (typeof document !== 'undefined' && !document.getElementById('mantis-style')) {
   const st = document.createElement('style');
   st.id = 'mantis-style';
@@ -2343,6 +2405,15 @@ if (typeof document !== 'undefined' && !document.getElementById('mantis-style'))
     .rgbnir-slider::-webkit-slider-thumb { appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--thumb, #1560d9); border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2); cursor: pointer; }
     .rgbnir-slider::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--thumb, #1560d9); border: 2px solid #fff; cursor: pointer; }
     ::selection { background: rgba(74,158,255,0.3); }
+    /* M12 accessibility P1: visible focus ring on all interactive
+       elements; ≥ 3:1 contrast against any neighboring fill. */
+    button:focus-visible, [role="button"]:focus-visible, a:focus-visible,
+    input:focus-visible, select:focus-visible, textarea:focus-visible,
+    [tabindex]:not([tabindex="-1"]):focus-visible {
+      outline: 2px solid #1560d9;
+      outline-offset: 2px;
+      border-radius: 3px;
+    }
   `;
   document.head.appendChild(st);
 }

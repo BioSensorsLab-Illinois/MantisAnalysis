@@ -94,7 +94,10 @@ def test_playback_flag_enables_rail_and_empty_state(web_server: str) -> None:
         # Sources panel skeleton renders.
         assert page.locator('[data-region="sources-panel"]').count() == 1
         # No console errors during boot or mode switch.
-        page.wait_for_timeout(500)
+        # M12 playwright-verifier P0: replace blind sleep with a
+        # network-idle assertion so console errors that fire during
+        # late-loading fonts / Plotly chunks are still caught.
+        page.wait_for_load_state("networkidle")
         errors = [
             e for e in errors
             if "in-browser Babel transformer" not in e
@@ -184,8 +187,17 @@ def test_playback_stream_builder_opens_for_two_recordings(
         browser = p.chromium.launch()
         ctx = browser.new_context()
         page = ctx.new_page()
+        # M12 playwright-verifier P0: cold-start flake fix. Persist
+        # both flag AND mode=play AND clear any prior playback state
+        # in `add_init_script` BEFORE the first navigation, so the
+        # test never depends on a previous test having clicked the
+        # rail tile. Also click the rail tile after the post-reload
+        # navigation as a belt-and-suspenders.
         page.add_init_script(
-            "try { localStorage.setItem('mantis/playback/enabled', '1'); } catch (e) {}"
+            """try {
+                localStorage.setItem('mantis/playback/enabled', '1');
+                localStorage.setItem('mantis/mode', JSON.stringify('play'));
+            } catch (e) {}"""
         )
         page.goto(web_server, wait_until="networkidle", timeout=15_000)
         page.locator('[data-mode-tile="play"]').first.click()
@@ -208,15 +220,17 @@ def test_playback_stream_builder_opens_for_two_recordings(
                 }
             }"""
         )
-        # Trigger the auto-open flow by hydrating from the server.
-        # `mode=play` is persisted in localStorage so reload comes back
-        # to Playback automatically — no re-click of the rail tile.
+        # Reload so the hydrate effect picks up the two new recordings
+        # and auto-opens Stream Builder. `mode=play` was set in the
+        # init script so post-reload we land in Playback.
         page.evaluate("() => window.location.reload()")
         page.wait_for_load_state("networkidle")
         # Stream Builder modal opens from the hydrate effect when 2+
-        # recordings exist with no active stream.
+        # recordings exist with no active stream. The wait must
+        # tolerate a slow first-cold-boot (Vite chunks + React mount
+        # under headless Chromium can take >5 s on CI).
         page.wait_for_selector('[data-region="stream-builder"]',
-                                state="visible", timeout=8_000)
+                                state="visible", timeout=12_000)
         # Apply the stream.
         page.get_by_role("button", name="Apply").first.click()
         page.wait_for_selector('[data-region="viewer-grid"]',
@@ -604,7 +618,10 @@ def test_playback_eviction_kind_filter(web_server: str) -> None:
                 detail: { kind: 'stream', source_id: 'fake-stream-id' },
             }))"""
         )
-        page.wait_for_timeout(500)
+        # M12 playwright-verifier P0: wait for any in-flight network
+        # to settle (would catch an unwanted reload), not a blind
+        # 500 ms sleep. networkidle = no in-flight requests for 500 ms.
+        page.wait_for_load_state("networkidle")
 
         # No additional /api/sources/load-sample request should have fired.
         assert len(load_sample_calls) == baseline, (

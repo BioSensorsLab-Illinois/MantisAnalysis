@@ -65,7 +65,6 @@ from .playback_export import (
     RENDER_PIPELINE_VERSION,
     export_image_bytes,
     has_ffmpeg as _exp_has_ffmpeg,
-    render_frame_for_export,
     render_views_for_frame,
     write_sidecar,
     write_video,
@@ -305,6 +304,18 @@ class VideoExportRequest(BaseModel):
     tile_arrangement: Optional[Tuple[int, int]] = None
     include_labels: bool = True
     views: List[Dict[str, Any]]
+
+
+class HandoffRequest(BaseModel):
+    """recording-inspection-implementation-v1 M11 + M12 fastapi-backend P1.
+
+    Promoted from Dict[str, Any] so frame and preserve_dark are typed
+    + a missing/wrong-typed `frame` returns 422 not silently coerced.
+    """
+    frame: int
+    view: Optional[Dict[str, Any]] = None
+    preserve_dark: bool = True
+    name: Optional[str] = None
 
 
 class ExportJobOut(BaseModel):
@@ -959,19 +970,32 @@ def mount_playback_api(app: FastAPI,
         ]
         # Build a burn-in context if labels are on.
         ctx = None
-        if req.include_labels:
+        # Pre-resolve the boundary/dark once per frame so both the
+        # burn-in context and the WYSIWYG dark resolution share the
+        # same exposure lookup (recording-inspection-implementation-v1
+        # fastapi-backend P0 #1, M12).
+        boundary_dark: Optional[Dict[str, np.ndarray]] = None
+        if req.include_labels or any(v.dark_on for v in views):
             from .playback_session import frame_lookup as _lookup
             try:
                 boundary, rec_id, local = _lookup(stream, req.frame)
-                ctx = BurnInContext(
-                    frame_index=req.frame,
-                    timestamp_s=boundary.ts_start_s + (local / max(stream.fps, 1e-9)),
-                    source_filename=Path(store.get_recording(rec_id).path).name,
-                )
+                if req.include_labels:
+                    ctx = BurnInContext(
+                        frame_index=req.frame,
+                        timestamp_s=boundary.ts_start_s + (local / max(stream.fps, 1e-9)),
+                        source_filename=Path(store.get_recording(rec_id).path).name,
+                    )
+                if any(v.dark_on for v in views):
+                    target = boundary.exposure
+                    if target is not None:
+                        pool = [h.master for h in store.list_darks()]
+                        best, _ = match_dark_by_exposure(target, pool)
+                        if best is not None:
+                            boundary_dark = best.channels
             except Exception:
                 ctx = None
-        rgbs = render_views_for_frame(views, channels, max_dim=1024,
-                                       burn_ctx=ctx)
+        rgbs = render_views_for_frame(views, channels, dark=boundary_dark,
+                                       max_dim=1024, burn_ctx=ctx)
         try:
             data, mime = export_image_bytes(
                 rgbs, compose=req.compose,
@@ -1045,9 +1069,12 @@ def mount_playback_api(app: FastAPI,
 
         # Run the encode in a background thread; frame rendering pulls from
         # the same in-process channel cache via store.get_frame (which is
-        # thread-safe). We chose threads over multiprocessing here so the
-        # cache hit-rate stays high; the worker pool plumbing in
-        # render_frame_for_export remains usable for future scale-out.
+        # thread-safe). We chose threads over multiprocessing so the
+        # _FrameLRU hit rate stays high. Cross-process scale-out is
+        # deferred to ``playback-multiproc-v1`` (M12 risk-skeptic A1
+        # honest downgrade); the cancel_event still uses
+        # ``multiprocessing.Event`` so a future swap to
+        # ``Manager().Event()`` does not require touching call sites.
         def _run() -> None:
             t0 = time.time()
             out_dir = Path("outputs/playback") / req.stream_id
@@ -1060,6 +1087,11 @@ def mount_playback_api(app: FastAPI,
                 for vp in req.views
             ]
             try:
+                # Pre-compute view-side dark policy once (per-frame
+                # dark resolution still happens inside the loop because
+                # exposure may change at file boundaries).
+                _need_dark = any(v.dark_on for v in views)
+
                 def _frames():
                     for fi in range(lo, hi + 1):
                         if job.cancel_event.is_set():
@@ -1071,12 +1103,22 @@ def mount_playback_api(app: FastAPI,
                             job.status = "failed"
                             return
                         b, _, local = frame_lookup(stream, fi)
+                        # WYSIWYG dark resolution per frame
+                        # (recording-inspection-implementation-v1
+                        # fastapi-backend P0 #1, M12).
+                        boundary_dark: Optional[Dict[str, np.ndarray]] = None
+                        if _need_dark and b.exposure is not None:
+                            pool = [h.master for h in store.list_darks()]
+                            best, _ = match_dark_by_exposure(b.exposure, pool)
+                            if best is not None:
+                                boundary_dark = best.channels
                         ctx = BurnInContext(
                             frame_index=fi,
                             timestamp_s=b.ts_start_s + (local / max(stream.fps, 1e-9)),
                             source_filename=Path(store.get_recording(b.recording_id).path).name,
                         ) if req.include_labels else None
                         rgbs = render_views_for_frame(views, channels,
+                                                       dark=boundary_dark,
                                                        max_dim=1024, burn_ctx=ctx)
                         if len(rgbs) > 1:
                             yield render_views_compose(rgbs, req.compose,
@@ -1094,6 +1136,13 @@ def mount_playback_api(app: FastAPI,
                             fps=req.fps, quality=req.quality)
                 if job.cancel_event.is_set():
                     job.status = "cancelled"
+                    # recording-inspection-implementation-v1 risk-skeptic
+                    # A2, M12: unlink the partial output so cancelled
+                    # encodes don't accumulate in outputs/playback/.
+                    try:
+                        out_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
                 else:
                     job.status = "done"
                     job.output_path = out_path
@@ -1113,6 +1162,11 @@ def mount_playback_api(app: FastAPI,
             except Exception as exc:
                 job.error = f"{type(exc).__name__}: {exc}"
                 job.status = "failed"
+                # Same A2 cleanup for failed encodes.
+                try:
+                    out_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
         threading.Thread(target=_run, daemon=True).start()
         return _job_payload(job)
@@ -1137,16 +1191,27 @@ def mount_playback_api(app: FastAPI,
 
     @app.post("/api/playback/streams/{stream_id}/handoff/{mode}")
     def handoff(stream_id: str, mode: str,
-                req: Dict[str, Any]) -> Dict[str, Any]:
+                req: HandoffRequest) -> Dict[str, Any]:
         """Render the active frame's raw channel dict, register it as
         a `LoadedSource` in the analysis-mode `STORE`, return the
-        new source_id. Per planner-architect P0-2 + risk-skeptic P1-L:
+        new source_id. Per planner-architect P0-2 + risk-skeptic P1-L
+        + M12 fastapi-backend P0 #2 + risk-skeptic A3:
+
         - Send the **raw extracted channels** (post-dark, pre-display).
           Display γ/WB/CCM are NOT baked.
         - Response carries `dark_already_subtracted: true` when
           dark_on=true so the receiving mode's dark-attach refuses to
-          subtract again.
-        - 422 when the target mode lacks required channel keys.
+          subtract again. The flag is also written to
+          `LoadedSource.attrs["dark_already_subtracted"]` and read by
+          `STORE.attach_dark_from_path` / `attach_dark_from_bytes`.
+        - The new `LoadedSource` carries the stream's `isp_mode_id`
+          and an empty `isp_config` so the receiving mode's ISP
+          Settings round-trip doesn't lie about the source.
+        - 422 with code `W-HANDOFF-NOLUM` when target mode lacks
+          required channel keys.
+        - Uses `STORE.register_external(src)` (not `STORE._items`
+          poking) so the analysis-mode eviction-tracking invariant
+          holds (R-0009 / fastapi-backend M12 P0 #2).
         """
         if mode not in ("usaf", "fpn", "dof"):
             raise HTTPException(422, f"unknown mode: {mode}")
@@ -1154,20 +1219,24 @@ def mount_playback_api(app: FastAPI,
             stream = store.get_stream(stream_id)
         except KeyError:
             raise HTTPException(404, f"unknown stream id: {stream_id}")
-        frame = int(req.get("frame", 0))
-        view_payload = req.get("view") or {}
-        preserve_dark = bool(req.get("preserve_dark", True))
-        name = req.get("name") or f"{stream.name} · f{frame}"
+        frame = req.frame
+        view_payload = req.view or {}
+        preserve_dark = req.preserve_dark
+        name = req.name or f"{stream.name} · f{frame}"
         if frame < 0 or frame >= stream.total_frames:
             raise HTTPException(422, f"frame {frame} out of stream range")
         channels = store.get_frame(stream_id, frame)
 
         # Sanity: USAF/FPN/DoF expect HG-Y / Y / L luminance. For
         # rgb_nir, channels already include HG-Y / LG-Y. For other ISP
-        # modes (bare_*, polarization_*) → 422.
+        # modes (bare_*, polarization_*) → 422 with a stable code in
+        # `detail.code` (FastAPI nests the dict under "detail", so we
+        # construct the inner dict explicitly to keep
+        # `body.detail.code === "W-HANDOFF-NOLUM"` on the wire — M12
+        # fastapi-backend P1).
         if mode == "usaf" and "HG-Y" not in channels and "Y" not in channels and "L" not in channels:
-            raise HTTPException(422, {
-                "detail": (
+            raise HTTPException(422, detail={
+                "message": (
                     f"USAF requires luminance channel (HG-Y / Y / L); stream's "
                     f"ISP mode {stream.isp_mode_id!r} doesn't synthesize one."
                 ),
@@ -1211,10 +1280,15 @@ def mount_playback_api(app: FastAPI,
                     "handoff_mode": mode,
                     "dark_already_subtracted": str(bool(dark_dict)).lower()},
             shape_hw=shape,
+            # M12 risk-skeptic A3 + fastapi-backend P1: pass through
+            # the stream's ISP mode so the receiving mode's ISP
+            # Settings round-trip works. `isp_config` is empty because
+            # the handed-off channels are post-extract; re-extract is
+            # not supported (raw_frame is None).
+            isp_mode_id=stream.isp_mode_id,
+            isp_config={},
         )
-        with STORE._lock:
-            STORE._items[src.source_id] = src
-            STORE._evict_locked()
+        STORE.register_external(src)
         return {
             "source_id": src.source_id,
             "kind": "h5",
