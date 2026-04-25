@@ -15,27 +15,23 @@ contrast.
 
 from __future__ import annotations
 
-from typing import Tuple
-
 import numpy as np
 from scipy.ndimage import gaussian_filter, laplace
-
 
 SHARPEN_METHODS = ("None", "Unsharp mask", "Laplacian", "High-pass")
 
 
 # --- Sharpening -----------------------------------------------------------
 
-def unsharp_mask(image: np.ndarray, radius: float = 2.0,
-                 amount: float = 1.0) -> np.ndarray:
+
+def unsharp_mask(image: np.ndarray, radius: float = 2.0, amount: float = 1.0) -> np.ndarray:
     """Classic unsharp mask: out = img + amount * (img - gauss(img, radius))."""
     a = image.astype(np.float64, copy=False)
     blur = gaussian_filter(a, sigma=max(0.1, float(radius)))
     return a + float(amount) * (a - blur)
 
 
-def laplacian_sharpen(image: np.ndarray, amount: float = 1.0,
-                      radius: float = 1.0) -> np.ndarray:
+def laplacian_sharpen(image: np.ndarray, amount: float = 1.0, radius: float = 1.0) -> np.ndarray:
     """Subtract a (negatively-scaled) Laplacian.
 
     A small Gaussian pre-blur (radius) suppresses single-pixel noise so
@@ -50,8 +46,7 @@ def laplacian_sharpen(image: np.ndarray, amount: float = 1.0,
     return a - float(amount) * lap
 
 
-def highpass_sharpen(image: np.ndarray, radius: float = 8.0,
-                     amount: float = 1.0) -> np.ndarray:
+def highpass_sharpen(image: np.ndarray, radius: float = 8.0, amount: float = 1.0) -> np.ndarray:
     """High-pass = image - lowpass(image); add scaled high-pass back to image.
 
     Larger radius = broader low-pass cutoff = lower-frequency content
@@ -63,8 +58,9 @@ def highpass_sharpen(image: np.ndarray, radius: float = 8.0,
     return a + float(amount) * highpass
 
 
-def apply_sharpen(image: np.ndarray, method: str,
-                  amount: float = 1.0, radius: float = 2.0) -> np.ndarray:
+def apply_sharpen(
+    image: np.ndarray, method: str, amount: float = 1.0, radius: float = 2.0
+) -> np.ndarray:
     if method in (None, "", "None"):
         return image.astype(np.float64, copy=False)
     if method == "Unsharp mask":
@@ -78,10 +74,10 @@ def apply_sharpen(image: np.ndarray, method: str,
 
 # --- Tone curve & range stretch ------------------------------------------
 
-def adjust_brightness_contrast_gamma(image: np.ndarray,
-                                     brightness: float = 0.0,
-                                     contrast: float = 1.0,
-                                     gamma: float = 1.0) -> np.ndarray:
+
+def adjust_brightness_contrast_gamma(
+    image: np.ndarray, brightness: float = 0.0, contrast: float = 1.0, gamma: float = 1.0
+) -> np.ndarray:
     """Apply (display-only) tone adjustments in float space.
 
     brightness : additive shift in normalized units (relative to image range)
@@ -108,8 +104,9 @@ def adjust_brightness_contrast_gamma(image: np.ndarray,
     return a
 
 
-def percentile_clip(image: np.ndarray, lo_pct: float = 1.0,
-                    hi_pct: float = 99.5) -> Tuple[float, float]:
+def percentile_clip(
+    image: np.ndarray, lo_pct: float = 1.0, hi_pct: float = 99.5
+) -> tuple[float, float]:
     """Return (vmin, vmax) for display via percentile clipping."""
     a = image.astype(np.float32, copy=False)
     vmin, vmax = np.percentile(a, [lo_pct, hi_pct])
@@ -118,32 +115,34 @@ def percentile_clip(image: np.ndarray, lo_pct: float = 1.0,
     return float(vmin), float(vmax)
 
 
-def prepare_display(image: np.ndarray, *,
-                    sharpen_method: str = "None",
-                    sharpen_amount: float = 1.0,
-                    sharpen_radius: float = 2.0,
-                    brightness: float = 0.0,
-                    contrast: float = 1.0,
-                    gamma: float = 1.0,
-                    clip_lo_pct: float = 1.0,
-                    clip_hi_pct: float = 99.5,
-                    ) -> Tuple[np.ndarray, float, float]:
+def prepare_display(
+    image: np.ndarray,
+    *,
+    sharpen_method: str = "None",
+    sharpen_amount: float = 1.0,
+    sharpen_radius: float = 2.0,
+    brightness: float = 0.0,
+    contrast: float = 1.0,
+    gamma: float = 1.0,
+    clip_lo_pct: float = 1.0,
+    clip_hi_pct: float = 99.5,
+) -> tuple[np.ndarray, float, float]:
     """Run the whole display pipeline. Returns (image_float, vmin, vmax)."""
-    a = apply_sharpen(image, sharpen_method,
-                      amount=sharpen_amount, radius=sharpen_radius)
-    a = adjust_brightness_contrast_gamma(a, brightness=brightness,
-                                         contrast=contrast, gamma=gamma)
+    a = apply_sharpen(image, sharpen_method, amount=sharpen_amount, radius=sharpen_radius)
+    a = adjust_brightness_contrast_gamma(a, brightness=brightness, contrast=contrast, gamma=gamma)
     vmin, vmax = percentile_clip(a, lo_pct=clip_lo_pct, hi_pct=clip_hi_pct)
     return a, vmin, vmax
 
 
-def maybe_apply_to_analysis(image: np.ndarray, *,
-                            apply_sharpen_to_analysis: bool,
-                            sharpen_method: str = "None",
-                            sharpen_amount: float = 1.0,
-                            sharpen_radius: float = 2.0) -> np.ndarray:
+def maybe_apply_to_analysis(
+    image: np.ndarray,
+    *,
+    apply_sharpen_to_analysis: bool,
+    sharpen_method: str = "None",
+    sharpen_amount: float = 1.0,
+    sharpen_radius: float = 2.0,
+) -> np.ndarray:
     """Optionally apply sharpening to the analysis image (default: don't)."""
     if not apply_sharpen_to_analysis or sharpen_method in (None, "", "None"):
         return image
-    return apply_sharpen(image, sharpen_method,
-                         amount=sharpen_amount, radius=sharpen_radius)
+    return apply_sharpen(image, sharpen_method, amount=sharpen_amount, radius=sharpen_radius)
