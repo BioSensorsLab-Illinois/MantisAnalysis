@@ -5,6 +5,7 @@ lack `ruff` or `mypy` and the doctor reports that honestly. We just
 assert the script imports cleanly, its check list is complete, and
 subprocess-invoking it doesn't blow up.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -45,7 +46,9 @@ def test_doctor_subprocess_runs() -> None:
     """Running doctor.py as a subprocess doesn't crash with a traceback."""
     proc = subprocess.run(
         [sys.executable, str(SCRIPT)],
-        capture_output=True, text=True, timeout=45,
+        capture_output=True,
+        text=True,
+        timeout=45,
     )
     # Exit 0 or 1 is OK (1 = some env check failed — legitimate).
     # 2 = strict-mode warning exit. None of these are crashes.
