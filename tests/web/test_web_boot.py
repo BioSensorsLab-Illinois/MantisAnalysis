@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import json
 import urllib.request
-from pathlib import Path
 
 import pytest
 
@@ -40,8 +39,13 @@ def test_isp_modes_api_reachable(web_server: str) -> None:
     with urllib.request.urlopen(f"{web_server}/api/isp/modes", timeout=5) as r:
         data = json.loads(r.read().decode())
     ids = {m["id"] for m in data}
-    assert {"bare_single", "bare_dualgain", "rgb_nir",
-            "polarization_single", "polarization_dual"}.issubset(ids)
+    assert {
+        "bare_single",
+        "bare_dualgain",
+        "rgb_nir",
+        "polarization_single",
+        "polarization_dual",
+    }.issubset(ids)
     rgb_nir = next(m for m in data if m["id"] == "rgb_nir")
     # Locked defaults — match feedback_locked_constants.md.
     assert tuple(rgb_nir["default_origin"]) == (0, 0)
@@ -86,9 +90,7 @@ def test_root_page_boots(web_server: str) -> None:
         root_children = page.evaluate(
             "() => document.querySelector('#root')?.children?.length ?? 0"
         )
-        assert root_children >= 1, (
-            f"React failed to mount (0 children in #root). Console: {errors}"
-        )
+        assert root_children >= 1, f"React failed to mount (0 children in #root). Console: {errors}"
 
         # Three mode-rail buttons render.
         for label in ("USAF", "FPN", "DoF"):
@@ -105,10 +107,7 @@ def test_root_page_boots(web_server: str) -> None:
     # Babel-standalone transformer warning is gone post-Phase 3 but
     # the filter is cheap to keep for older checkouts.
     errors = [
-        e
-        for e in errors
-        if "in-browser Babel transformer" not in e
-        and "React DevTools" not in e
+        e for e in errors if "in-browser Babel transformer" not in e and "React DevTools" not in e
     ]
     assert not errors, f"console errors during boot: {errors}"
 
