@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from starlette.responses import Response, StreamingResponse
 
 from . import render as _render
@@ -130,6 +130,48 @@ class OpenTabRequest(BaseModel):
 
 class FromFolderRequest(BaseModel):
     root: str
+
+
+class TabPatchRequest(BaseModel):
+    """Allow-listed fields a client can PATCH on a Tab.
+
+    ``extra='forbid'`` so an unknown field (e.g. attempting to
+    rewrite ``tab_id`` or ``stream_id``) returns 422 instead of being
+    silently dropped — that's the v1 PATCH-allows-anything class of bug.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    active_frame: Optional[int] = None
+    layout: Optional[str] = None
+    selected_view_id: Optional[str] = None
+
+
+class ViewPatchRequest(BaseModel):
+    """Allow-listed fields a client can PATCH on a View. Identity
+    fields (view_id) and channel-list (channels) are deliberately
+    excluded so a client can't rewrite ids or break the channel
+    invariant. ``extra='forbid'`` rejects unknown fields with 422.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: Optional[str] = None
+    type: Optional[str] = None
+    channel: Optional[str] = None
+    locked_frame: Optional[int] = None
+    sync_to_global: Optional[bool] = None
+    export_include: Optional[bool] = None
+    dark_on: Optional[bool] = None
+    dark_id: Optional[str] = None
+    gain: Optional[float] = None
+    offset: Optional[float] = None
+    normalize: Optional[bool] = None
+    low: Optional[int] = None
+    high: Optional[int] = None
+    colormap: Optional[str] = None
+    invert: Optional[bool] = None
+    show_clipped: Optional[bool] = None
 
 
 # ---------------------------------------------------------------------------
@@ -355,33 +397,35 @@ def mount(app: FastAPI, workspace: Optional[Workspace] = None) -> Workspace:
         return {"ok": True}
 
     @app.patch("/api/playback/tabs/{tab_id}")
-    async def update_tab(tab_id: str, req: dict) -> Dict[str, Any]:
-        """Patch tab state. Accepts active_frame, layout, selected_view_id."""
+    async def update_tab(tab_id: str, req: TabPatchRequest) -> Dict[str, Any]:
+        """Patch tab state. Mutations go through Workspace.patch_tab so
+        the cascade lock is held + active_frame is clamped to the
+        current stream length.
+        """
         try:
-            tab = ws.get_tab(tab_id)
+            patch = req.model_dump(exclude_unset=True)
+            tab = ws.patch_tab(tab_id, **patch)
         except KeyError:
             raise HTTPException(404, f"unknown tab id: {tab_id}")
-        if "active_frame" in req:
-            tab.active_frame = int(req["active_frame"])
-        if "layout" in req:
-            tab.layout = req["layout"]  # type: ignore[assignment]
-        if "selected_view_id" in req:
-            tab.selected_view_id = req["selected_view_id"]
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
         return _tab_dto(tab)
 
     @app.patch("/api/playback/tabs/{tab_id}/views/{view_id}")
-    async def update_view(tab_id: str, view_id: str, req: dict) -> Dict[str, Any]:
-        """Patch fields on one view inside a tab."""
+    async def update_view(
+        tab_id: str, view_id: str, req: ViewPatchRequest
+    ) -> Dict[str, Any]:
+        """Patch fields on one view inside a tab. Goes through
+        Workspace.patch_view so the cascade lock is held and only
+        allow-listed fields can be mutated.
+        """
         try:
-            tab = ws.get_tab(tab_id)
-        except KeyError:
-            raise HTTPException(404, f"unknown tab id: {tab_id}")
-        view = next((v for v in tab.views if v.view_id == view_id), None)
-        if view is None:
-            raise HTTPException(404, f"unknown view id: {view_id}")
-        for k, v in req.items():
-            if hasattr(view, k):
-                setattr(view, k, v)
+            patch = req.model_dump(exclude_unset=True)
+            view = ws.patch_view(tab_id, view_id, **patch)
+        except KeyError as e:
+            raise HTTPException(404, str(e))
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
         return _view_dto(view)
 
     @app.get("/api/playback/tabs/{tab_id}/export")
@@ -431,7 +475,12 @@ def mount(app: FastAPI, workspace: Optional[Workspace] = None) -> Workspace:
                     ws.library,
                 )
                 media = "image/png"
-        except (IndexError, ValueError, KeyError, FileNotFoundError) as e:
+        except FileNotFoundError as e:
+            # Underlying H5 file vanished (deleted under us).
+            raise HTTPException(410, f"render failed: {e}") from e
+        except (IndexError, ValueError, KeyError, OSError) as e:
+            # Includes h5py.HDF5Error subclasses (which inherit OSError)
+            # and IndexError for out-of-range frames after a cascade.
             raise HTTPException(422, f"render failed: {e}") from e
         safe = view.name.replace(" ", "_")
         return Response(
@@ -466,7 +515,9 @@ def mount(app: FastAPI, workspace: Optional[Workspace] = None) -> Workspace:
             png = await loop.run_in_executor(
                 None, _render.render_view, stream, local_frame, view, ws.library
             )
-        except (IndexError, ValueError, KeyError, FileNotFoundError) as e:
+        except FileNotFoundError as e:
+            raise HTTPException(410, f"render failed: {e}") from e
+        except (IndexError, ValueError, KeyError, OSError) as e:
             raise HTTPException(422, f"render failed: {e}") from e
         return Response(
             content=png,

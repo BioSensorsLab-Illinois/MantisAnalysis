@@ -10,6 +10,7 @@ import { RecordingDTO, DarkDTO, deleteRecording, buildStream, openTab } from '..
 import { CHANNEL_COLOR, FONT, LAYOUT, PALETTE, RADIUS, SPACE } from '../theme';
 
 import { ExposurePill } from './ExposurePill';
+import { Glyph } from './Glyph';
 import { IconButton } from './IconButton';
 
 const { useMemo, useState } = React;
@@ -117,14 +118,14 @@ const RecordingRow: React.FC<{
         {rec.n_frames}f
       </span>
       <IconButton
-        glyph={'▶'}
+        glyph={<Glyph name="play" size={12} />}
         label={`Open ${rec.name} in workspace`}
         onClick={onPlay}
         tone="accent"
         hover={hover}
       />
       <IconButton
-        glyph={'✕'}
+        glyph={<Glyph name="close" size={12} />}
         label={`Remove ${rec.name}`}
         onClick={onDelete}
         tone="danger"

@@ -15,6 +15,8 @@ import { DisplayTab } from '../inspector/DisplayTab';
 import { LabelsTab } from '../inspector/LabelsTab';
 import { ExportTab } from '../inspector/ExportTab';
 
+import { Glyph } from './Glyph';
+
 const { useState } = React;
 
 interface Props {
@@ -67,10 +69,10 @@ export const Inspector: React.FC<Props> = ({
             color: PALETTE.textMuted,
             border: 'none',
             cursor: 'pointer',
-            font: FONT.small,
+            padding: 4,
           }}
         >
-          ◀
+          <Glyph name="chevronLeft" size={14} />
         </button>
       </aside>
     );
@@ -113,10 +115,10 @@ export const Inspector: React.FC<Props> = ({
             color: PALETTE.textMuted,
             border: 'none',
             cursor: 'pointer',
-            font: FONT.small,
+            padding: 4,
           }}
         >
-          ▶
+          <Glyph name="chevronRight" size={14} />
         </button>
       </header>
 

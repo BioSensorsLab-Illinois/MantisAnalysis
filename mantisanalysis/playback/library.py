@@ -83,10 +83,18 @@ class Library:
     # ---- Recordings ------------------------------------------------
 
     def register_recording(self, path: str | Path, name: Optional[str] = None) -> Recording:
-        """Inspect an H5 and add it to the Library. Returns the new Recording."""
+        """Inspect an H5 and add it to the Library. Returns the new Recording.
+
+        Refuses recordings with zero frames — those would let
+        ``Workspace._clamp_tabs_for_stream_locked`` set
+        ``active_frame=0`` against an empty dataset, which then 422s
+        every render and reproduces the v1 "Frame not decoded" bug.
+        """
 
         p = Path(path)
         meta = h5io.inspect(p)
+        if meta.n_frames < 1:
+            raise ValueError(f"{p.name}: recording has zero frames")
         display_name = name or p.name
         sample, view, exposure_s = parse_filename(display_name)
 

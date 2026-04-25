@@ -80,12 +80,15 @@ export const ViewerCard: React.FC<Props> = ({ tabId, view, activeFrame, selected
         minHeight: 0,
         minWidth: 0,
         background: PALETTE.shell,
-        border: `1px solid ${selected ? PALETTE.accent : PALETTE.border}`,
+        // Per design spec §11.7: 2 px inset accent border on selected
+        // viewer cards. We use a 1 px subtle border + an inner 2 px
+        // accent ring via boxShadow inset so layout stays stable.
+        border: `1px solid ${PALETTE.border}`,
         borderRadius: RADIUS.md,
         overflow: 'hidden',
         cursor: 'pointer',
         outline: 'none',
-        boxShadow: selected ? `0 0 0 1px ${PALETTE.accent}` : undefined,
+        boxShadow: selected ? `inset 0 0 0 2px ${PALETTE.accent}` : undefined,
       }}
     >
       {/* Channel-colored top stripe */}

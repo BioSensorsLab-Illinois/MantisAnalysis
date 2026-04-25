@@ -1,10 +1,10 @@
 # HANDOFF — current live state pointer
 
-Last updated: **2026-04-25**, end of `playback-rebuild-v2` **M0 — wipe v1 + scaffold + failing tests**.
+Last updated: **2026-04-25**, end of `playback-rebuild-v2` **M0–M6 — INITIATIVE CLOSED**. 7 commits ahead of origin/main beyond M0; push pending user consent.
 
 ## Active initiative
 
-**`playback-rebuild-v2`** (M0 done, M1 next).
+**None** — `playback-rebuild-v2` closed at M6 today.
 
 - Folder: [`.agent/runs/playback-rebuild-v2/`](runs/playback-rebuild-v2/)
 - ExecPlan: [`runs/playback-rebuild-v2/ExecPlan.md`](runs/playback-rebuild-v2/ExecPlan.md)

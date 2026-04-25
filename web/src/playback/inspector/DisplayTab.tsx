@@ -1,4 +1,8 @@
 // DisplayTab — colormap + low/high windowing + invert + normalize.
+//
+// Slider drags are debounced + optimistic: local state updates
+// instantly so the UI feels responsive; the PATCH commits ~100 ms
+// after the last change. Toggles + selects fire immediately.
 
 import React from 'react';
 
@@ -7,18 +11,82 @@ import { COLORMAPS, FONT, PALETTE, RADIUS, SPACE } from '../theme';
 
 import { Field } from './Field';
 
+const { useCallback, useEffect, useRef, useState } = React;
+
 interface Props {
   tab: TabDTO;
   view: ViewDTO;
   onError: (msg: string) => void;
 }
 
+const DEBOUNCE_MS = 100;
+
 export const DisplayTab: React.FC<Props> = ({ tab, view, onError }) => {
+  // Optimistic mirror for slider state — server confirms within ~2s.
+  const [draft, setDraft] = useState({
+    low: view.low,
+    high: view.high,
+    gain: view.gain,
+    offset: view.offset,
+  });
+
+  // Whenever the server sends fresh state and there's no in-flight
+  // PATCH, sync the draft back. The lastLocalEditRef gates this so a
+  // poll arriving 2 s after a slider drag doesn't bounce the value.
+  const lastLocalEditRef = useRef(0);
+  useEffect(() => {
+    if (Date.now() - lastLocalEditRef.current > 1500) {
+      setDraft({
+        low: view.low,
+        high: view.high,
+        gain: view.gain,
+        offset: view.offset,
+      });
+    }
+  }, [view.low, view.high, view.gain, view.offset]);
+
+  const pendingTimerRef = useRef<number | null>(null);
+  const pendingPatchRef = useRef<Partial<ViewDTO>>({});
+
+  const flushPending = useCallback(() => {
+    pendingTimerRef.current = null;
+    const patch = pendingPatchRef.current;
+    pendingPatchRef.current = {};
+    if (Object.keys(patch).length === 0) return;
+    patchView(tab.tab_id, view.view_id, patch).catch((e) =>
+      onError(e instanceof Error ? e.message : String(e))
+    );
+  }, [tab.tab_id, view.view_id, onError]);
+
+  const queue = useCallback(
+    (patch: Partial<ViewDTO>) => {
+      pendingPatchRef.current = { ...pendingPatchRef.current, ...patch };
+      lastLocalEditRef.current = Date.now();
+      if (pendingTimerRef.current != null) {
+        window.clearTimeout(pendingTimerRef.current);
+      }
+      pendingTimerRef.current = window.setTimeout(flushPending, DEBOUNCE_MS);
+    },
+    [flushPending]
+  );
+
   const apply = (patch: Partial<ViewDTO>) => {
     patchView(tab.tab_id, view.view_id, patch).catch((e) =>
       onError(e instanceof Error ? e.message : String(e))
     );
   };
+
+  // Flush any pending PATCH on unmount.
+  useEffect(
+    () => () => {
+      if (pendingTimerRef.current != null) {
+        window.clearTimeout(pendingTimerRef.current);
+        flushPending();
+      }
+    },
+    [flushPending]
+  );
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: SPACE.md }}>
       <Field label="Colormap">
@@ -35,26 +103,34 @@ export const DisplayTab: React.FC<Props> = ({ tab, view, onError }) => {
         </select>
       </Field>
 
-      <Field label={`Low · ${view.low}`}>
+      <Field label={`Low · ${draft.low}`}>
         <input
           type="range"
           min={0}
           max={4095}
           step={1}
-          value={view.low}
-          onChange={(e) => apply({ low: Number(e.target.value) })}
+          value={draft.low}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            setDraft((d) => ({ ...d, low: v }));
+            queue({ low: v });
+          }}
           style={{ width: '100%' }}
         />
       </Field>
 
-      <Field label={`High · ${view.high}`}>
+      <Field label={`High · ${draft.high}`}>
         <input
           type="range"
           min={1}
           max={4095}
           step={1}
-          value={view.high}
-          onChange={(e) => apply({ high: Number(e.target.value) })}
+          value={draft.high}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            setDraft((d) => ({ ...d, high: v }));
+            queue({ high: v });
+          }}
           style={{ width: '100%' }}
         />
       </Field>
@@ -70,26 +146,34 @@ export const DisplayTab: React.FC<Props> = ({ tab, view, onError }) => {
         </div>
       </Field>
 
-      <Field label={`Gain · ${view.gain.toFixed(2)}`}>
+      <Field label={`Gain · ${draft.gain.toFixed(2)}`}>
         <input
           type="range"
           min={0.1}
           max={5.0}
           step={0.05}
-          value={view.gain}
-          onChange={(e) => apply({ gain: Number(e.target.value) })}
+          value={draft.gain}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            setDraft((d) => ({ ...d, gain: v }));
+            queue({ gain: v });
+          }}
           style={{ width: '100%' }}
         />
       </Field>
 
-      <Field label={`Offset · ${view.offset.toFixed(0)}`}>
+      <Field label={`Offset · ${draft.offset.toFixed(0)}`}>
         <input
           type="range"
           min={-512}
           max={512}
           step={1}
-          value={view.offset}
-          onChange={(e) => apply({ offset: Number(e.target.value) })}
+          value={draft.offset}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            setDraft((d) => ({ ...d, offset: v }));
+            queue({ offset: v });
+          }}
           style={{ width: '100%' }}
         />
       </Field>

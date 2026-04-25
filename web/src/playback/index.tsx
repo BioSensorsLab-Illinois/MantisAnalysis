@@ -84,14 +84,11 @@ export const PlaybackMode: React.FC<PlaybackModeProps> = ({ say }) => {
   const activeTab = tabs.find((t) => t.tab_id === activeTabId) ?? tabs[0] ?? null;
   const activeStream = workspace?.streams.find((s) => s.stream_id === activeTab?.stream_id) ?? null;
 
-  const switchTab = (tab_id: string) => {
-    patchTab(tab_id, { selected_view_id: undefined } as never).catch(() => {});
-    // Active tab state is server-side via workspace.active_tab_id. M4
-    // server doesn't yet allow setting it via PATCH; the tab opened
-    // last is the active one. Click-to-switch is local-only for now.
-    setLocalActiveTabId(tab_id);
-  };
   const [localActiveTabId, setLocalActiveTabId] = useState<string | null>(null);
+  // Click-to-switch is local-only — server-side active_tab_id tracking
+  // moves to a follow-up. The local choice survives the 2-sec poll
+  // because we read it via the `??` chain when computing visibleActiveTab.
+  const switchTab = useCallback((tab_id: string) => setLocalActiveTabId(tab_id), []);
   const visibleActiveTab = tabs.find((t) => t.tab_id === localActiveTabId) ?? activeTab;
   const visibleStream =
     workspace?.streams.find((s) => s.stream_id === visibleActiveTab?.stream_id) ?? activeStream;

@@ -5,10 +5,10 @@ import React from 'react';
 import { TabDTO, StreamDTO, patchTab } from '../api';
 import { FONT, PALETTE, RADIUS, SPACE } from '../theme';
 
+import { Glyph } from './Glyph';
 import { IconButton } from './IconButton';
 
 const { useEffect, useRef, useState } = React;
-void useState;
 
 interface Props {
   tab: TabDTO;
@@ -121,39 +121,44 @@ export const Transport: React.FC<Props> = ({ tab, stream, onError }) => {
         }}
       >
         <IconButton
-          glyph="⏮"
+          glyph={<Glyph name="skipBack" size={14} />}
           label="First frame"
           onClick={() => sendFrame(0)}
           tone="neutral"
           hover
+          size="md"
         />
         <IconButton
-          glyph="◀"
+          glyph={<Glyph name="stepBack" size={14} />}
           label="Previous frame"
           onClick={() => sendFrame(tab.active_frame - 1)}
           tone="neutral"
           hover
+          size="md"
         />
         <IconButton
-          glyph={playing ? '⏸' : '▶'}
+          glyph={<Glyph name={playing ? 'pause' : 'play'} size={16} />}
           label={playing ? 'Pause' : 'Play'}
           onClick={() => setPlaying((p) => !p)}
           tone="accent"
           variant="solid"
+          size="md"
         />
         <IconButton
-          glyph="▶"
+          glyph={<Glyph name="stepForward" size={14} />}
           label="Next frame"
           onClick={() => sendFrame(tab.active_frame + 1)}
           tone="neutral"
           hover
+          size="md"
         />
         <IconButton
-          glyph="⏭"
+          glyph={<Glyph name="skipForward" size={14} />}
           label="Last frame"
           onClick={() => sendFrame(ceiling)}
           tone="neutral"
           hover
+          size="md"
         />
         <span
           style={{

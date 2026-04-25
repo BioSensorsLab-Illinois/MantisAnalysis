@@ -281,6 +281,66 @@ class Workspace:
                 if v.locked_frame is not None and v.locked_frame > ceiling:
                     v.locked_frame = ceiling
 
+    # ---- PATCH entry points (frontend mutations) ------------------
+
+    _ALLOWED_TAB_FIELDS = frozenset({"active_frame", "layout", "selected_view_id"})
+    _ALLOWED_VIEW_FIELDS = frozenset({
+        "name", "type", "channel", "locked_frame", "sync_to_global",
+        "export_include", "dark_on", "dark_id", "gain", "offset",
+        "normalize", "low", "high", "colormap", "invert", "show_clipped",
+    })
+
+    def patch_tab(self, tab_id: str, **fields) -> Tab:
+        """Apply a small set of allow-listed mutations to a Tab.
+
+        active_frame is clamped against the current stream's
+        total_frames. Holds the workspace lock so a concurrent
+        cascade can't interleave.
+        """
+        with self._lock:
+            if tab_id not in self._tabs:
+                raise KeyError(tab_id)
+            tab = self._tabs[tab_id]
+            for k, v in fields.items():
+                if k not in self._ALLOWED_TAB_FIELDS:
+                    raise ValueError(f"field not allowed: {k}")
+                if k == "active_frame":
+                    total = self.stream_total_frames(tab.stream_id)
+                    if total <= 0:
+                        v = 0
+                    else:
+                        v = max(0, min(int(v), total - 1))
+                if k == "layout":
+                    if v not in {"single", "side", "stack", "2x2", "3plus1"}:
+                        raise ValueError(f"unknown layout: {v}")
+                setattr(tab, k, v)
+            return tab
+
+    def patch_view(self, tab_id: str, view_id: str, **fields) -> View:
+        """Apply allow-listed mutations to a View. Holds the workspace lock."""
+        with self._lock:
+            if tab_id not in self._tabs:
+                raise KeyError(f"unknown tab id: {tab_id}")
+            tab = self._tabs[tab_id]
+            view = next((v for v in tab.views if v.view_id == view_id), None)
+            if view is None:
+                raise KeyError(f"unknown view id: {view_id}")
+            for k, v in fields.items():
+                if k not in self._ALLOWED_VIEW_FIELDS:
+                    raise ValueError(f"field not allowed: {k}")
+                if k == "locked_frame" and v is not None:
+                    total = self.stream_total_frames(tab.stream_id)
+                    if total <= 0:
+                        v = 0
+                    else:
+                        v = max(0, min(int(v), total - 1))
+                if k in {"low", "high"} and v is not None:
+                    v = max(0, min(int(v), 65535))
+                if k == "gain" and v is not None:
+                    v = max(0.001, min(float(v), 100.0))
+                setattr(view, k, v)
+            return view
+
     def delete_dark(self, dark_id: str) -> List[str]:
         """Drop a dark frame + clear every view that references it.
 

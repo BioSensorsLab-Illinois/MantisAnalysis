@@ -3,7 +3,63 @@
 Opened: 2026-04-25
 Last updated: 2026-04-25 (M0 in-flight)
 
-## Active milestone: M6 — polish + reviewer pass + close (next)
+## Active milestone: **CLOSED 2026-04-25** — playback-rebuild-v2 done across M0–M6.
+
+### M6 — reviewer pass + P0/P1 polish + close — DONE 2026-04-25
+
+**Reviewer pass**: 6 agents spawned in parallel —
+planner-architect, risk-skeptic, fastapi-backend-reviewer,
+react-ui-ux-reviewer, test-coverage-reviewer, frontend-react-engineer.
+Disposition log at `reviews/M6-reviews-summary.md` (11/12 P0 fixed
+inline, 1 false alarm; 7/15 P1 fixed inline, 8 tracked as backlog).
+
+**P0 fixes landed in M6**:
+
+- **Pydantic PATCH bodies** with `extra='forbid'`. New
+  `TabPatchRequest` + `ViewPatchRequest` block `setattr`-anything
+  exploits (e.g. rewriting `view_id`).
+- **`Workspace.patch_tab` + `patch_view`** route every PATCH through
+  the workspace lock + clamp `active_frame` / `locked_frame` /
+  `low` / `high` / `gain` against current stream length.
+- **`Library.register_recording` rejects zero-frame recordings**.
+  Closes the v1 "Frame not decoded" reproduction class.
+- **Render exception handling**: `FileNotFoundError` → 410 (file
+  deleted under us); `IndexError|ValueError|KeyError|OSError` → 422
+  (out-of-range / decode error / HDF5 error).
+- **DisplayTab debounce + optimistic draft state** (100 ms commit,
+  1500 ms gate against poll bounce). Fixes input-per-pixel PATCH
+  storm.
+- **`as never` cast removed**. switchTab is a clean `useCallback`.
+- **13 new direct tests** for render math + PATCH endpoints + TIFF
+  route + zero-frame guard
+  (`tests/headless/test_playback_v2_render.py`).
+- **Two tautology web_smoke tests rewritten** to drive real backend
+  state + verify 5-channel hex distinctness + ViewerCard wiring.
+
+**P1 polish landed in M6**:
+
+- **Inline SVG icons** (`Glyph.tsx`) replacing all Unicode
+  glyphs (▶ ✕ ⏸ ⏮ ⏭ ◀ ▶) across `LibraryRail`, `TabBar`,
+  `Transport`, `Inspector`. 10 icons total: play / pause / skipBack
+  / skipForward / stepBack / stepForward / close / chevronLeft /
+  chevronRight / chevronDown.
+- **2 px inset accent border on selected ViewerCard** per design
+  spec §11.7 (`boxShadow: inset 0 0 0 2px accent`).
+
+**Live-render verification** at
+`screenshots/M6_full_workspace_narrow.png` (full populated rail) and
+`screenshots/M6_workspace_with_svg_icons.png` (TabBar SVG close +
+Inspector SVG chevron + Display panel with debounced sliders).
+
+**Final test ladder**:
+
+- pytest **144 passed** (was 131 at M5 close; +13 from
+  `test_playback_v2_render.py`).
+- Tier 0–3 smoke green.
+- typecheck + lint + prettier clean.
+- 4 M0 frontend reproduction tests green.
+
+### M5 — Inspector tabs + image export — DONE 2026-04-25
 
 ### M5 — Inspector tabs + image export — DONE 2026-04-25
 

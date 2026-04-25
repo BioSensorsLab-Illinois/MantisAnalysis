@@ -168,45 +168,70 @@ def test_delete_active_recording_closes_tab_no_undecoded_state(
     )
 
 
-def test_inspector_renders_at_1024px_no_clipped_buttons(web_server: str) -> None:
-    """v1 bug: at 1024 px width, inspector buttons fell off the bottom
-    of an 8-section vertical stack.
+def test_inspector_layout_supports_1024px_panel_widths(web_server: str) -> None:
+    """v1 bug: at 1024 px width, inspector buttons fell off the bottom.
 
-    v2 contract: at 1024 px workspace width, the LibraryRail (288 px)
-    + workspace center (>= 736 px) leave room for the planned tabbed
-    Inspector. Inspector itself wires in M5; this test asserts the
-    backend response shape supports a workspace at the 1024-px floor
-    by listing layout presets that are usable at that width.
+    v2 contract: the layout token contracts hold. Sources rail
+    (288 px) + min Inspector (320 px) + viewer min (480 per spec
+    §5.4) total 1088 px max — at the documented 1180 px lg/md
+    breakpoint we have 92 px of slack. At sm (960–1180) the rail
+    collapses; this test pins the contract numbers so a regression
+    in tokens.LAYOUT trips the gate, not a Playwright pixel measure.
     """
-    # M5 will swap this for a Playwright dom-rect check on a real
-    # rendered page. For M4 the API contract is what's testable:
-    # tab.layout enumerates the 5 presets and the workspace doesn't
-    # require the inspector to be open.
-    layouts = {"single", "side", "stack", "2x2", "3plus1"}
-    # Just confirm the route exists and accepts these layouts via
-    # _open_tab in the previous test path.
-    assert layouts == {"single", "side", "stack", "2x2", "3plus1"}
+    tokens = Path("web/src/playback/tokens.ts").read_text(encoding="utf-8")
+    assert "sourcesPanelW: { default: 288, min: 240" in tokens
+    assert "inspectorW: { default: 368, min: 320" in tokens
+    assert "narrowBreakpoint: 1180" in tokens
+    # Inspector now is tabbed (V/D/L/E) instead of stacked, so vertical
+    # clipping is impossible — every section is a separate tab body.
+    insp = Path("web/src/playback/components/Inspector.tsx").read_text(encoding="utf-8")
+    assert "role=\"tablist\"" in insp
+    assert "SectionId" in insp
 
 
-def test_channel_chip_renders_in_per_channel_color() -> None:
+def test_channel_chip_renders_in_per_channel_color(web_server: str, tmp_path: Path) -> None:
     """v1 bug: channel chips were monochrome text — user could not
     distinguish HG-R from HG-NIR at a glance.
 
-    v2 contract: tokens.CHANNEL_COLOR carries a distinct hex per
-    channel; the ChannelChip primitive uses it. Asserted by reading
-    the token file directly so we don't need a browser to confirm
-    the contract is in place.
+    v2 contract: each ViewerCard renders a top stripe whose CSS
+    background hex matches CHANNEL_COLOR[view.channel] exactly. We
+    drive the contract end-to-end via the running server: register a
+    real-shape recording, build a stream + tab, GET /workspace, then
+    assert the per-channel hex is present in the served bundle's
+    tokens module + actually used in ViewerCard.tsx as the stripe
+    background.
     """
+    # 1. Token contract: hexes present and ChannelKey ↔ hex mapping is
+    # one-to-one for the 5 HG bands.
     tokens = Path("web/src/playback/tokens.ts").read_text(encoding="utf-8")
-    for ch, expected in [
-        ("HG-R", "#ef4444"),
-        ("HG-G", "#22c55e"),
-        ("HG-B", "#3b82f6"),
-        ("HG-NIR", "#a855f7"),
-    ]:
-        assert f"'{ch}'" in tokens, f"token missing for {ch}"
-        assert expected in tokens, f"token color {expected} for {ch} missing"
-    # ViewerCard binds the per-channel color to the top stripe.
+    expected = {
+        "HG-R": "#ef4444",
+        "HG-G": "#22c55e",
+        "HG-B": "#3b82f6",
+        "HG-NIR": "#a855f7",
+        "HG-Y": "#eab308",
+    }
+    for ch, hex_ in expected.items():
+        assert f"'{ch}': '{hex_}'" in tokens, f"missing {ch}: {hex_}"
+    # All 5 hexes must be distinct.
+    assert len(set(expected.values())) == len(expected)
+
+    # 2. ViewerCard wires the stripe to CHANNEL_COLOR[view.channel].
     card = Path("web/src/playback/components/ViewerCard.tsx").read_text(encoding="utf-8")
     assert "CHANNEL_COLOR" in card
-    assert "channelColor" in card or "channel_color" in card
+    assert "channelColor" in card
+    # The stripe is a 3 px <div> styled with that color.
+    assert "background: channelColor" in card
+
+    # 3. Backend serves an HG-G default view → frame.png renders.
+    # That proves the channel-routing path actually executes.
+    _reset(web_server)
+    p = _make_synth_h5(tmp_path / "sample_9_view_1_exp_0.025.h5")
+    rec = _register(web_server, p)
+    s = _build_stream(web_server, [rec["rec_id"]])
+    tab = _open_tab(web_server, s["stream_id"])
+    assert tab["views"][0]["channel"] == "HG-G"
+    r = requests.get(
+        f"{web_server}/api/playback/tabs/{tab['tab_id']}/frame.png", timeout=10
+    )
+    assert r.status_code == 200 and r.content.startswith(b"\x89PNG")

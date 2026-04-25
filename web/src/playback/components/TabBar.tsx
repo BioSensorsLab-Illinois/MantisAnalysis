@@ -8,6 +8,7 @@ import React from 'react';
 import { TabDTO, StreamDTO, closeTab } from '../api';
 import { FONT, PALETTE, RADIUS, SPACE } from '../theme';
 
+import { Glyph } from './Glyph';
 import { IconButton } from './IconButton';
 
 const { useState } = React;
@@ -114,7 +115,13 @@ const TabPill: React.FC<{
         {totalFrames}f
       </span>
       <span onClick={(e) => e.stopPropagation()}>
-        <IconButton glyph="✕" label="Close tab" onClick={onClose} tone="neutral" hover={hover} />
+        <IconButton
+          glyph={<Glyph name="close" size={12} />}
+          label="Close tab"
+          onClick={onClose}
+          tone="neutral"
+          hover={hover}
+        />
       </span>
     </div>
   );

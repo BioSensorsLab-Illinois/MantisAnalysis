@@ -15,6 +15,7 @@ interface Props {
   variant?: 'ghost' | 'solid';
   hover?: boolean; // pass-through for parent row hover
   disabled?: boolean;
+  size?: 'sm' | 'md';
 }
 
 const TONES = {
@@ -32,9 +33,11 @@ export const IconButton: React.FC<Props> = ({
   variant = 'ghost',
   hover = false,
   disabled = false,
+  size = 'sm',
 }) => {
   const t = TONES[tone];
   const isFilled = variant === 'solid' || hover;
+  const padY = size === 'md' ? 4 : 2;
   return (
     <button
       type="button"
@@ -50,7 +53,7 @@ export const IconButton: React.FC<Props> = ({
         color: t.fg,
         border: 'none',
         borderRadius: RADIUS.sm,
-        padding: `2px ${SPACE.sm - 2}px`,
+        padding: `${padY}px ${SPACE.sm - 2}px`,
         font: FONT.small,
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.4 : isFilled ? 1 : 0.7,
