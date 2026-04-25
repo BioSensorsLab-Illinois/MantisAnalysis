@@ -9,7 +9,7 @@
 // we don't type-check the .jsx tree.
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import App from './app.jsx';
+import App from './app.tsx';
 
 const rootEl = document.getElementById('root');
 if (!rootEl) {

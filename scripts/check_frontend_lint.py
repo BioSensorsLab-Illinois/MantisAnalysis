@@ -80,7 +80,7 @@ def main() -> int:
     # Prettier check ---------------------------------------------------
     pr = _run([
         "npx", "--no-install", "prettier", "--check",
-        "web/src/**/*.{js,jsx,json,css,html}",
+        "web/src/**/*.{js,jsx,ts,tsx,json,css,html}",
     ], timeout=45.0)
     if pr.returncode != 0:
         print("check_frontend_lint: prettier reported drift:")

@@ -1,7 +1,7 @@
 # HANDOFF — current live state pointer
 
-Last updated: **2026-04-24**, end of `bundler-migration-v1 Phase 5b-1
-+ warning reduction` (Claude Opus 4.7, 1M context).
+Last updated: **2026-04-24**, end of `bundler-migration-v1 Phase 5
+(5b-finish)` — Phase 5 CLOSED (Claude Opus 4.7, 1M context).
 
 ## Current state of the working tree
 
@@ -15,30 +15,31 @@ Last updated: **2026-04-24**, end of `bundler-migration-v1 Phase 5b-1
 
 ## What just shipped
 
-**bundler-migration-v1 Phase 5b-1 + warning reduction** (this
-session; push pending).
+**bundler-migration-v1 Phase 5b-finish — every .jsx → .tsx, Phase 5
+CLOSED** (this session; push pending).
 
-- **`isp_settings.jsx` → `isp_settings.tsx`** (615 lines). First
-  real-component TypeScript migration. Typed component props +
-  server-contract shapes (`IspMode`, `IspChannelSpec`, `IspConfig`,
-  `SourceLite`, `Pair`, `SayFn`). Established the
-  `import * as _shared from './shared.jsx'; const _s = _shared as any;`
-  shim pattern that every future .tsx file will use until
-  `shared.tsx` lands.
-- **ESLint warning count 372 → 49 (87% drop)**. Drivers: turned off
-  core `no-unused-vars` (typescript-eslint handles both JS + TS);
-  turned off `react-refresh/only-export-components` (dev-HMR hint
-  that doesn't map to our primitives hub); auto-pruned 81 unused
-  shared-module imports across `app.jsx` + `analysis.jsx`;
-  auto-removed 21 dead `const { style } = usePlotStyle();` lines;
-  auto-removed 7 other dead single-const destructures; ran
-  `npm run lint:fix` for 10 unused eslint-disable directives.
-- **Browser-verified** — ISP settings window opens cleanly from
-  the gear; mode dropdown + geometry + channel list render; zero
-  console errors.
+- **6 mass renames with `@ts-nocheck` headers**:
+  `shared.jsx`/`app.jsx`/`usaf.jsx`/`fpn.jsx`/`dof.jsx`/`analysis.jsx`
+  → `.tsx`. Bodies preserved byte-for-byte; each file gets a
+  leading `// @ts-nocheck` so tsc parses but doesn't strict-check
+  them. Phase 5c (deferred, multi-session) peels `@ts-nocheck`
+  off file-by-file as code is touched.
+- **`tsconfig.json`** drops `allowJs` + `checkJs: false`. Every
+  source file is now TypeScript.
+- **`eslint.config.js`** — `@typescript-eslint/ban-ts-comment`
+  demoted so `@ts-nocheck` is allowed during the rollout.
+- **Cross-file imports** rewritten (11 sites); `web/index.html`
+  already pointed at `main.tsx`.
+- **`scripts/check_frontend_lint.py`** — Prettier glob extended to
+  include `.ts`/`.tsx` (the old glob matched nothing post-rename).
+- **`isp_settings.tsx`** — the `as any` shim stays; removes when
+  shared.tsx drops `@ts-nocheck` in Phase 5c.
+- **Browser-verified** — FPN mode default, then USAF + DoF clicks;
+  all 3 render with zero console errors.
 
 **Previous sessions** (already pushed):
 
+- `1fd05f2` — Phase 5b-1 (isp_settings.tsx + warning reduction 372→49).
 - `2bd4ef6` — Phase 5a (TypeScript infrastructure + main.tsx seed).
 - `cd560d7` — Phase 4 (ESLint + Prettier).
 - `febb365` — Phase 3 follow-up (reviewer findings).
@@ -83,17 +84,16 @@ python -m mantisanalysis --no-browser --port 8773
 
 ## Active initiative
 
-**`bundler-migration-v1`** — Phases 1–4 + 5a + **5b-1** closed.
-Phases 5b-2+ + 6–8 remain (multi-session):
+**`bundler-migration-v1`** — Phases 1–5 CLOSED. Phases 6–8 +
+Phase 5c (optional type-tightening) remain:
 
-- Phase 5b-2 — `shared.jsx` → `shared.tsx`. The dependency hub
-  (~4300 lines, 85+ exports). Likely 1-2 sessions just to type
-  it; downstream consumers get real types for free afterward.
-- Phase 5b-3+ — `analysis.jsx` → `analysis.tsx`, then
-  `usaf`/`fpn`/`dof`/`app`. One per session.
-- Phase 6 — axe-core integration under `pytest -m web_smoke`
-- Phase 7 — Storybook with component stories
-- Phase 8 — docs + close
+- Phase 5c (DEFERRED, multi-session) — drop `@ts-nocheck`
+  file-by-file, type the exported primitives in shared.tsx, delete
+  the `as any` shim in `isp_settings.tsx`, promote ESLint to
+  `typescript-eslint/recommendedTypeChecked`. Not blocking 6/7/8.
+- Phase 6 — axe-core integration under `pytest -m web_smoke`.
+- Phase 7 — Storybook with component stories.
+- Phase 8 — docs + close.
 
 `analysis-page-overhaul-v1` remains at Phase 2 done / Phase 3 next
 — paused since the harness rework. With Phase 3 of the bundler
@@ -102,14 +102,12 @@ be built ES-modules-native from the start.
 
 ## Where to pick up next
 
-1. **bundler-migration-v1 Phase 5b-2** — migrate `shared.jsx` →
-   `shared.tsx`. Once the hub is typed, the `as any` shim in every
-   `.tsx` file gets dropped and downstream .tsx files start seeing
-   real prop/return types. Budget: 1-2 sessions.
-2. **Warning-cleanup-last-mile** — 49 remaining warnings are all
-   legit tech debt: unused component props (`onToast`, `unitPref`,
-   etc.) and unused destructured state. Each resolves with `_`-
-   prefix or deletion. Pair well with Phase 5b-2+.
+1. **bundler-migration-v1 Phase 6** — axe-core accessibility
+   integration under `pytest -m web_smoke`. Self-contained session.
+2. **Phase 5c** (optional, any time) — drop `@ts-nocheck` from
+   `shared.tsx` first; type its exported primitives. Downstream
+   wins: delete the `as any` shim in `isp_settings.tsx`; the 49
+   residual warnings mostly dissolve under strict TS.
 3. **analysis-page-overhaul-v1 Phase 3** — paused; unified
    `<AnalysisModal>` shell refactor. Now safe to do ES-modules-
    native + typed.
@@ -120,9 +118,8 @@ be built ES-modules-native from the start.
 
 ## Deferred with explicit rationale
 
-- **B-0014** — Vite bundler migration. **Phases 1–4 + 5a + 5b-1
-  SHIPPED** (2026-04-24). Phase 5b-2+ (shared.tsx + remaining file
-  migrations) + 6–8 upcoming.
+- **B-0014** — Vite bundler migration. **Phases 1–5 SHIPPED**
+  (2026-04-24). Phase 5c (type-tightening) + Phases 6–8 remaining.
 - **B-0015 extended** — per-mode Playwright interaction suites
   (USAF / FPN / DoF analysis modals). Substantial; depends on
   analysis-page-overhaul-v1 Phase 3 landing.

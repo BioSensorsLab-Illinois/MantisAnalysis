@@ -1,19 +1,17 @@
 {
-  "//": "bundler-migration-v1 Phase 5 — gradual TypeScript migration.",
-  "//1": "allowJs: true — existing .jsx files continue to compile unchanged.",
-  "//2": "checkJs: false — don't type-check the .jsx tree; only .ts/.tsx.",
-  "//3": "strict: true — hold new .tsx files to a high bar from day one.",
-  "//4": "jsx: react-jsx — React 18 automatic runtime; no `import React`.",
-  "//5": "moduleResolution: bundler — matches Vite's resolution semantics.",
-  "//6": "noEmit: true — Vite/esbuild does the actual transpile; tsc is just the type checker.",
+  "//": "bundler-migration-v1 Phase 5 — TypeScript.",
+  "//1": "allowJs OFF post 5b-finish (2026-04-24): every source file is .ts/.tsx.",
+  "//2": "strict: true — goal state; individual files can opt out with @ts-nocheck",
+  "//2a": "    during the gradual type-tightening rollout, and tighten file-by-file.",
+  "//3": "jsx: react-jsx — React 18 automatic runtime; no `import React`.",
+  "//4": "moduleResolution: bundler — matches Vite's resolution semantics.",
+  "//5": "noEmit: true — Vite/esbuild does the actual transpile; tsc is just the type checker.",
   "compilerOptions": {
     "target": "ES2020",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
-    "allowJs": true,
-    "checkJs": false,
     "strict": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
@@ -26,6 +24,6 @@
     "allowImportingTsExtensions": true,
     "allowSyntheticDefaultImports": true
   },
-  "include": ["web/src/**/*", "vite.config.js"],
+  "include": ["web/src/**/*"],
   "exclude": ["node_modules", "web/dist", "build", "outputs", "dist"]
 }

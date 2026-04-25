@@ -132,22 +132,20 @@ MantisAnalysis/
 ├── docs/
 │   └── validation/               ← B-0018 staging for real-sample captures (git-ignored contents)
 │       └── README.md
-├── web/                          ← React 18 SPA (Vite-bundled; npm run build → web/dist/)
-│   ├── index.html                ← Vite entry; loads /src/main.jsx as ES module
+├── web/                          ← React 18 SPA (Vite-bundled, TypeScript; npm run build → web/dist/)
+│   ├── index.html                ← Vite entry; loads /src/main.tsx as ES module
 │   ├── dist/                     ← built artifacts (git-ignored; FastAPI serves at /)
-│   └── src/
-│       ├── main.tsx              ← Vite entry — mounts <App /> via createRoot (TypeScript; Phase 5a seed)
-│       ├── shared.jsx            ← BRAND, THEMES, icons, hooks, Chart primitive,
-│       │                            useChartGeom, tokens(), renderChartToPng,
-│       │                            API helpers (apiFetch, apiUpload, channelPngUrl)
-│       ├── app.jsx               ← root <App>, TopBar, StatusBar, ModeRail,
-│       │                            CommandPalette (⌘K), HelpOverlay, AboutOverlay,
-│       │                            TweaksPanel, theme/accent
-│       ├── usaf.jsx              ← USAFMode — canvas + sidebars, line pick
-│       ├── fpn.jsx               ← FPNMode — ROI drag, channel chips, live stats
-│       ├── dof.jsx               ← DoFMode — probe points, focus lines, H/V refs, tilt
-│       ├── analysis.jsx          ← AnalysisModal — per-mode tabs + CSV/PNG export
-│       └── isp_settings.tsx      ← ISPSettingsModal — mode selector + geometry + per-channel config (TypeScript; Phase 5b-1)
+│   └── src/                      ← every file is TypeScript post Phase 5b (2026-04-24)
+│       ├── main.tsx              ← Vite entry — mounts <App /> via createRoot
+│       ├── shared.tsx            ← BRAND, THEMES, icons, hooks, Chart primitive,  ─╮  @ts-nocheck
+│       │                            useChartGeom, tokens, renderChartToPng,          │   pending per-
+│       │                            API helpers (apiFetch, apiUpload, channelPngUrl) │   file type
+│       ├── app.tsx               ← root <App>, TopBar, ModeRail, ⌘K palette, etc.    │   tightening
+│       ├── usaf.tsx              ← USAFMode — canvas + sidebars, line pick           │   in future
+│       ├── fpn.tsx               ← FPNMode — ROI drag, channel chips, live stats     │   sessions
+│       ├── dof.tsx               ← DoFMode — probe points, focus lines, H/V refs  ─╯
+│       ├── analysis.tsx          ← AnalysisModal — per-mode tabs + CSV/PNG export (@ts-nocheck)
+│       └── isp_settings.tsx      ← ISPSettingsModal (fully typed — Phase 5b-1)
 └── outputs/                      ← generated artifacts (git-ignored)
     ├── smoke/                    ← PNGs from `smoke_test.py --tier 2`
     ├── web-smoke/                ← screenshots + traces from Playwright runs

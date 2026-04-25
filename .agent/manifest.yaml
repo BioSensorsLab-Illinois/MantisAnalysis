@@ -57,20 +57,20 @@ major_modules:
     role: "React 18 SPA entry — Vite root; loads /src/main.tsx as ES module"
   - path: web/src/main.tsx
     role: "Vite entry — mounts <App /> via createRoot (TypeScript seed file, bundler-migration-v1 Phase 5)"
-  - path: web/src/shared.jsx
-    role: "BRAND, THEMES, icons, hooks, chart primitives (Chart, Page, useChartGeom, tokens, renderChartToPng)"
-  - path: web/src/app.jsx
-    role: "App shell, TopBar, ModeRail, ⌘K palette, source bootstrap"
-  - path: web/src/usaf.jsx
-    role: "USAF mode panel — line pick, live Michelson"
-  - path: web/src/fpn.jsx
-    role: "FPN mode panel — ROI drag, live DSNU/PRNU"
-  - path: web/src/dof.jsx
-    role: "DoF mode panel — points + lines + H/V refs + tilt"
-  - path: web/src/analysis.jsx
-    role: "analysis modal — per-mode tabs + CSV/PNG export"
+  - path: web/src/shared.tsx
+    role: "BRAND, THEMES, icons, hooks, chart primitives (Chart, Page, useChartGeom, tokens, renderChartToPng). TypeScript (@ts-nocheck pending per-file typing) — Phase 5b"
+  - path: web/src/app.tsx
+    role: "App shell, TopBar, ModeRail, ⌘K palette, source bootstrap. TypeScript (@ts-nocheck)"
+  - path: web/src/usaf.tsx
+    role: "USAF mode panel — line pick, live Michelson. TypeScript (@ts-nocheck)"
+  - path: web/src/fpn.tsx
+    role: "FPN mode panel — ROI drag, live DSNU/PRNU. TypeScript (@ts-nocheck)"
+  - path: web/src/dof.tsx
+    role: "DoF mode panel — points + lines + H/V refs + tilt. TypeScript (@ts-nocheck)"
+  - path: web/src/analysis.tsx
+    role: "analysis modal — per-mode tabs + CSV/PNG export. TypeScript (@ts-nocheck)"
   - path: web/src/isp_settings.tsx
-    role: "ISP settings modal — mode selector + per-channel geometry (TypeScript; bundler-migration-v1 Phase 5b-1)"
+    role: "ISP settings modal — mode selector + per-channel geometry (TypeScript; typed — Phase 5b-1)"
 
 entry_points:
   - "python -m mantisanalysis"

@@ -160,21 +160,41 @@ migrations — multi-session, ongoing).
       Zero logic change; proves the pipeline end-to-end
       (tsc + eslint + Vite esbuild + Playwright all green).
 
-#### Phase 5b — file migrations (multi-session, ONGOING)
+#### Phase 5b — file migrations (ONGOING)
 
-Strategy: move files from the dependency hub outward.
+Strategy pivoted mid-flight (2026-04-24): rather than type each
+large file in a dedicated session, do a mass rename with
+`@ts-nocheck` headers + drop `allowJs` in one commit, then peel
+`@ts-nocheck` off file-by-file in follow-up sessions as the code
+is touched.
 
-- [ ] `shared.jsx` → `shared.tsx` — 2800-line hub with ~85 exports;
-      likely 2-3 sessions. Type every primitive + hook, pay down
-      the worst `exhaustive-deps` and `any`-propagating cases
-      as we encounter them.
-- [ ] `isp_settings.jsx` → `.tsx` — smaller, self-contained.
-- [ ] `analysis.jsx` → `.tsx` — big, Plotly-heavy.
-- [ ] `usaf.jsx` / `fpn.jsx` / `dof.jsx` → `.tsx` — one at a time.
-- [ ] `app.jsx` → `.tsx` — last, once every import is typed.
-- [ ] Cleanup: drop `allowJs` + `checkJs: false` once zero `.jsx`
-      remain. Promote lint rule set to
-      `typescript-eslint/recommendedTypeChecked`.
+- [x] 5b-1 — `isp_settings.jsx` → `isp_settings.tsx` (fully typed)
+      + warning reduction 372 → 49 (2026-04-24, commit 1fd05f2).
+- [x] 5b-finish — mass migration (2026-04-24, this commit):
+  - [x] `shared.jsx` → `shared.tsx` (+ `@ts-nocheck`)
+  - [x] `app.jsx` → `app.tsx` (+ `@ts-nocheck`)
+  - [x] `usaf.jsx` → `usaf.tsx` (+ `@ts-nocheck`)
+  - [x] `fpn.jsx` → `fpn.tsx` (+ `@ts-nocheck`)
+  - [x] `dof.jsx` → `dof.tsx` (+ `@ts-nocheck`)
+  - [x] `analysis.jsx` → `analysis.tsx` (+ `@ts-nocheck`)
+  - [x] Cross-file imports updated; `web/index.html` entry updated.
+  - [x] `tsconfig.json` drops `allowJs` + `checkJs: false` — every
+        source file is now `.ts`/`.tsx`.
+  - [x] `eslint.config.js` allows `@ts-nocheck` (noise-tracked,
+        not-fail rule).
+  - [x] Browser-verified FPN / USAF / DoF mode switches (zero
+        console errors).
+
+#### Phase 5c — type-tightening follow-ups (DEFERRED, multi-session)
+
+- [ ] Drop `@ts-nocheck` from `shared.tsx`; type every exported
+      primitive properly. Downstream: deletes the `as any` shim
+      in `isp_settings.tsx`.
+- [ ] Drop `@ts-nocheck` from `app.tsx` / `analysis.tsx` /
+      `usaf.tsx` / `fpn.tsx` / `dof.tsx` one at a time.
+- [ ] Promote lint rule set to
+      `typescript-eslint/recommendedTypeChecked` once a meaningful
+      share of the tree is actually type-checked.
 - [ ] Update `tests/web/` to use TypeScript-aware Playwright types.
 
 ### Phase 6 — axe-core integration

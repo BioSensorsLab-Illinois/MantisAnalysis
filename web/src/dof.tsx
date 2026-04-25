@@ -1,3 +1,10 @@
+// @ts-nocheck
+// bundler-migration-v1 Phase 5b finish (2026-04-24): mass-migrated .jsx
+// → .tsx. Body kept as-is under @ts-nocheck so a 23 K-line, 85-export
+// tree can move to TypeScript in one commit without per-file rewrite.
+// Remove @ts-nocheck per file in follow-up sessions to incrementally
+// type primitives + components. tsc still parses and bundles the file;
+// only the strict type-checking is muted.
 // DoF mode — server-backed, full feature set.
 //
 // Matches USAF / FPN UX (rulers, zoom-to-cursor, pan, shortcuts, display
@@ -45,7 +52,7 @@ import {
   useSource,
   useDebounced,
   ResizeHandle,
-} from './shared.jsx';
+} from './shared.tsx';
 
 const {
   useState: useStateD,

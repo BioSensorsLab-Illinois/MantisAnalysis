@@ -6,34 +6,23 @@
 // the exact overrides — on Apply we PUT /api/sources/{id}/isp and let the
 // server return the authoritative SourceSummary which updates root state.
 //
-// bundler-migration-v1 Phase 5b-1 (2026-04-24): first .tsx component
-// migration. Typed against the server contract in
-// `mantisanalysis/server.py::SourceSummary` + `/api/isp/modes`. Imports
-// from `shared.jsx` are still untyped (Phase 5b-2 — shared.tsx — will
-// propagate real types here) so anything coming out of those imports
-// is `any` today.
+// bundler-migration-v1 Phase 5b (2026-04-24): ES-module native + TypeScript.
+// Typed against the server contract in
+// `mantisanalysis/server.py::SourceSummary` + `/api/isp/modes`.
+//
+// shared.tsx is under `@ts-nocheck` pending per-file typing. tsc still
+// INFERS parameter shapes from its destructured components (e.g.
+// `Button = ({ variant, icon, iconRight, size, children, ... }) => ...`
+// produces a signature where every prop looks required). Named imports
+// from shared.tsx therefore leak over-strict types into this file.
+// Bridge: import the whole module as `any`, destructure what we need.
+// Future sessions tighten the shared.tsx exports and drop this shim.
 import React, { type CSSProperties, type ReactNode } from 'react';
-// tsc under `allowJs: true` scans shared.jsx for the shape of each named
-// export and infers every destructured parameter as REQUIRED, even when
-// the JS source treats them as optional. That produces false errors at
-// every call site the moment a .tsx file uses <Button variant="subtle">
-// without also passing icon / title / fullWidth / etc. The pragmatic
-// fix for the Phase 5b gradual migration: import the whole module as
-// `any`, then destructure the primitives we need. When shared.jsx →
-// shared.tsx lands (Phase 5b-2), drop the cast and let the real types
-// propagate. Marked with `eslint-disable` because typescript-eslint's
-// no-explicit-any rule trips on the cast itself.
 
-import * as _shared from './shared.jsx';
+import * as _shared from './shared.tsx';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const _s = _shared as any;
 const { Icon, Button, Modal, useTheme, useSource, apiFetch, useLocalStorageState } = _s;
-// Unused-but-previously-imported primitives are intentionally omitted —
-// the original .jsx listed them for consistency but this file never
-// used Card / Row / Slider / Select / Segmented / Toast / Kbd /
-// Checkbox / Spinbox / formatApiDetail. Phase 4's no-unused-vars rule
-// would flag them post-migration; they can be re-imported from _s on
-// demand if ISPSettingsWindow grows.
 
 const {
   useState: useStateI,

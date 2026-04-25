@@ -1,3 +1,10 @@
+// @ts-nocheck
+// bundler-migration-v1 Phase 5b finish (2026-04-24): mass-migrated .jsx
+// → .tsx. Body kept as-is under @ts-nocheck so a 23 K-line, 85-export
+// tree can move to TypeScript in one commit without per-file rewrite.
+// Remove @ts-nocheck per file in follow-up sessions to incrementally
+// type primitives + components. tsc still parses and bundles the file;
+// only the strict type-checking is muted.
 // MantisAnalysis — main app shell (server-backed).
 // BioSensors Lab @ UIUC · Zhongmin Zhu <j@polarxphotonics.com>
 //
@@ -23,11 +30,11 @@ import {
   SourceCtx,
   FileFilterCtx,
   tokens,
-} from './shared.jsx';
-import { USAFMode } from './usaf.jsx';
-import { FPNMode } from './fpn.jsx';
-import { DoFMode } from './dof.jsx';
-import { AnalysisModal } from './analysis.jsx';
+} from './shared.tsx';
+import { USAFMode } from './usaf.tsx';
+import { FPNMode } from './fpn.tsx';
+import { DoFMode } from './dof.tsx';
+import { AnalysisModal } from './analysis.tsx';
 import { ISPSettingsWindow } from './isp_settings.tsx';
 const {
   useState: useStateApp,

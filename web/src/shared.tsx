@@ -1,3 +1,10 @@
+// @ts-nocheck
+// bundler-migration-v1 Phase 5b finish (2026-04-24): mass-migrated .jsx
+// → .tsx. Body kept as-is under @ts-nocheck so a 23 K-line, 85-export
+// tree can move to TypeScript in one commit without per-file rewrite.
+// Remove @ts-nocheck per file in follow-up sessions to incrementally
+// type primitives + components. tsc still parses and bundles the file;
+// only the strict type-checking is muted.
 // Shared UI primitives for MantisAnalysis — BioSensors Lab @ UIUC.
 // Author: Zhongmin Zhu <j@polarxphotonics.com>
 //
@@ -3713,7 +3720,7 @@ const _computeGeom = ({
   aspect = 'auto',
 } = {}) => {
   const ratio = _ASPECT_RATIOS[aspect];
-  let outW = W;
+  const outW = W;
   let outH = H;
   if (ratio != null && ratio > 0) outH = Math.max(60, Math.round(W / ratio));
   const plotW = Math.max(1, outW - PAD.l - PAD.r);

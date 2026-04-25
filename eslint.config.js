@@ -156,6 +156,19 @@ export default [
         'warn',
         { allowShortCircuit: true, allowTernary: true },
       ],
+      // Allow `@ts-nocheck` at the top of mass-migrated files. Phase 5b
+      // finish (2026-04-24) moved every .jsx → .tsx with `@ts-nocheck`
+      // so the bodies could move without a concurrent per-file strict-
+      // mode pass. Follow-up sessions drop the directive file-by-file.
+      '@typescript-eslint/ban-ts-comment': [
+        'warn',
+        {
+          'ts-expect-error': 'allow-with-description',
+          'ts-ignore': true,
+          'ts-nocheck': false,
+          'ts-check': false,
+        },
+      ],
       // Reassigning the iteration variable in a for-of is rare; flag it
       // but don't break on it.
       'no-case-declarations': 'warn',

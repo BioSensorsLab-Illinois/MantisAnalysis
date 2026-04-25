@@ -1,3 +1,10 @@
+// @ts-nocheck
+// bundler-migration-v1 Phase 5b finish (2026-04-24): mass-migrated .jsx
+// → .tsx. Body kept as-is under @ts-nocheck so a 23 K-line, 85-export
+// tree can move to TypeScript in one commit without per-file rewrite.
+// Remove @ts-nocheck per file in follow-up sessions to incrementally
+// type primitives + components. tsc still parses and bundles the file;
+// only the strict type-checking is muted.
 // USAF Resolution mode — server-backed, full feature set.
 // Pick lines through USAF target bars; every line is measured by the Python
 // server (Michelson percentile + FFT + min/max, samples-per-cycle, profile).
@@ -42,7 +49,7 @@ import {
   DraggablePanelList,
   FloatingWindow,
   CanvasColorbar,
-} from './shared.jsx';
+} from './shared.tsx';
 
 const {
   useState: useStateU,

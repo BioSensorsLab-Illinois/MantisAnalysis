@@ -1,3 +1,10 @@
+// @ts-nocheck
+// bundler-migration-v1 Phase 5b finish (2026-04-24): mass-migrated .jsx
+// → .tsx. Body kept as-is under @ts-nocheck so a 23 K-line, 85-export
+// tree can move to TypeScript in one commit without per-file rewrite.
+// Remove @ts-nocheck per file in follow-up sessions to incrementally
+// type primitives + components. tsc still parses and bundles the file;
+// only the strict type-checking is muted.
 // Analysis results modal — native vector charts + HTML tables only.
 // Big charts use Plotly.js (interactive, hover, SVG-export). Many-small
 // charts (per-line profile cards, per-group mini-MTFs, G×E heatmap cells)
@@ -33,7 +40,7 @@ import {
   decodeFloat32Grid,
   channelColor,
   paletteColor,
-} from './shared.jsx';
+} from './shared.tsx';
 
 const {
   useState: useStateA,
