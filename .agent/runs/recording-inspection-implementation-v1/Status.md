@@ -3,9 +3,10 @@
 > Updated at every milestone. Never delete prior content; append.
 
 Opened: 2026-04-24
-Last updated: 2026-04-24 (**M0 closed** — both reviewers passed
-serially, every P0 + P1 + P2 finding resolved inline; ready to
-begin M1)
+Last updated: 2026-04-25 (**M11 closed** — Send-to-mode handoff
+backend + frontend + Storybook ProcessingBadge + skill doc
+updates; Tier 0 PASS, pytest 249/249, web_smoke 16/16; ready to
+begin M12)
 
 ## Current branch
 
@@ -19,40 +20,58 @@ user consent (AGENT_RULES rule 16).
 
 ## Current milestone
 
-**M5 closed; M6 next** — file loading UI + Stream Builder + Dark
-Manager + warning banners (per spec.md W3 + W4 + flows F3/F4/F5/F14).
+**M11 closed; M12 next** — final verification + visual-regression
+baselines + reviewer agents per ExecPlan §10 + docs sync.
 
 ## Current focus
 
-M5 close (this commit set):
+M11 close (this commit set):
 
-- Rail tile + empty state + Sources skeleton + Stream header all
-  shipped behind the `mantis/playback/enabled` localStorage feature
-  flag (default OFF until M11 close per risk-skeptic P1-K).
-- Eviction kind-routing fixed in `shared.tsx::apiFetch` and
-  `app.tsx::onEvicted` (risk-skeptic P0-B).
-- 4 new Tier 4 Playwright tests, all green; total 220 unit + 8
-  web_smoke.
-- Browser-verified in Claude Preview MCP: flag-off (no rail tile),
-  flag-on (rail + empty state + Sources panel + Stream header all
-  render with no console errors).
+- **Send-to-mode handoff backend** — `POST /api/playback/streams/{sid}/handoff/{mode}`
+  (`mode ∈ {usaf, fpn, dof}`) renders the frame's raw extracted
+  channel dict (post-dark, pre-display γ/WB/CCM), registers a new
+  `LoadedSource` in analysis-mode `STORE`, returns
+  `dark_already_subtracted: true` when dark was applied. Returns 422
+  with `code: "W-HANDOFF-NOLUM"` when target mode lacks luminance
+  (e.g. USAF on `bare_*` / `polarization_*` ISP modes).
+- **Frontend handoff buttons** — three small `→U` / `→F` / `→D`
+  buttons in `ViewerCard.tsx` hover toolbar (`data-action="handoff-{usaf|fpn|dof}"`).
+  On success: app switches mode + binds the new source via existing
+  `setSource()` hook in `app.tsx`.
+- **Storybook ProcessingBadge story** at `web/src/ProcessingBadge.stories.tsx`
+  (8 variants: Raw / Dark / Normalized / Lut / Rgb / Overlay / Locked
+  / AllBadges + theme picker). Builds clean.
+- **Skill doc updates** — `.agent/skills/recording-inspection/SKILL.md`
+  now documents the handoff contract, presets workflow (M8), CCM
+  editor (M8), and frame-LRU controls (M8).
+- **4 Tier 3 handoff tests** in `tests/headless/test_playback_api.py`
+  (round-trip + unknown mode + unknown stream + frame OOB) — all
+  green.
+- **1 Tier 4 Playwright handoff test** in `tests/web/test_playback_boot.py`
+  (`test_playback_handoff_to_usaf`) — green.
+- Total: 249 unit + headless tests, 16 web_smoke tests, all green.
 
-Next concrete actions for M6:
+Next concrete actions for M12:
 
-1. Wire `web/src/playback/api.ts::loadRecordingByPath` /
-   `loadDarkByPath` to file picker (`onOpenFile` already plumbed).
-2. Build `web/src/playback/StreamBuilder.tsx` (modal, W3 spec) —
-   ordered file list with continuity badges, gap/overlap/exposure
-   chips, threshold slider, Apply button.
-3. Build `web/src/playback/DarkFrameRow.tsx` + dark-frame manager
-   section in `SourcesPanel.tsx` — list, strategy picker, exposure
-   match indicator.
-4. Add inline warning banner (shows W-GAP / W-OVERLAP /
-   W-EXP-MISMATCH chips on each FilePill, plus a "1 gap / 1
-   exposure mismatch" summary in the SourcesPanel footer).
-5. Tier 4 Playwright: load 3 synthetic recordings → Stream Builder
-   auto-opens → Apply → workspace placeholder shows the new
-   stream's totals.
+1. Establish visual-regression baselines (Tier 6) under
+   `screenshots/` — empty state, Sources panel, Stream Builder,
+   ViewerGrid (each layout preset), Inspector (each section),
+   Overlay Builder, Image/Video export modals (light + dark).
+2. Spawn the milestone-close reviewer agents serially per
+   ExecPlan §10 (M11/M12: `react-ui-ux-reviewer`,
+   `accessibility-reviewer`, `performance-reviewer`,
+   `frontend-react-engineer`, `fastapi-backend-reviewer`,
+   `playwright-verifier`, `test-coverage-reviewer`,
+   `risk-skeptic`, `docs-handoff-curator`). Resolve P0 / P1
+   findings inline.
+3. CI wiring (Tier 4 / 5 / 7) — confirm `pytest -m web_smoke`,
+   feature Playwright tests, and `axe-core` accessibility checks
+   are wired into `.github/workflows/*` (no GitHub remote yet, but
+   the workflow files should be ready).
+4. Final docs sync — HANDOFF.md, CHANGELOG_AGENT.md, DECISIONS.md,
+   RISKS.md, ARCHITECTURE.md, REPO_MAP.md, SETUP_AND_RUN.md,
+   manifest.yaml, BACKLOG.md, README.md.
+5. Final initiative-close commit + stamp on Status.md.
 
 ## Progress
 
@@ -67,8 +86,8 @@ Next concrete actions for M6:
 - [x] **M8** — Frontend: 9-section Inspector + CCM editor + presets + frame-LRU widget; backend solve_ccm_from_patches + 7 new routes.
 - [x] **M9** — Overlay system end-to-end (Overlay Builder modal w/ live preview + Apply commits to view).
 - [x] **M10** — Export system: image (synchronous, byte-equal WYSIWYG) + video (async job, MP4/APNG/GIF/PNG-seq, GIF cap, sidecar JSON, ffmpeg gate) (commit pending).
-- [ ] **M11** — Polish, a11y, responsive, perf, handoff routing, Storybook.
-- [ ] **M12** — Final verification + visual-regression baselines + CI wiring.
+- [x] **M11** — Polish, handoff routing (`POST /api/playback/streams/{sid}/handoff/{mode}`), 3 viewer-toolbar buttons (`→U/→F/→D`), Storybook ProcessingBadge story, skill-doc updates (commit pending).
+- [ ] **M12** — Final verification + visual-regression baselines + CI wiring + reviewer agents + docs sync.
 
 ## Modified files
 
@@ -102,6 +121,17 @@ M1+ work touches those files.
 | 2026-04-25 | M5 close — `pytest -m web_smoke` | 8 PASS (was 4) | 26s |
 | 2026-04-25 | M5 close — full `pytest -q` | 220 PASS | 36s |
 | 2026-04-25 | M5 close — Tier 0/1/2/3 ladder | all PASS | ~5s |
+| 2026-04-25 | M6 close — `pytest -m web_smoke` | 11 PASS (was 8) | ~32s |
+| 2026-04-25 | M7 close — `pytest -m web_smoke` | 12 PASS (was 11) | ~35s |
+| 2026-04-25 | M8 close — `pytest -q` full suite | 245 PASS | ~52s |
+| 2026-04-25 | M8 close — `pytest -m web_smoke` | 13 PASS (was 12) | ~38s |
+| 2026-04-25 | M9 close — `pytest -m web_smoke` | 14 PASS (was 13) | ~40s |
+| 2026-04-25 | M10 close — `pytest -m web_smoke` | 15 PASS (was 14) | ~42s |
+| 2026-04-25 | M10 close — `pytest -q` full suite | 245 PASS | ~52s |
+| 2026-04-25 | M11 close — `pytest -q` full suite | 249 PASS | ~55s |
+| 2026-04-25 | M11 close — `pytest -m web_smoke` | 16 PASS (was 15) | ~44s |
+| 2026-04-25 | M11 close — Tier 0 (lint+prettier+tsc) | PASS | ~6s |
+| 2026-04-25 | M11 close — `npm run build` + `build-storybook` | PASS | ~10s |
 
 Smoke + unit + Playwright runs begin at M1. The expected ladder is
 documented in [`TEST_PLAN.md`](TEST_PLAN.md).

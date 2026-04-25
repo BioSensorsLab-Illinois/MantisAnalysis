@@ -26,7 +26,7 @@ import { PlaybackProvider, playbackEnabled, usePlayback } from './state.tsx';
 
 const { useEffect, useRef, useState } = React;
 
-const PlaybackInner = ({ say }) => {
+const PlaybackInner = ({ say, onHandoffApp }) => {
   const t = useTheme();
   const { state, dispatch } = usePlayback();
   const [busy, setBusy] = useState(false);
@@ -364,6 +364,23 @@ const PlaybackInner = ({ say }) => {
                 });
               }}
               onChangeLayout={(l) => dispatch({ type: 'layout/set', payload: l })}
+              onHandoff={async (id, mode) => {
+                const v = state.views.find((vv) => vv.view_id === id);
+                if (!v) return;
+                try {
+                  const result = await playbackApi.handoff(
+                    state.activeStreamId,
+                    mode,
+                    v.locked_frame ?? state.frame,
+                    v
+                  );
+                  say && say(`Sent to ${mode.toUpperCase()} · ${result.source_id}`, 'success');
+                  if (onHandoffApp) onHandoffApp(mode, result);
+                } catch (err) {
+                  const detail = err?.detail ?? err?.message ?? String(err);
+                  say && say(`Handoff to ${mode}: ${detail}`, 'danger');
+                }
+              }}
               frame={state.frame}
               streamId={state.activeStreamId}
             />
@@ -413,9 +430,9 @@ const PlaybackInner = ({ say }) => {
   );
 };
 
-export const PlaybackMode = ({ say, onOpenFile: _onOpenFile }) => (
+export const PlaybackMode = ({ say, onOpenFile: _onOpenFile, onHandoff }) => (
   <PlaybackProvider>
-    <PlaybackInner say={say} />
+    <PlaybackInner say={say} onHandoffApp={onHandoff} />
   </PlaybackProvider>
 );
 

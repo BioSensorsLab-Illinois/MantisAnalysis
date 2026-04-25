@@ -91,6 +91,14 @@ export const playbackApi = {
       body: JSON.stringify({ bytes }),
       headers: { 'Content-Type': 'application/json' },
     }),
+
+  // Send-to-mode handoff (M11)
+  handoff: (sid, mode, frame, view, opts = {}) =>
+    apiFetch(`/api/playback/streams/${sid}/handoff/${mode}`, {
+      method: 'POST',
+      body: JSON.stringify({ frame, view, preserve_dark: true, ...opts }),
+      headers: { 'Content-Type': 'application/json' },
+    }),
 };
 
 // URL builder for the preview <img>. Returns the same URL that

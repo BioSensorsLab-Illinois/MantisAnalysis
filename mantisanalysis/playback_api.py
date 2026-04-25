@@ -1133,6 +1133,99 @@ def mount_playback_api(app: FastAPI,
             raise HTTPException(404, f"unknown job id: {job_id}")
         return _job_payload(job)
 
+    # --- Send-to-mode handoff (M11) -------------------------------------
+
+    @app.post("/api/playback/streams/{stream_id}/handoff/{mode}")
+    def handoff(stream_id: str, mode: str,
+                req: Dict[str, Any]) -> Dict[str, Any]:
+        """Render the active frame's raw channel dict, register it as
+        a `LoadedSource` in the analysis-mode `STORE`, return the
+        new source_id. Per planner-architect P0-2 + risk-skeptic P1-L:
+        - Send the **raw extracted channels** (post-dark, pre-display).
+          Display γ/WB/CCM are NOT baked.
+        - Response carries `dark_already_subtracted: true` when
+          dark_on=true so the receiving mode's dark-attach refuses to
+          subtract again.
+        - 422 when the target mode lacks required channel keys.
+        """
+        if mode not in ("usaf", "fpn", "dof"):
+            raise HTTPException(422, f"unknown mode: {mode}")
+        try:
+            stream = store.get_stream(stream_id)
+        except KeyError:
+            raise HTTPException(404, f"unknown stream id: {stream_id}")
+        frame = int(req.get("frame", 0))
+        view_payload = req.get("view") or {}
+        preserve_dark = bool(req.get("preserve_dark", True))
+        name = req.get("name") or f"{stream.name} · f{frame}"
+        if frame < 0 or frame >= stream.total_frames:
+            raise HTTPException(422, f"frame {frame} out of stream range")
+        channels = store.get_frame(stream_id, frame)
+
+        # Sanity: USAF/FPN/DoF expect HG-Y / Y / L luminance. For
+        # rgb_nir, channels already include HG-Y / LG-Y. For other ISP
+        # modes (bare_*, polarization_*) → 422.
+        if mode == "usaf" and "HG-Y" not in channels and "Y" not in channels and "L" not in channels:
+            raise HTTPException(422, {
+                "detail": (
+                    f"USAF requires luminance channel (HG-Y / Y / L); stream's "
+                    f"ISP mode {stream.isp_mode_id!r} doesn't synthesize one."
+                ),
+                "code": "W-HANDOFF-NOLUM",
+            })
+
+        # Build a LoadedSource against the analysis-mode STORE.
+        from .session import LoadedSource, STORE
+        import uuid as _uuid
+        # Optionally subtract the matched dark; we set
+        # dark_already_subtracted=True only when we actually subtract.
+        dark_dict = None
+        if preserve_dark and view_payload.get("dark_on"):
+            from .dark_frame import match_dark_by_exposure as _match
+            from .playback_pipeline import subtract_dark as _sub
+            from .playback_session import frame_lookup as _lookup
+            try:
+                boundary, _, _local = _lookup(stream, frame)
+            except IndexError:
+                boundary = None
+            target = boundary.exposure if boundary else None
+            if target is not None:
+                pool = [h.master for h in store.list_darks()]
+                best, _ = _match(target, pool)
+                if best is not None:
+                    dark_dict = best.channels
+                    channels = {
+                        k: _sub(v, dark_dict.get(k))
+                        for k, v in channels.items()
+                    }
+
+        any_ch = next(iter(channels.values()))
+        shape = (int(any_ch.shape[0]), int(any_ch.shape[1]))
+        src = LoadedSource(
+            source_id=_uuid.uuid4().hex[:12],
+            name=name,
+            source_kind="h5",
+            channels=channels,
+            attrs={"handoff_from_stream": stream.stream_id,
+                    "handoff_frame": str(frame),
+                    "handoff_mode": mode,
+                    "dark_already_subtracted": str(bool(dark_dict)).lower()},
+            shape_hw=shape,
+        )
+        with STORE._lock:
+            STORE._items[src.source_id] = src
+            STORE._evict_locked()
+        return {
+            "source_id": src.source_id,
+            "kind": "h5",
+            "channels": sorted(channels.keys()),
+            "shape": list(shape),
+            "isp_mode_id": stream.isp_mode_id,
+            "has_dark": dark_dict is not None,
+            "dark_already_subtracted": dark_dict is not None,
+            "target_mode": mode,
+        }
+
     @app.get("/api/playback/exports/{job_id}/file")
     def get_job_file(job_id: str) -> Response:
         try:

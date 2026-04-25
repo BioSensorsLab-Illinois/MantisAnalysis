@@ -524,6 +524,52 @@ def test_playback_export_video_png_seq_round_trip(web_server: str) -> None:
 
 
 @pytest.mark.web_smoke
+def test_playback_handoff_to_usaf(web_server: str) -> None:
+    """M11: clicking Send-to-USAF on a ViewerCard switches to USAF mode
+    with the new source bound."""
+    pytest.importorskip("playwright")
+    from playwright.sync_api import sync_playwright
+
+    if not _DIST_INDEX.is_file():
+        pytest.skip("web/dist not built")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        ctx = browser.new_context()
+        page = ctx.new_page()
+        page.add_init_script(
+            "try { localStorage.setItem('mantis/playback/enabled', '1'); } catch (e) {}"
+        )
+        page.goto(web_server, wait_until="networkidle", timeout=15_000)
+        page.evaluate(
+            """async () => {
+                const streams = await fetch('/api/playback/streams').then(r => r.json());
+                for (const s of streams || []) await fetch(`/api/playback/streams/${s.stream_id}`, { method: 'DELETE' });
+                const recs = await fetch('/api/playback/recordings').then(r => r.json());
+                for (const r of recs || []) await fetch(`/api/playback/recordings/${r.recording_id}`, { method: 'DELETE' });
+            }"""
+        )
+        page.evaluate("() => window.location.reload()")
+        page.wait_for_load_state("networkidle")
+        page.locator('[data-mode-tile="play"]').first.click()
+        page.get_by_role("button", name="Load synthetic sample").first.click()
+        page.wait_for_selector('[data-region="viewer-grid"]', state="visible",
+                                timeout=8_000)
+        # Hover the first view to surface the toolbar, click Send-to-USAF.
+        page.locator('[data-view-id]').first.hover()
+        page.locator('[data-action="handoff-usaf"]').first.click()
+        # USAF mode tile becomes active (mode rail's USAF button).
+        page.wait_for_function(
+            """() => {
+                const usaf = document.querySelector('[data-mode-tile=\"usaf\"]');
+                return usaf && getComputedStyle(usaf).backgroundColor !== 'rgba(0, 0, 0, 0)';
+            }""",
+            timeout=4_000,
+        )
+        browser.close()
+
+
+@pytest.mark.web_smoke
 def test_playback_eviction_kind_filter(web_server: str) -> None:
     """Risk-skeptic P0-B regression: dispatching `mantis:source-evicted`
     with `detail.kind='stream'` must NOT trigger /api/sources/load-sample."""

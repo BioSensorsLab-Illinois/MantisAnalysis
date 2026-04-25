@@ -77,6 +77,7 @@ export const ViewerCard = ({
   onToggleLock,
   onRemove,
   onDuplicate,
+  onHandoff,
 }) => {
   const t = useTheme();
   const isLocked = view.locked_frame != null;
@@ -332,6 +333,84 @@ export const ViewerCard = ({
             }}
           >
             <Icon name="copy" size={12} />
+          </button>
+          <button
+            type="button"
+            aria-label="Send frame to USAF"
+            data-action="handoff-usaf"
+            onClick={(ev) => {
+              ev.stopPropagation();
+              onHandoff?.(view.view_id, 'usaf');
+            }}
+            style={{
+              width: 22,
+              height: 22,
+              border: 'none',
+              cursor: 'pointer',
+              borderRadius: 2,
+              background: 'transparent',
+              color: '#d8dde6',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 0,
+              fontSize: 9,
+              fontWeight: 700,
+            }}
+          >
+            →U
+          </button>
+          <button
+            type="button"
+            aria-label="Send frame to FPN"
+            data-action="handoff-fpn"
+            onClick={(ev) => {
+              ev.stopPropagation();
+              onHandoff?.(view.view_id, 'fpn');
+            }}
+            style={{
+              width: 22,
+              height: 22,
+              border: 'none',
+              cursor: 'pointer',
+              borderRadius: 2,
+              background: 'transparent',
+              color: '#d8dde6',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 0,
+              fontSize: 9,
+              fontWeight: 700,
+            }}
+          >
+            →F
+          </button>
+          <button
+            type="button"
+            aria-label="Send frame to DoF"
+            data-action="handoff-dof"
+            onClick={(ev) => {
+              ev.stopPropagation();
+              onHandoff?.(view.view_id, 'dof');
+            }}
+            style={{
+              width: 22,
+              height: 22,
+              border: 'none',
+              cursor: 'pointer',
+              borderRadius: 2,
+              background: 'transparent',
+              color: '#d8dde6',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 0,
+              fontSize: 9,
+              fontWeight: 700,
+            }}
+          >
+            →D
           </button>
           <button
             type="button"

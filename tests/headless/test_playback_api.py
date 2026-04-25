@@ -541,6 +541,42 @@ def test_export_video_range_out_of_bounds(client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_handoff_to_usaf_round_trip(client: TestClient) -> None:
+    """M11: handoff sends raw channel dict + dark-already-subtracted flag."""
+    sid = _bootstrap_stream(client)
+    r = client.post(f"/api/playback/streams/{sid}/handoff/usaf",
+                     json={"frame": 0, "view": {"dark_on": False}})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["target_mode"] == "usaf"
+    # Synthetic stream is rgb_nir → HG-Y synthesized.
+    assert "HG-Y" in body["channels"]
+    assert body["dark_already_subtracted"] is False
+    # The new source is registered in the analysis STORE.
+    sources = client.get("/api/sources").json()
+    assert any(s["source_id"] == body["source_id"] for s in sources)
+
+
+def test_handoff_unknown_mode_422(client: TestClient) -> None:
+    sid = _bootstrap_stream(client)
+    r = client.post(f"/api/playback/streams/{sid}/handoff/bogus",
+                     json={"frame": 0, "view": {}})
+    assert r.status_code == 422
+
+
+def test_handoff_unknown_stream_404(client: TestClient) -> None:
+    r = client.post("/api/playback/streams/nope/handoff/usaf",
+                     json={"frame": 0, "view": {}})
+    assert r.status_code == 404
+
+
+def test_handoff_frame_out_of_range_422(client: TestClient) -> None:
+    sid = _bootstrap_stream(client)
+    r = client.post(f"/api/playback/streams/{sid}/handoff/usaf",
+                     json={"frame": 99999, "view": {}})
+    assert r.status_code == 422
+
+
 def test_image_export_byte_equal_to_preview_no_labels(client: TestClient) -> None:
     sid = _bootstrap_stream(client)
     # Preview PNG (single view with labels OFF).

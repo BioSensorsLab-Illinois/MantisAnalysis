@@ -99,6 +99,58 @@ mode's dark-attach refuses to subtract again. 422 when the
 target mode lacks required channel keys (e.g. `bare_dualgain`
 → USAF lacks `Y`).
 
+## Send-to-mode handoff (M11)
+
+`POST /api/playback/streams/{sid}/handoff/{mode}` (mode ∈ {usaf, fpn,
+dof}) renders the active frame's raw extracted channel dict and
+registers a new `LoadedSource` in the analysis-mode `STORE`. Per
+planner-architect P0-2 + risk-skeptic P1-L:
+
+- Body sends `{ frame, view, preserve_dark, name? }`. The `view` is
+  the React-side ViewState; the server only reads `dark_on` from it
+  to decide whether to apply the matched dark.
+- Channels are sent **post-dark, pre-display** — display γ / WB /
+  CCM are not baked.
+- When dark is applied, the response carries
+  `dark_already_subtracted: true`. Receiving USAF/FPN/DoF dark-attach
+  paths should refuse to subtract again. The flag also surfaces in
+  `LoadedSource.attrs["dark_already_subtracted"] = "true"`.
+- USAF requires luminance (`HG-Y` / `Y` / `L`); for ISP modes that
+  don't synthesize it (`bare_*`, `polarization_*`), the server
+  returns 422 with `code: "W-HANDOFF-NOLUM"`.
+- The frontend uses three small `→U / →F / →D` buttons in the
+  ViewerCard hover toolbar (`data-action="handoff-{usaf|fpn|dof}"`).
+  On success the app switches mode and binds the new source via the
+  existing `setSource(...)` hook.
+
+## Presets workflow (M8)
+
+Server-side preset CRUD lives at `/api/playback/presets`. Three
+kinds: `view`, `dark`, `ccm`. Each preset has an opaque JSON
+payload — the client owns the schema. The Inspector's Presets
+section saves the current ViewState as a preset, lists existing
+presets, applies one (replays the full ViewState through
+`view/update`), and deletes them. Per-kind LRU cap is 64 (oldest
+evicted) — see DATA_MODEL §13.
+
+## CCM editor (M8)
+
+The Inspector RGB-grading section embeds a 3×3 numeric grid + live
+|det| display. `ccm_on=true` only takes effect when `|det| ≥ 1e-3`
+(refusal banner above the grid). "Auto from patches" lets the user
+seed ≥3 observed RGB tuples and POST to
+`/api/playback/ccm/from-patch` against an X-Rite white target
+(`d65_white` / `d50_white` / `d75_white`). The endpoint refuses
+under-determined fits (n<3 → identity + stable=False).
+
+## Frame LRU controls (M8)
+
+The Advanced inspector section shows process-global usage and a
+slider for the cap (256 MB..8 GB, default 2 GB). Backed by
+`PlaybackStore._FrameLRU` — single OrderedDict keyed by
+`(stream_id, recording_id, local_frame)` so the cap is shared
+across all streams (risk-skeptic P0-C, planner-architect P1-8).
+
 ## See also
 
 - `.agent/skills/h5-io-data-pipeline-change/SKILL.md` — the

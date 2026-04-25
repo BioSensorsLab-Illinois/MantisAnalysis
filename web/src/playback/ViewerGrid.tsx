@@ -61,6 +61,7 @@ export const ViewerGrid = ({
   onRemoveView,
   onDuplicateView,
   onToggleLock,
+  onHandoff,
   onChangeLayout,
   frame,
   streamId,
@@ -179,6 +180,7 @@ export const ViewerGrid = ({
                 onToggleLock={onToggleLock}
                 onRemove={onRemoveView}
                 onDuplicate={onDuplicateView}
+                onHandoff={onHandoff}
               />
             </div>
           );

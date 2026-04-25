@@ -429,7 +429,21 @@ const App = () => {
                     has its own PlaybackStore, so it does NOT gate on
                     `source`. Rail tile + key `4` are flag-gated. */}
                 {playbackEnabled() && mode === 'play' && (
-                  <PlaybackMode say={say} onOpenFile={() => fileInputRef.current?.click()} />
+                  <PlaybackMode
+                    say={say}
+                    onOpenFile={() => fileInputRef.current?.click()}
+                    onHandoff={async (targetMode, result) => {
+                      try {
+                        const s = await apiFetch(`/api/sources/${result.source_id}`, {
+                          method: 'GET',
+                        });
+                        setSource(s);
+                        setMode(targetMode);
+                      } catch (err) {
+                        say(`Handoff bind failed: ${err.message || err}`, 'danger');
+                      }
+                    }}
+                  />
                 )}
               </div>
             </div>
