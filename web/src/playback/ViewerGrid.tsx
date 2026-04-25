@@ -185,26 +185,42 @@ export const ViewerGrid = ({
             </div>
           );
         })}
-        {visible.length < cells.length && (
-          <div
-            style={{
-              gridColumn: '1 / span 2',
-              gridRow: 'auto',
-              minHeight: 60,
-              border: `1px dashed ${t.border}`,
-              borderRadius: 4,
-              background: t.panelAlt,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: t.textFaint,
-              fontSize: 11,
-              fontFamily: 'ui-monospace, Menlo, monospace',
-            }}
-          >
-            Click &ldquo;Add view&rdquo; to fill the layout ({cells.length - visible.length} more)
-          </div>
-        )}
+        {/* M6 react-ui-ux P2: per-cell placeholder. Previously this
+            block spanned 2 columns × 1 row regardless of how many
+            slots were missing — looked broken in 2×2 / 3+1 layouts.
+            Now we render one placeholder *per remaining cell*, each
+            in its real grid position, so the grid feels intentional
+            even when partially populated. */}
+        {visible.length < cells.length &&
+          cells.slice(visible.length).map((cell, idx) => {
+            const [c, r, cs, rs] = cell;
+            const remaining = cells.length - visible.length;
+            const isFirstEmpty = idx === 0;
+            return (
+              <div
+                key={`placeholder-${c}-${r}-${cs}-${rs}`}
+                data-region="viewer-grid-placeholder"
+                style={{
+                  gridColumn: `${c + 1} / span ${cs}`,
+                  gridRow: `${r + 1} / span ${rs}`,
+                  minHeight: 60,
+                  border: `1px dashed ${t.border}`,
+                  borderRadius: 4,
+                  background: t.panelAlt,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: t.textFaint,
+                  fontSize: 11,
+                  fontFamily: 'ui-monospace, Menlo, monospace',
+                  padding: 8,
+                  textAlign: 'center',
+                }}
+              >
+                {isFirstEmpty ? `Click "Add view" to fill the layout (${remaining} more)` : '+'}
+              </div>
+            );
+          })}
       </div>
     </div>
   );

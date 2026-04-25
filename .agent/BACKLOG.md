@@ -27,24 +27,34 @@ Estimated: 2-3 day spike + perf bench.
 
 ---
 
-## B-0030 — `playback-ux-polish-v1` follow-up
+## B-0030 — `playback-ux-polish-v1` follow-up — **CLOSED 2026-04-25**
 
-`recording-inspection-implementation-v1` M12 react-ui-ux P1
-deferred batch:
+All 6 deliverables shipped across M0-M6 of
+`playback-ux-polish-v1` (initiative folder
+`.agent/runs/playback-ux-polish-v1/`):
 
-1. Implement the W11 `HandoffModal` confirmation (currently the
-   `→U/→F/→D` toolbar buttons fire immediately).
-2. Wire the empty-state drop zone (`EmptyState.tsx:76-87` is
-   decorative — no `onDragOver/onDrop` handlers).
-3. Add destructive-action confirm/undo on `FilePill.tsx` Remove +
-   `DarkFrameRow.tsx` Remove + ViewerCard Remove.
-4. Implement responsive collapse: at viewport < 1180 px, Sources
-   panel collapses to a 44 px icon rail; Inspector auto-collapses
-   when a modal opens (per UI_IMPLEMENTATION_NOTES §12).
-5. Implement W11 `ViewerCardContextMenu.tsx` (right-click → Send
-   to USAF/FPN/DoF, Lock, Duplicate, Remove).
-6. Bump Inspector body text 10 → 11.5 px (M12 react-ui-ux P2).
-7. Per-cell placeholder for 2×2 / 3+1 layouts when fewer views.
+1. ✅ Empty-state drop zone wired (`EmptyState.tsx` accepts
+   `.h5`/`.hdf5` drops; non-h5 entries silently filtered;
+   visual + copy flip during drag).
+2. ✅ Destructive 2-step confirm via `ConfirmRemoveButton`
+   primitive across FilePill, DarkFrameRow, ViewerCard.
+3. ✅ HandoffModal (W11) between toolbar `→U/→F/→D` click and
+   dispatch — full summary + Cancel + Send with error banner.
+4. ✅ Responsive collapse: Sources → 44 px icon rail at
+   < 1180 px; chevron expand floats as `position: absolute`
+   overlay (z-index 50) so workspace keeps width.
+5. ✅ ViewerCardContextMenu (right-click) with Send-to-mode +
+   Lock + Duplicate + Remove + 2-step destructive guard.
+6. ✅ Inspector body text bumped (10 → 11, 9.5 → 10.5; 19 sites)
+   + per-cell ViewerGrid placeholder so 2×2 / 3+1 partial
+   populations no longer leave a single oversized block.
+
+Net: 5 new files
+(`ConfirmRemoveButton.tsx`, `HandoffModal.tsx`,
+`ViewerCardContextMenu.tsx`, `Status.md`,
+`tests/web/test_playback_visual_baselines.py` — pre-existing) + 6
+edits + 5 new Tier 4 Playwright tests. pytest 262 → 267, web_smoke
+21 → 26.
 
 ---
 

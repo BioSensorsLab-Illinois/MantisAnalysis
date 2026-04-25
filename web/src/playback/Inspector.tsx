@@ -219,7 +219,7 @@ const CcmEditor = ({ ccm, ccmOn, onChange, onChangeOn }) => {
           ))
         )}
       </div>
-      <div style={{ fontSize: 10, color: stable ? t.success : t.danger }}>
+      <div style={{ fontSize: 11, color: stable ? t.success : t.danger }}>
         det = {det.toFixed(4)} {stable ? '✓' : '⚠ unstable (|det| < 1e-3)'}
       </div>
       <div style={{ display: 'flex', gap: 6 }}>
@@ -230,7 +230,7 @@ const CcmEditor = ({ ccm, ccmOn, onChange, onChangeOn }) => {
           ariaLabel="CCM target white"
         />
       </div>
-      <div style={{ fontSize: 10, color: t.textMuted }}>
+      <div style={{ fontSize: 11, color: t.textMuted }}>
         Picked patches: {pickedRgb.length} (≥3 to fit). Click below to add the center pixel of the
         current frame as a patch.
       </div>
@@ -251,7 +251,7 @@ const CcmEditor = ({ ccm, ccmOn, onChange, onChangeOn }) => {
             border: `1px solid ${t.chipBorder}`,
             borderRadius: 3,
             cursor: 'pointer',
-            fontSize: 10,
+            fontSize: 11,
             fontFamily: 'inherit',
           }}
         >
@@ -269,7 +269,7 @@ const CcmEditor = ({ ccm, ccmOn, onChange, onChangeOn }) => {
             border: `1px solid ${pickedRgb.length >= 3 ? t.accent : t.chipBorder}`,
             borderRadius: 3,
             cursor: pickedRgb.length >= 3 ? 'pointer' : 'not-allowed',
-            fontSize: 10,
+            fontSize: 11,
             fontFamily: 'inherit',
           }}
         >
@@ -286,7 +286,7 @@ const CcmEditor = ({ ccm, ccmOn, onChange, onChangeOn }) => {
             border: `1px solid ${t.chipBorder}`,
             borderRadius: 3,
             cursor: 'pointer',
-            fontSize: 10,
+            fontSize: 11,
             fontFamily: 'inherit',
           }}
         >
@@ -303,7 +303,7 @@ const CcmEditor = ({ ccm, ccmOn, onChange, onChangeOn }) => {
             border: `1px solid ${t.chipBorder}`,
             borderRadius: 3,
             cursor: 'pointer',
-            fontSize: 10,
+            fontSize: 11,
             fontFamily: 'inherit',
           }}
         >
@@ -312,12 +312,12 @@ const CcmEditor = ({ ccm, ccmOn, onChange, onChangeOn }) => {
       </div>
       {resp && (
         <div
-          style={{ fontSize: 10, color: t.textMuted, fontFamily: 'ui-monospace, Menlo, monospace' }}
+          style={{ fontSize: 11, color: t.textMuted, fontFamily: 'ui-monospace, Menlo, monospace' }}
         >
           residual_rms · {resp.residual_rms.toFixed(6)}
         </div>
       )}
-      <div style={{ fontSize: 9.5, color: t.textFaint, fontStyle: 'italic' }}>
+      <div style={{ fontSize: 10.5, color: t.textFaint, fontStyle: 'italic' }}>
         Display correction — not color calibrated unless you pin a known target.
       </div>
     </div>
@@ -376,7 +376,7 @@ const PresetsPanel = ({ view, onApply }) => {
             border: `1px solid ${savingName.trim() ? t.accent : t.chipBorder}`,
             borderRadius: 3,
             cursor: savingName.trim() ? 'pointer' : 'not-allowed',
-            fontSize: 10,
+            fontSize: 11,
             fontFamily: 'inherit',
           }}
         >
@@ -384,7 +384,7 @@ const PresetsPanel = ({ view, onApply }) => {
         </button>
       </div>
       {presets.length === 0 && (
-        <div style={{ fontSize: 10, color: t.textFaint, padding: 4 }}>No presets saved yet.</div>
+        <div style={{ fontSize: 11, color: t.textFaint, padding: 4 }}>No presets saved yet.</div>
       )}
       {presets.length > 0 && (
         <ul
@@ -425,7 +425,7 @@ const PresetsPanel = ({ view, onApply }) => {
                   border: `1px solid ${t.accent}`,
                   borderRadius: 3,
                   cursor: 'pointer',
-                  fontSize: 10,
+                  fontSize: 11,
                   fontFamily: 'inherit',
                 }}
               >
@@ -442,7 +442,7 @@ const PresetsPanel = ({ view, onApply }) => {
                   border: `1px solid ${t.chipBorder}`,
                   borderRadius: 3,
                   cursor: 'pointer',
-                  fontSize: 10,
+                  fontSize: 11,
                   fontFamily: 'inherit',
                 }}
               >
@@ -491,7 +491,7 @@ const FrameLruWidget = () => {
         format={(v) => `${v.toFixed(2)} GB`}
         ariaLabel="Frame cache cap in gigabytes"
       />
-      <div style={{ fontSize: 9.5, color: t.textFaint, lineHeight: 1.4 }}>
+      <div style={{ fontSize: 10.5, color: t.textFaint, lineHeight: 1.4 }}>
         Higher = smoother backward scrubbing, more RAM. Process-global cap (shared across all
         streams).
       </div>
@@ -568,7 +568,7 @@ const Inspector = () => {
       >
         <div
           style={{
-            fontSize: 9.5,
+            fontSize: 10.5,
             color: t.textFaint,
             textTransform: 'uppercase',
             letterSpacing: 0.5,
@@ -607,7 +607,7 @@ const Inspector = () => {
                 border: `1px solid ${mode === m ? t.accent : t.chipBorder}`,
                 borderRadius: 3,
                 cursor: 'pointer',
-                fontSize: 10,
+                fontSize: 11,
                 textTransform: 'capitalize',
                 fontFamily: 'inherit',
               }}
@@ -692,7 +692,7 @@ const Inspector = () => {
               ))}
             </div>
           )}
-          <div style={{ fontSize: 10, color: t.textFaint }}>
+          <div style={{ fontSize: 11, color: t.textFaint }}>
             Frame mode: {view.locked_frame == null ? 'Live' : `Locked at f${view.locked_frame}`}
           </div>
         </InspectorSection>
@@ -962,7 +962,7 @@ const Inspector = () => {
           <FrameLruWidget />
           <div
             style={{
-              fontSize: 10,
+              fontSize: 11,
               color: t.textFaint,
               fontFamily: 'ui-monospace, Menlo, monospace',
             }}

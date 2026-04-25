@@ -82,8 +82,16 @@ flip).
       items route through the same modal flow added in M3. New Tier
       4 test exercises menu open / handoff item / 2-step Remove /
       Esc-disarm. Browser-verified via preview MCP.
-- [ ] **M6** — Inspector body text 10 → 11.5 px (M12 react-ui-ux P2)
-      + per-cell layout placeholder + close.
+- [x] **M6** — Inspector body text bump (`fontSize: 10,` →
+      `fontSize: 11,` and `fontSize: 9.5,` → `fontSize: 10.5,` —
+      19 sites). Section headers (10.5 uppercase + spaced) kept as
+      navigational chrome. ViewerGrid per-cell placeholder: prior
+      single block spanning 2×1 replaced with one placeholder per
+      remaining cell at its real grid position; first empty cell
+      shows the CTA, subsequent show `+`. Browser-verified in
+      preview MCP at 2×2 layout (3 placeholders in (2,1)/(1,2)/
+      (2,2) cells with correct copy distribution). Initiative
+      closed pending the M6 commit.
 
 ## Tests run
 
@@ -95,6 +103,7 @@ flip).
 | 2026-04-25 | M3 — Tier 0 + pytest -q (265 PASS) + web_smoke (24 PASS, +1) | PASS | ~58s + ~46s |
 | 2026-04-25 | M4 — Tier 0 + pytest -q (266 PASS) + web_smoke (25 PASS, +1) | PASS | ~59s + ~47s |
 | 2026-04-25 | M5 — Tier 0 + pytest -q (267 PASS) + web_smoke (26 PASS, +1) | PASS | ~60s + ~48s |
+| 2026-04-25 | M6 — Tier 0 + pytest -q (267 PASS) + web_smoke (26 PASS, no new test — visual + sed sweep) | PASS | ~60s + ~48s |
 
 ## Smoke status (from prior initiative close)
 
@@ -116,3 +125,35 @@ edit state.
 ## Per-milestone notes
 
 (empty — populated as milestones progress)
+
+## Initiative close (2026-04-25)
+
+All 6 milestones delivered as 6 atomic commits:
+
+- `645b502` — M0+M1 drop-zone wiring on the empty-state hero.
+- `7a45a99` — M2 destructive 2-step confirm (`ConfirmRemoveButton`
+  primitive across FilePill / DarkFrameRow / ViewerCard).
+- `da58468` — M3 `HandoffModal` between toolbar click and dispatch.
+- `8db61c5` — M4 Sources panel responsive collapse (44 px icon
+  rail at < 1180 px + overlay expand).
+- `9220450` — M5 `ViewerCardContextMenu` (right-click).
+- (this commit) — M6 Inspector text bump + per-cell layout
+  placeholder + initiative close.
+
+Verification at close:
+
+- Tier 0 PASS.
+- pytest -q: 267 PASS (was 262 at initiative open; +5 new boot
+  tests across M1/M2/M3/M4/M5).
+- pytest -m web_smoke: 26 PASS (was 21 at open; +5 boot tests).
+- npm run build / lint / typecheck / build-storybook: clean.
+- Browser-verified via preview MCP at 1024 + 1440 widths, light +
+  dark themes.
+
+Closes B-0030 in `.agent/BACKLOG.md` (filed at the M12 close of
+`recording-inspection-implementation-v1`). Per-cell-placeholder
+half of the M6 fix also closes M12 react-ui-ux P2 alongside the
+font bump.
+
+Pending: user push to origin/main (33 commits ahead after this
+commit lands; AGENT_RULES rule 16 — no auto-push).
