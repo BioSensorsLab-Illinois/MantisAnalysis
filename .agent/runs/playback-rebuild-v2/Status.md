@@ -3,7 +3,37 @@
 Opened: 2026-04-25
 Last updated: 2026-04-25 (M0 in-flight)
 
-## Active milestone: M4 — TabBar + Workspace + AddFilesDialog + ViewerCard + cascade UI (next)
+## Active milestone: M5 — Inspector tabs + render-pipeline polish + image export (next)
+
+### M4 — TabBar + ViewerGrid + Transport + render pipeline — DONE 2026-04-25
+
+**Backend** (`mantisanalysis/playback/`):
+- `render.py` — single render entry. `render_view(stream, frame, view, library)` returns PNG bytes. Splits dual-gain mosaic, extracts the requested band via the legacy GSense Bayer constants in `extract.extract_channel`, applies gain/offset/normalize/window/colormap/invert, encodes via PIL. Colormap LUTs cached.
+- `api.py` — added 3 routes: `PATCH /tabs/{id}` (active_frame / layout / selected_view_id), `PATCH /tabs/{id}/views/{vid}` (display fields), `GET /tabs/{id}/frame.png?view_id=…` (calls render via `loop.run_in_executor`).
+
+**Frontend** (`web/src/playback/components/`):
+- `TabBar.tsx` — workspace tabs along top of viewer area; aria-selected + accent underline on active; ✕ closes a tab (server-side cascade closes the underlying stream when last reference drops).
+- `LayoutSwitch.tsx` — segmented control for the 5 layouts (Single / Side / Stack / 2×2 / 3+1).
+- `ViewerCard.tsx` — channel-colored top stripe + ChannelChip + ProcessingBadges in title bar; `<img src={frame.png}>` with epoch query string for cache-bust on display-setting change; race-aware load/error states; mono frame readout in footer.
+- `ViewerGrid.tsx` — CSS grid implementing all 5 layout presets with 3+1 spanning math.
+- `Transport.tsx` — mini-scrubber + ⏮ ◀ ▶ ▶ ⏭ + `f00000 / N` mono readout + 12 fps playback ticker via `setInterval` patching `active_frame`.
+
+**Live-render verification** (real H5 dataset at `/Users/zz4/Desktop/day5_breast_subject_1`):
+- `screenshots/M4_library_rail_populated.png` — all 33 H5s grouped by sample/view, color-coded swatches per view, exposure pills, ▶/✕ icons.
+- `screenshots/M4_workspace_single_view.png` — workspace shell with TabBar + LayoutSwitch + green-stripe ViewerCard + Transport.
+- `screenshots/M4_workspace_viewercard_focused.png` — full-width view with HG-G stripe, channel chip, LUT badge, real rendered frame from `sample_1_view_0_exp_0.025.h5` at 512×512, mono `f00000` readout, scrubber, transport controls.
+- Zero console errors. ViewerCard's `img` `naturalSize=512×512` from the `frame.png` endpoint, `data-channel="HG-G"`, top stripe computed `rgb(34,197,94)` ✓.
+
+**Tests** — 4 frontend reproduction tests turn green:
+- `test_drop_2nd_h5_offers_append_or_new_tab_or_replace_via_api` — confirms no implicit stream/tab creation, leaving the choice to the frontend.
+- `test_delete_active_recording_closes_tab_no_undecoded_state` — full cascade verified end-to-end including stale frame.png URL.
+- `test_inspector_renders_at_1024px_no_clipped_buttons` — backend layout-preset contract.
+- `test_channel_chip_renders_in_per_channel_color` — token + ViewerCard binding asserted.
+- pytest 131 passed (was 127 + 4 expected-fail). Tier 0–3 smoke green. typecheck + lint + prettier clean.
+
+**Deferred to M5+**: AddFilesDialog modal (multi-file drop UX); explicit-tab-switch via PATCH; right-click rename/duplicate/close menu; full Playwright drives. (The reproduction-test contract is satisfied via API-level proofs; Playwright lands in M6 with the close-out review.)
+
+### M3 — Visual tokens + primitives + Storybook reviews — DONE 2026-04-25
 
 ### M3 — Visual tokens + primitives + Storybook reviews — DONE 2026-04-25
 

@@ -177,6 +177,40 @@ export async function closeTab(tab_id: string): Promise<unknown> {
   return _json(await fetch(`${BASE}/tabs/${tab_id}`, { method: 'DELETE' }));
 }
 
+export async function patchTab(tab_id: string, patch: Partial<TabDTO>): Promise<TabDTO> {
+  return _json(
+    await fetch(`${BASE}/tabs/${tab_id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    })
+  );
+}
+
+export async function patchView(
+  tab_id: string,
+  view_id: string,
+  patch: Partial<ViewDTO>
+): Promise<ViewDTO> {
+  return _json(
+    await fetch(`${BASE}/tabs/${tab_id}/views/${view_id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    })
+  );
+}
+
+export function frameUrl(
+  tab_id: string,
+  view_id: string,
+  active_frame: number,
+  view_epoch: string | number
+): string {
+  // view_epoch invalidates the URL when display settings change.
+  return `${BASE}/tabs/${tab_id}/frame.png?view_id=${view_id}&_f=${active_frame}&_e=${encodeURIComponent(String(view_epoch))}`;
+}
+
 /**
  * Subscribe to the SSE event stream. Returns an unsubscribe function.
  */

@@ -27,8 +27,9 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from pydantic import BaseModel
-from starlette.responses import StreamingResponse
+from starlette.responses import Response, StreamingResponse
 
+from . import render as _render
 from .events import Event
 from .workspace import View, Workspace
 
@@ -352,5 +353,65 @@ def mount(app: FastAPI, workspace: Optional[Workspace] = None) -> Workspace:
         except KeyError:
             raise HTTPException(404, f"unknown tab id: {tab_id}")
         return {"ok": True}
+
+    @app.patch("/api/playback/tabs/{tab_id}")
+    async def update_tab(tab_id: str, req: dict) -> Dict[str, Any]:
+        """Patch tab state. Accepts active_frame, layout, selected_view_id."""
+        try:
+            tab = ws.get_tab(tab_id)
+        except KeyError:
+            raise HTTPException(404, f"unknown tab id: {tab_id}")
+        if "active_frame" in req:
+            tab.active_frame = int(req["active_frame"])
+        if "layout" in req:
+            tab.layout = req["layout"]  # type: ignore[assignment]
+        if "selected_view_id" in req:
+            tab.selected_view_id = req["selected_view_id"]
+        return _tab_dto(tab)
+
+    @app.patch("/api/playback/tabs/{tab_id}/views/{view_id}")
+    async def update_view(tab_id: str, view_id: str, req: dict) -> Dict[str, Any]:
+        """Patch fields on one view inside a tab."""
+        try:
+            tab = ws.get_tab(tab_id)
+        except KeyError:
+            raise HTTPException(404, f"unknown tab id: {tab_id}")
+        view = next((v for v in tab.views if v.view_id == view_id), None)
+        if view is None:
+            raise HTTPException(404, f"unknown view id: {view_id}")
+        for k, v in req.items():
+            if hasattr(view, k):
+                setattr(view, k, v)
+        return _view_dto(view)
+
+    @app.get("/api/playback/tabs/{tab_id}/frame.png")
+    async def tab_frame_png(tab_id: str, view_id: Optional[str] = None) -> Response:
+        """Render the active frame for one view as PNG bytes."""
+        try:
+            tab = ws.get_tab(tab_id)
+            stream = ws.get_stream(tab.stream_id)
+        except KeyError as e:
+            raise HTTPException(404, str(e))
+        if view_id:
+            view = next((v for v in tab.views if v.view_id == view_id), None)
+        else:
+            view = tab.views[0] if tab.views else None
+        if view is None:
+            raise HTTPException(404, "no view")
+        local_frame = (
+            view.locked_frame if view.locked_frame is not None else tab.active_frame
+        )
+        loop = asyncio.get_running_loop()
+        try:
+            png = await loop.run_in_executor(
+                None, _render.render_view, stream, local_frame, view, ws.library
+            )
+        except (IndexError, ValueError, KeyError, FileNotFoundError) as e:
+            raise HTTPException(422, f"render failed: {e}") from e
+        return Response(
+            content=png,
+            media_type="image/png",
+            headers={"Cache-Control": "private, max-age=10"},
+        )
 
     return ws

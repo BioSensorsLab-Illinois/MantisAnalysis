@@ -1,13 +1,17 @@
 // Playback (Recording Inspection) — rebuild v2 entry.
-// M2 wires the real workspace via useWorkspace + SSE + LibraryRail.
-// M3+ adds visual polish and the workspace center / inspector.
+// M4 wires LibraryRail + TabBar + ViewerGrid + Transport into the
+// workspace shell. Render pipeline is the M5 single-channel viewer.
 
 import React from 'react';
 
 import { LibraryRail } from './components/LibraryRail';
-import { FONT, LAYOUT, SPACE } from './tokens';
+import { TabBar } from './components/TabBar';
+import { ViewerGrid } from './components/ViewerGrid';
+import { LayoutSwitch } from './components/LayoutSwitch';
+import { Transport } from './components/Transport';
+import { FONT, LAYOUT, PALETTE, RADIUS, SPACE } from './theme';
 import { useWorkspace } from './workspace';
-import { registerRecordingsFromFolder, uploadRecording } from './api';
+import { patchTab, registerRecordingsFromFolder, uploadRecording } from './api';
 
 const { useRef, useState, useCallback } = React;
 
@@ -20,11 +24,6 @@ export interface PlaybackModeProps {
   say?: (msg: string, kind?: string) => void;
   onOpenFile?: () => void;
 }
-
-const SHELL_BG = '#0a0a0a';
-const TEXT = '#e5e7eb';
-const TEXT_MUTED = '#9ca3af';
-const TEXT_FAINT = '#6b7280';
 
 export const PlaybackMode: React.FC<PlaybackModeProps> = ({ say }) => {
   const { workspace, loading, error, refresh } = useWorkspace();
@@ -78,14 +77,41 @@ export const PlaybackMode: React.FC<PlaybackModeProps> = ({ say }) => {
     }
   };
 
+  const tabs = workspace?.tabs ?? [];
+  const activeTabId = workspace?.active_tab_id ?? null;
+  const activeTab = tabs.find((t) => t.tab_id === activeTabId) ?? tabs[0] ?? null;
+  const activeStream = workspace?.streams.find((s) => s.stream_id === activeTab?.stream_id) ?? null;
+
+  const switchTab = (tab_id: string) => {
+    patchTab(tab_id, { selected_view_id: undefined } as never).catch(() => {});
+    // Active tab state is server-side via workspace.active_tab_id. M4
+    // server doesn't yet allow setting it via PATCH; the tab opened
+    // last is the active one. Click-to-switch is local-only for now.
+    setLocalActiveTabId(tab_id);
+  };
+  const [localActiveTabId, setLocalActiveTabId] = useState<string | null>(null);
+  const visibleActiveTab = tabs.find((t) => t.tab_id === localActiveTabId) ?? activeTab;
+  const visibleStream =
+    workspace?.streams.find((s) => s.stream_id === visibleActiveTab?.stream_id) ?? activeStream;
+
+  const handleSelectView = useCallback(
+    (view_id: string) => {
+      if (!visibleActiveTab) return;
+      patchTab(visibleActiveTab.tab_id, { selected_view_id: view_id }).catch((e) =>
+        handleError(e instanceof Error ? e.message : String(e))
+      );
+    },
+    [visibleActiveTab, handleError]
+  );
+
   return (
     <div
       data-region="playback-mode"
       style={{
         height: '100%',
         display: 'flex',
-        background: SHELL_BG,
-        color: TEXT,
+        background: PALETTE.shell,
+        color: PALETTE.text,
         font: FONT.ui,
         overflow: 'hidden',
       }}
@@ -115,16 +141,18 @@ export const PlaybackMode: React.FC<PlaybackModeProps> = ({ say }) => {
           overflow: 'hidden',
         }}
       >
-        {loading && <div style={{ padding: SPACE.xl, color: TEXT_MUTED }}>Loading workspace…</div>}
+        {loading && (
+          <div style={{ padding: SPACE.xl, color: PALETTE.textMuted }}>Loading workspace…</div>
+        )}
         {error && (
           <div
             role="alert"
             style={{
               padding: SPACE.md,
               margin: SPACE.lg,
-              background: 'rgba(220, 38, 38, 0.12)',
-              border: '1px solid #dc2626',
-              borderRadius: 4,
+              background: PALETTE.dangerSoft,
+              border: `1px solid ${PALETTE.danger}`,
+              borderRadius: RADIUS.md,
               color: '#fca5a5',
               font: FONT.small,
             }}
@@ -132,87 +160,121 @@ export const PlaybackMode: React.FC<PlaybackModeProps> = ({ say }) => {
             {error}
           </div>
         )}
-        {!loading && !error && (workspace?.tabs.length ?? 0) === 0 && (
-          <div
-            style={{
-              flex: 1,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexDirection: 'column',
-              gap: SPACE.md,
-            }}
-          >
-            <div style={{ font: FONT.uiBold, fontSize: 20, color: TEXT_MUTED }}>
-              Playback — Recording Inspection
-            </div>
-            <div
-              style={{
-                font: FONT.small,
-                color: TEXT_FAINT,
-                maxWidth: 480,
-                textAlign: 'center',
-                lineHeight: 1.6,
-              }}
-            >
-              Load one or more <code style={{ font: FONT.mono }}>.h5</code> recordings from the
-              library on the left, or drop a folder of files. The workspace builds streams + tabs in
-              M4; the rendered viewer arrives in M5.
-            </div>
-            <div style={{ display: 'flex', gap: SPACE.sm }}>
-              <button
-                onClick={triggerFilePicker}
-                disabled={uploading}
-                style={{
-                  background: '#3b82f6',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: 4,
-                  padding: `${SPACE.sm}px ${SPACE.lg}px`,
-                  font: FONT.uiBold,
-                  cursor: uploading ? 'wait' : 'pointer',
-                }}
-              >
-                {uploading ? 'Uploading…' : 'Open recording…'}
-              </button>
-              <button
-                onClick={loadDataset}
-                style={{
-                  background: 'transparent',
-                  color: TEXT_MUTED,
-                  border: '1px solid #1f2937',
-                  borderRadius: 4,
-                  padding: `${SPACE.sm}px ${SPACE.lg}px`,
-                  font: FONT.ui,
-                  cursor: 'pointer',
-                }}
-                title="Load every .h5 from /Users/zz4/Desktop/day5_breast_subject_1"
-              >
-                Load lab dataset
-              </button>
-            </div>
-            <div
-              style={{ font: FONT.monoSmall, color: TEXT_FAINT, marginTop: LAYOUT.modeRailW / 2 }}
-            >
-              playback-rebuild-v2 / M2
-            </div>
-          </div>
+
+        {!loading && !error && tabs.length === 0 && (
+          <EmptyState
+            uploading={uploading}
+            onOpen={triggerFilePicker}
+            onLoadDataset={loadDataset}
+          />
         )}
-        {!loading && !error && (workspace?.tabs.length ?? 0) > 0 && (
-          <div
-            style={{
-              flex: 1,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: TEXT_MUTED,
-              font: FONT.ui,
-            }}
-          >
-            {workspace!.tabs.length} tab(s) open. Workspace viewer wires in M4.
-          </div>
+
+        {tabs.length > 0 && (
+          <>
+            <TabBar
+              tabs={tabs}
+              streams={workspace?.streams ?? []}
+              activeTabId={visibleActiveTab?.tab_id ?? null}
+              onSelect={switchTab}
+              onError={handleError}
+            />
+            {visibleActiveTab && (
+              <>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: SPACE.sm,
+                    padding: `${SPACE.xs}px ${SPACE.sm}px`,
+                    background: PALETTE.panel,
+                    borderBottom: `1px solid ${PALETTE.border}`,
+                    flexShrink: 0,
+                  }}
+                >
+                  <LayoutSwitch tab={visibleActiveTab} onError={handleError} />
+                  <span style={{ flex: 1 }} />
+                  <span style={{ font: FONT.monoSmall, color: PALETTE.textFaint }}>
+                    {visibleActiveTab.views.length} view
+                    {visibleActiveTab.views.length !== 1 ? 's' : ''}
+                  </span>
+                </div>
+                <ViewerGrid tab={visibleActiveTab} onSelectView={handleSelectView} />
+                <Transport tab={visibleActiveTab} stream={visibleStream} onError={handleError} />
+              </>
+            )}
+          </>
         )}
       </main>
     </div>
   );
 };
+
+const EmptyState: React.FC<{
+  uploading: boolean;
+  onOpen: () => void;
+  onLoadDataset: () => void;
+}> = ({ uploading, onOpen, onLoadDataset }) => (
+  <div
+    style={{
+      flex: 1,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexDirection: 'column',
+      gap: SPACE.md,
+    }}
+  >
+    <div style={{ font: FONT.uiBold, fontSize: 20, color: PALETTE.textMuted }}>
+      Playback — Recording Inspection
+    </div>
+    <div
+      style={{
+        font: FONT.small,
+        color: PALETTE.textFaint,
+        maxWidth: 480,
+        textAlign: 'center',
+        lineHeight: 1.6,
+      }}
+    >
+      Drop one or more <code style={{ font: FONT.mono }}>.h5</code> recordings into the library on
+      the left, or click ▶ next to a file to open it as a tab.
+    </div>
+    <div style={{ display: 'flex', gap: SPACE.sm }}>
+      <button
+        onClick={onOpen}
+        disabled={uploading}
+        style={{
+          background: PALETTE.accent,
+          color: 'white',
+          border: 'none',
+          borderRadius: RADIUS.md,
+          padding: `${SPACE.sm}px ${SPACE.lg}px`,
+          font: FONT.uiBold,
+          cursor: uploading ? 'wait' : 'pointer',
+        }}
+      >
+        {uploading ? 'Uploading…' : 'Open recording…'}
+      </button>
+      <button
+        onClick={onLoadDataset}
+        style={{
+          background: 'transparent',
+          color: PALETTE.textMuted,
+          border: `1px solid ${PALETTE.border}`,
+          borderRadius: RADIUS.md,
+          padding: `${SPACE.sm}px ${SPACE.lg}px`,
+          font: FONT.ui,
+          cursor: 'pointer',
+        }}
+        title="Load every .h5 from /Users/zz4/Desktop/day5_breast_subject_1"
+      >
+        Load lab dataset
+      </button>
+    </div>
+    <div
+      style={{ font: FONT.monoSmall, color: PALETTE.textFaint, marginTop: LAYOUT.modeRailW / 2 }}
+    >
+      playback-rebuild-v2 / M4
+    </div>
+  </div>
+);
