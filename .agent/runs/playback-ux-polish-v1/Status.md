@@ -44,8 +44,18 @@ flip).
       `test_playback_destructive_remove_two_step_confirm` exercises
       arm + Esc-disarm + arm + commit. Browser-verified via preview
       MCP.
-- [ ] **M3** — HandoffModal between toolbar click and dispatch
-      (W11; per UI_IMPLEMENTATION_NOTES §21a).
+- [x] **M3** — HandoffModal (W11) shipped at
+      `web/src/playback/HandoffModal.tsx`. Viewer-toolbar
+      `→U/→F/→D` buttons now dispatch `modal/open` with kind
+      `handoff` instead of firing `playbackApi.handoff` immediately.
+      The modal renders a structured summary (View name, Channels,
+      Frame, Timestamp, Exposure, Dark correction, Source stream,
+      ISP mode), error banner, Cancel + Send buttons. Send fires
+      the same `playbackApi.handoff` + `onConfirmed` callback the
+      old inline path used; Cancel/Esc closes without dispatching.
+      Existing M11 test updated to click Confirm; new M3 test
+      `test_playback_handoff_opens_modal_then_confirms` exercises
+      Cancel + Confirm. Browser-verified via preview MCP.
 - [ ] **M4** — Responsive collapse: Sources panel → 44 px icon
       rail at viewport < 1180 px.
 - [ ] **M5** — ViewerCardContextMenu (right-click → Send to
@@ -60,6 +70,7 @@ flip).
 | 2026-04-25 | M0 — initiative scaffold | n/a | n/a |
 | 2026-04-25 | M1 — Tier 0 + pytest -q (263 PASS) + web_smoke (22 PASS, +1) | PASS | ~55s + ~42s |
 | 2026-04-25 | M2 — Tier 0 + pytest -q (264 PASS) + web_smoke (23 PASS, +1) | PASS | ~56s + ~44s |
+| 2026-04-25 | M3 — Tier 0 + pytest -q (265 PASS) + web_smoke (24 PASS, +1) | PASS | ~58s + ~46s |
 
 ## Smoke status (from prior initiative close)
 

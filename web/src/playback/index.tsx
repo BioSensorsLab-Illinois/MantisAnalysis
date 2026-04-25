@@ -14,6 +14,7 @@ import { useLocalStorageState, useTheme } from '../shared.tsx';
 import { playbackApi } from './api.ts';
 import { ExportImageModal } from './ExportImageModal.tsx';
 import { ExportVideoModal } from './ExportVideoModal.tsx';
+import { HandoffModal } from './HandoffModal.tsx';
 import { Inspector } from './Inspector.tsx';
 import { OverlayBuilderModal } from './OverlayBuilderModal.tsx';
 import { PlaybackEmptyState } from './EmptyState.tsx';
@@ -381,22 +382,21 @@ const PlaybackInner = ({ say, onHandoffApp }) => {
                 });
               }}
               onChangeLayout={(l) => dispatch({ type: 'layout/set', payload: l })}
-              onHandoff={async (id, mode) => {
+              onHandoff={(id, mode) => {
+                // playback-ux-polish-v1 M3: open the HandoffModal
+                // confirmation instead of firing immediately
+                // (UI_IMPLEMENTATION_NOTES §21a + react-ui-ux M12 P1).
                 const v = state.views.find((vv) => vv.view_id === id);
                 if (!v) return;
-                try {
-                  const result = await playbackApi.handoff(
-                    state.activeStreamId,
+                dispatch({
+                  type: 'modal/open',
+                  payload: {
+                    kind: 'handoff',
+                    viewId: id,
                     mode,
-                    v.locked_frame ?? state.frame,
-                    v
-                  );
-                  say && say(`Sent to ${mode.toUpperCase()} · ${result.source_id}`, 'success');
-                  if (onHandoffApp) onHandoffApp(mode, result);
-                } catch (err) {
-                  const detail = err?.detail ?? err?.message ?? String(err);
-                  say && say(`Handoff to ${mode}: ${detail}`, 'danger');
-                }
+                    frame: v.locked_frame ?? state.frame,
+                  },
+                });
               }}
               frame={state.frame}
               streamId={state.activeStreamId}
@@ -443,6 +443,34 @@ const PlaybackInner = ({ say, onHandoffApp }) => {
       )}
       {state.modal?.kind === 'export-image' && <ExportImageModal onClose={closeModal} say={say} />}
       {state.modal?.kind === 'export-video' && <ExportVideoModal onClose={closeModal} say={say} />}
+      {state.modal?.kind === 'handoff' &&
+        (() => {
+          const hView = state.views.find((vv) => vv.view_id === state.modal.viewId);
+          const hStream = state.streams.find((s) => s.stream_id === state.activeStreamId);
+          // Pick the boundary covering this frame (linear search; small N).
+          const hFrame = state.modal.frame ?? state.frame;
+          const boundary =
+            hStream?.boundaries?.find(
+              (b) => hFrame >= (b.frame_start ?? 0) && hFrame <= (b.frame_end ?? -1)
+            ) ??
+            hStream?.boundaries?.[0] ??
+            null;
+          return (
+            <HandoffModal
+              view={hView}
+              mode={state.modal.mode}
+              frame={hFrame}
+              stream={hStream}
+              boundary={boundary}
+              streamId={state.activeStreamId}
+              onClose={closeModal}
+              onConfirmed={(mode, result) => {
+                if (onHandoffApp) onHandoffApp(mode, result);
+              }}
+              say={say}
+            />
+          );
+        })()}
     </div>
   );
 };

@@ -539,7 +539,8 @@ def test_playback_export_video_png_seq_round_trip(web_server: str) -> None:
 
 @pytest.mark.web_smoke
 def test_playback_handoff_to_usaf(web_server: str) -> None:
-    """M11: clicking Send-to-USAF on a ViewerCard switches to USAF mode
+    """M11: clicking Send-to-USAF on a ViewerCard opens the HandoffModal
+    (playback-ux-polish-v1 M3) and confirming switches to USAF mode
     with the new source bound."""
     pytest.importorskip("playwright")
     from playwright.sync_api import sync_playwright
@@ -572,6 +573,11 @@ def test_playback_handoff_to_usaf(web_server: str) -> None:
         # Hover the first view to surface the toolbar, click Send-to-USAF.
         page.locator('[data-view-id]').first.hover()
         page.locator('[data-action="handoff-usaf"]').first.click()
+        # M3: HandoffModal opens; click Confirm to commit.
+        page.wait_for_selector(
+            '[data-region="handoff-modal"]', state="visible", timeout=4_000
+        )
+        page.locator('[data-action="handoff-confirm"]').first.click()
         # USAF mode tile becomes active (mode rail's USAF button).
         page.wait_for_function(
             """() => {
@@ -798,4 +804,91 @@ def test_playback_destructive_remove_two_step_confirm(web_server: str) -> None:
         page.locator('[data-action="remove"]').first.click()
         page.wait_for_load_state("networkidle")
         assert len(deletes) == 1, f"second click must fire one DELETE; got {deletes!r}"
+        browser.close()
+
+
+@pytest.mark.web_smoke
+def test_playback_handoff_opens_modal_then_confirms(web_server: str) -> None:
+    """playback-ux-polish-v1 M3: viewer-toolbar handoff buttons now
+    open a confirmation modal (W11). Cancel closes without firing;
+    Confirm fires exactly one POST to /api/playback/streams/.../handoff/{mode}
+    and closes the modal.
+    """
+    pytest.importorskip("playwright")
+    from playwright.sync_api import sync_playwright
+
+    if not _DIST_INDEX.is_file():
+        pytest.skip("web/dist not built")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        ctx = browser.new_context()
+        page = ctx.new_page()
+        page.add_init_script(
+            """try {
+                localStorage.setItem('mantis/playback/enabled', '1');
+                localStorage.setItem('mantis/mode', JSON.stringify('play'));
+            } catch (e) {}"""
+        )
+
+        handoff_calls: list[str] = []
+        page.on(
+            "request",
+            lambda req: handoff_calls.append(req.url)
+            if "/handoff/" in req.url and req.method == "POST"
+            else None,
+        )
+
+        page.goto(web_server, wait_until="networkidle", timeout=15_000)
+        page.wait_for_selector(
+            "[data-screen-label='Playback empty state']", state="visible", timeout=5_000
+        )
+        page.evaluate(
+            """async () => {
+                const rec = await fetch('/api/playback/recordings/load-sample', { method: 'POST' }).then(r => r.json());
+                await fetch('/api/playback/streams', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ recording_ids: [rec.recording_id] }),
+                });
+            }"""
+        )
+        page.evaluate("() => window.location.reload()")
+        page.wait_for_load_state("networkidle")
+        page.wait_for_selector('[data-region="viewer-grid"]', state="visible", timeout=5_000)
+
+        # Reveal the toolbar via mouseenter, then click handoff-usaf.
+        page.evaluate(
+            """() => document.querySelector('[data-view-id]')
+                ?.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }))"""
+        )
+        page.locator('[data-action="handoff-usaf"]').first.click()
+        # Modal opens with the right target mode.
+        modal = page.locator('[data-region="handoff-modal"]').first
+        modal.wait_for(state="visible", timeout=4_000)
+        assert modal.get_attribute("data-target-mode") == "usaf"
+
+        # Cancel closes without firing handoff.
+        page.locator('[data-action="handoff-cancel"]').first.click()
+        page.wait_for_function(
+            "() => !document.querySelector('[data-region=\"handoff-modal\"]')",
+            timeout=2_000,
+        )
+        assert handoff_calls == [], f"Cancel must not fire handoff; got {handoff_calls!r}"
+
+        # Re-open + Confirm fires exactly one POST.
+        page.evaluate(
+            """() => document.querySelector('[data-view-id]')
+                ?.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }))"""
+        )
+        page.locator('[data-action="handoff-fpn"]').first.click()
+        page.wait_for_selector('[data-region="handoff-modal"]', state="visible", timeout=4_000)
+        page.locator('[data-action="handoff-confirm"]').first.click()
+        page.wait_for_load_state("networkidle")
+        page.wait_for_function(
+            "() => !document.querySelector('[data-region=\"handoff-modal\"]')",
+            timeout=4_000,
+        )
+        assert len(handoff_calls) == 1, f"expected 1 handoff POST, got {handoff_calls!r}"
+        assert "/handoff/fpn" in handoff_calls[0]
         browser.close()
