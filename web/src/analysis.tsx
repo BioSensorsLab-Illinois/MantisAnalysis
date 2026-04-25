@@ -1254,26 +1254,11 @@ const MiniMTFChart = ({
   const yTicks = [0, 0.25, 0.5, 0.75, 1];
 
   return (
-    <div style={{ ...cardChromeFor(style, t) }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <span style={{ width: 10, height: 10, borderRadius: '50%', background: color }} />
-        <span
-          style={{
-            fontSize: 13,
-            fontWeight: 600,
-            color: t.text,
-            fontFamily: 'ui-monospace,Menlo,monospace',
-          }}
-        >
-          {channel}
-        </span>
-        <span style={{ flex: 1 }} />
-        <span
-          style={{ fontSize: 10.5, color: t.textMuted, fontFamily: 'ui-monospace,Menlo,monospace' }}
-        >
-          det. limit {detectionLimit != null ? `${detectionLimit.toFixed(2)} lp/mm` : '—'}
-        </span>
-      </div>
+    <Chart
+      channel={channel}
+      sub={`det. limit ${detectionLimit != null ? `${detectionLimit.toFixed(2)} lp/mm` : '—'}`}
+      exportName={`mantis-usaf-mtf-${channel}`}
+    >
       <svg
         viewBox={`0 0 ${W} ${H}`}
         width="100%"
@@ -1463,7 +1448,7 @@ const MiniMTFChart = ({
           );
         })()}
       </svg>
-    </div>
+    </Chart>
   );
 };
 
@@ -2164,21 +2149,11 @@ const GroupMiniChart = ({ group, channels, specs, keptIdx, measurements, thresho
   });
   const yTicks = [0, 0.25, 0.5, 0.75, 1];
   return (
-    <div style={{ ...cardChromeFor(style, t) }}>
-      <div
-        style={{
-          fontSize: 11.5,
-          color: t.text,
-          fontFamily: 'ui-monospace,Menlo,monospace',
-          marginBottom: 4,
-          fontWeight: 600,
-        }}
-      >
-        Group {group}
-      </div>
-      <div style={{ fontSize: 9.5, color: t.textFaint, marginBottom: 6 }}>
-        {lpmmFor(group, 1).toFixed(2)} – {lpmmFor(group, 6).toFixed(2)} lp/mm
-      </div>
+    <Chart
+      title={`Group ${group}`}
+      sub={`${lpmmFor(group, 1).toFixed(2)} – ${lpmmFor(group, 6).toFixed(2)} lp/mm`}
+      exportName={`mantis-usaf-group-${group}`}
+    >
       <svg viewBox={`0 0 ${W} ${H}`} width="100%">
         {yTicks.map((yv) => {
           const y = yToPx(yv);
@@ -2253,7 +2228,7 @@ const GroupMiniChart = ({ group, channels, specs, keptIdx, measurements, thresho
           );
         })}
       </svg>
-    </div>
+    </Chart>
   );
 };
 
@@ -2450,29 +2425,12 @@ const FFTSpectraGrid = ({ channels, specs, keptIdx, measurements }) => {
         const m0 = channels.map((c) => measurements[c]?.[i]).find(Boolean);
         const fExp = m0?.f_expected_cy_per_sample || 0;
         return (
-          <div key={i} style={{ ...cardChromeFor(style, t) }}>
-            <div
-              style={{
-                fontSize: 12,
-                fontWeight: 600,
-                color: t.text,
-                fontFamily: 'ui-monospace,Menlo,monospace',
-                marginBottom: 4,
-              }}
-            >
-              G{spec.group}E{spec.element}
-              {spec.direction}
-            </div>
-            <div
-              style={{
-                fontSize: 10,
-                color: t.textFaint,
-                marginBottom: 6,
-                fontFamily: 'ui-monospace,Menlo,monospace',
-              }}
-            >
-              f_expected = {fExp.toFixed(4)} cy/sample
-            </div>
+          <Chart
+            key={i}
+            title={`G${spec.group}E${spec.element}${spec.direction}`}
+            sub={`f_expected = ${fExp.toFixed(4)} cy/sample`}
+            exportName={`mantis-usaf-fft-G${spec.group}E${spec.element}${spec.direction}`}
+          >
             <svg viewBox={`0 0 ${W} ${H}`} width="100%">
               {[0, 0.25, 0.5, 0.75, 1].map((yv) => (
                 <g key={yv}>
@@ -2546,7 +2504,7 @@ const FFTSpectraGrid = ({ channels, specs, keptIdx, measurements }) => {
                 freq (cy/sample)
               </text>
             </svg>
-          </div>
+          </Chart>
         );
       })}
     </GridTabFrame>
@@ -3599,31 +3557,19 @@ const FPNHistChart = ({ channel, roiName, measurement, unit, fullDR }) => {
   const xfmt = (v) => (unit === 'pctDR' ? `${((v / fullDR) * 100).toFixed(1)}%` : v.toFixed(0));
   if (!measurement?.hist_counts || !measurement?.hist_bin_edges) {
     return (
-      <div
-        style={{
-          background: t.panel,
-          border: `1px solid ${t.border}`,
-          borderRadius: 8,
-          padding: 12,
-          color: t.textFaint,
-          textAlign: 'center',
-          minHeight: H + 30,
-        }}
-      >
+      <Chart channel={channel} sub={`· ${roiName}`} noExport>
         <div
           style={{
-            fontSize: 12,
-            fontWeight: 600,
-            color: t.text,
-            marginBottom: 6,
-            fontFamily: 'ui-monospace,Menlo,monospace',
-            textAlign: 'left',
+            color: t.textFaint,
+            textAlign: 'center',
+            paddingTop: 40,
+            paddingBottom: 40,
+            fontSize: 10.5,
           }}
         >
-          {channel} · {roiName}
+          (no data)
         </div>
-        <div style={{ fontSize: 10.5, marginTop: 30 }}>(no data)</div>
-      </div>
+      </Chart>
     );
   }
   const counts = measurement.hist_counts;
@@ -3641,26 +3587,11 @@ const FPNHistChart = ({ channel, roiName, measurement, unit, fullDR }) => {
   const std = measurement.residual_pixel_noise_dn;
 
   return (
-    <div style={{ ...cardChromeFor(style, t) }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <span style={{ width: 10, height: 10, borderRadius: '50%', background: color }} />
-        <span
-          style={{
-            fontSize: 12,
-            fontWeight: 600,
-            color: t.text,
-            fontFamily: 'ui-monospace,Menlo,monospace',
-          }}
-        >
-          {channel} · {roiName}
-        </span>
-        <span style={{ flex: 1 }} />
-        <span
-          style={{ fontSize: 10, color: t.textFaint, fontFamily: 'ui-monospace,Menlo,monospace' }}
-        >
-          μ={xfmt(mean)} · σ_res={xfmt(std)}
-        </span>
-      </div>
+    <Chart
+      channel={channel}
+      sub={`· ${roiName} — μ=${xfmt(mean)} · σ_res=${xfmt(std)}`}
+      exportName={`mantis-fpn-hist-${channel}-${roiName}`}
+    >
       <svg
         viewBox={`0 0 ${W} ${H}`}
         width="100%"
@@ -3753,7 +3684,7 @@ const FPNHistChart = ({ channel, roiName, measurement, unit, fullDR }) => {
           pixel value ({unit === 'pctDR' ? `% of ${fullDR}` : 'DN'})
         </text>
       </svg>
-    </div>
+    </Chart>
   );
 };
 
@@ -3937,29 +3868,10 @@ const FPNPSD1DTab = ({ channels, measurements, visibleRoiIdx, roiLabel }) => {
     >
       {(() =>
         visibleRoiIdx.map((i) => (
-          <div
-            key={i}
-            style={{
-              background: t.panel,
-              border: `1px solid ${t.border}`,
-              borderRadius: 8,
-              padding: 10,
-            }}
-          >
-            <div
-              style={{
-                fontSize: 12,
-                fontWeight: 600,
-                color: t.text,
-                fontFamily: 'ui-monospace,Menlo,monospace',
-                marginBottom: 4,
-              }}
-            >
-              {roiLabel(i)}
-            </div>
+          <Chart key={i} title={roiLabel(i)} exportName={`mantis-fpn-psd1d-${roiLabel(i)}`}>
             <PSD1DChart axis="row" channels={channels} roiIdx={i} measurements={measurements} />
             <PSD1DChart axis="col" channels={channels} roiIdx={i} measurements={measurements} />
-          </div>
+          </Chart>
         )))()}
     </GridTabFrame>
   );
@@ -4471,18 +4383,7 @@ const MetricBars = ({ metric, channels, measurements, visibleRoiIdx, roiLabel })
   const yToPx = (v) => PAD_T + (1 - v / yMax) * (H - PAD_T - PAD_B);
   const yTicks = 5;
   return (
-    <div style={{ ...cardChromeFor(style, t) }}>
-      <div
-        style={{
-          fontSize: 12,
-          fontWeight: 600,
-          color: t.text,
-          marginBottom: 4,
-          fontFamily: 'ui-monospace,Menlo,monospace',
-        }}
-      >
-        {metric.label}
-      </div>
+    <Chart title={metric.label} exportName={`mantis-fpn-compare-${metric.key}`}>
       <svg
         viewBox={`0 0 ${W} ${H}`}
         width="100%"
@@ -4568,7 +4469,7 @@ const MetricBars = ({ metric, channels, measurements, visibleRoiIdx, roiLabel })
           </span>
         ))}
       </div>
-    </div>
+    </Chart>
   );
 };
 
