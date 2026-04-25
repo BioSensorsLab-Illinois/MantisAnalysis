@@ -18,7 +18,10 @@ Tracked under `.agent/runs/bundler-migration-v1/`. 8-phase plan:
   cutover. All `.jsx` migrated to `import`/`export`; React + Plotly
   + dom-to-image-more are real npm packages; FastAPI serves
   `web/dist/`; doctor's Node check promoted to FAIL.
-- Phase 4 — ESLint + Prettier.
+- **Phase 4** (CLOSED 2026-04-24) — ESLint 9 flat config + Prettier
+  3. `npm run lint` (0 errors, 224 warnings), `npm run format`,
+  `scripts/check_frontend_lint.py` as a Tier 0 scanner, doctor
+  check for config presence, pre-commit hook documented.
 - Phase 5 — gradual TypeScript (`.jsx` and `.tsx` side-by-side).
 - Phase 6 — axe-core integration under `pytest -m web_smoke`.
 - Phase 7 — Storybook with component stories.

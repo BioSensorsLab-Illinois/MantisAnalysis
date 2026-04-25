@@ -8,16 +8,36 @@
 // bundler-migration-v1 Phase 3: ES-module native.
 import React from 'react';
 import {
-  Icon, Card, Row, Slider, Select, Button, Segmented, Modal, Toast,
-  Kbd, Checkbox, Spinbox, useTheme, useSource, apiFetch, formatApiDetail,
+  Icon,
+  Card,
+  Row,
+  Slider,
+  Select,
+  Button,
+  Segmented,
+  Modal,
+  Toast,
+  Kbd,
+  Checkbox,
+  Spinbox,
+  useTheme,
+  useSource,
+  apiFetch,
+  formatApiDetail,
   useLocalStorageState,
 } from './shared.jsx';
-const { useState: useStateI, useEffect: useEffectI, useMemo: useMemoI,
-        useCallback: useCallbackI } = React;
+const {
+  useState: useStateI,
+  useEffect: useEffectI,
+  useMemo: useMemoI,
+  useCallback: useCallbackI,
+} = React;
 
-const _pairEq = (a, b) => Array.isArray(a) && Array.isArray(b)
-  && a.length === b.length
-  && a.every((x, i) => Number(x) === Number(b[i]));
+const _pairEq = (a, b) =>
+  Array.isArray(a) &&
+  Array.isArray(b) &&
+  a.length === b.length &&
+  a.every((x, i) => Number(x) === Number(b[i]));
 
 // Build an illustrative extraction-formula string for the preview label.
 const _formulaPreview = (mode, origin, subStep, outerStride) => {
@@ -44,17 +64,15 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }) => {
   const [stagedOrigin, setStagedOrigin] = useStateI(source?.isp_config?.origin || [0, 0]);
   const [stagedSubStep, setStagedSubStep] = useStateI(source?.isp_config?.sub_step || [2, 2]);
   const [stagedOuter, setStagedOuter] = useStateI(source?.isp_config?.outer_stride || [4, 4]);
-  const [stagedNames, setStagedNames] = useStateI(
-    source?.isp_config?.channel_name_overrides || {}
-  );
+  const [stagedNames, setStagedNames] = useStateI(source?.isp_config?.channel_name_overrides || {});
   // Per-channel loc overrides — dict slot_id → [row, col]. Empty means
   // "inherit the mode's declared loc". The UI seeds each slot's inputs
   // from the override if present, else the mode catalog's default loc.
-  const [stagedLocs, setStagedLocs] = useStateI(
-    source?.isp_config?.channel_loc_overrides || {}
-  );
+  const [stagedLocs, setStagedLocs] = useStateI(source?.isp_config?.channel_loc_overrides || {});
   const [rgbCompositeDisplay, setRgbCompositeDisplay] = useLocalStorageState(
-    'ispSettings/rgbComposite', false);
+    'ispSettings/rgbComposite',
+    false
+  );
 
   const [applying, setApplying] = useStateI(false);
   const [lastError, setLastError] = useStateI(null);
@@ -69,7 +87,9 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }) => {
         if (alive) setLoadErr(err.message);
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const activeMode = useMemoI(() => {
@@ -90,33 +110,36 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }) => {
   }, [source]);
 
   // Picking a new mode seeds staging with that mode's declared defaults.
-  const pickMode = useCallbackI((id) => {
-    const m = (modes || []).find((x) => x.id === id);
-    if (!m) return;
-    setStagedModeId(id);
-    setStagedOrigin([...m.default_origin]);
-    setStagedSubStep([...m.default_sub_step]);
-    setStagedOuter([...m.default_outer_stride]);
-    // Drop renames that no longer apply under the new mode.
-    const renameable = new Set(m.channels.filter((c) => c.renameable).map((c) => c.slot_id));
-    setStagedNames((prev) => {
-      const next = {};
-      for (const [k, v] of Object.entries(prev)) {
-        if (renameable.has(k)) next[k] = v;
-      }
-      return next;
-    });
-    // Drop loc overrides that reference slots not present in the new mode.
-    const known = new Set(m.channels.map((c) => c.slot_id));
-    setStagedLocs((prev) => {
-      const next = {};
-      for (const [k, v] of Object.entries(prev)) {
-        if (known.has(k)) next[k] = v;
-      }
-      return next;
-    });
-    setLastError(null);
-  }, [modes]);
+  const pickMode = useCallbackI(
+    (id) => {
+      const m = (modes || []).find((x) => x.id === id);
+      if (!m) return;
+      setStagedModeId(id);
+      setStagedOrigin([...m.default_origin]);
+      setStagedSubStep([...m.default_sub_step]);
+      setStagedOuter([...m.default_outer_stride]);
+      // Drop renames that no longer apply under the new mode.
+      const renameable = new Set(m.channels.filter((c) => c.renameable).map((c) => c.slot_id));
+      setStagedNames((prev) => {
+        const next = {};
+        for (const [k, v] of Object.entries(prev)) {
+          if (renameable.has(k)) next[k] = v;
+        }
+        return next;
+      });
+      // Drop loc overrides that reference slots not present in the new mode.
+      const known = new Set(m.channels.map((c) => c.slot_id));
+      setStagedLocs((prev) => {
+        const next = {};
+        for (const [k, v] of Object.entries(prev)) {
+          if (known.has(k)) next[k] = v;
+        }
+        return next;
+      });
+      setLastError(null);
+    },
+    [modes]
+  );
 
   const dirty = useMemoI(() => {
     if (!source) return false;
@@ -142,20 +165,17 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }) => {
     setApplying(true);
     setLastError(null);
     try {
-      const updated = await apiFetch(
-        `/api/sources/${source.source_id}/isp`,
-        {
-          method: 'PUT',
-          body: {
-            mode_id: stagedModeId,
-            origin: stagedOrigin,
-            sub_step: stagedSubStep,
-            outer_stride: stagedOuter,
-            channel_name_overrides: stagedNames,
-            channel_loc_overrides: stagedLocs,
-          },
-        }
-      );
+      const updated = await apiFetch(`/api/sources/${source.source_id}/isp`, {
+        method: 'PUT',
+        body: {
+          mode_id: stagedModeId,
+          origin: stagedOrigin,
+          sub_step: stagedSubStep,
+          outer_stride: stagedOuter,
+          channel_name_overrides: stagedNames,
+          channel_loc_overrides: stagedLocs,
+        },
+      });
       onApplied?.(updated);
       say?.(`ISP mode → ${activeMode?.display_name || stagedModeId}`, 'success');
       onClose?.();
@@ -165,8 +185,19 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }) => {
     } finally {
       setApplying(false);
     }
-  }, [source, stagedModeId, stagedOrigin, stagedSubStep, stagedOuter, stagedNames,
-      stagedLocs, activeMode, onApplied, onClose, say]);
+  }, [
+    source,
+    stagedModeId,
+    stagedOrigin,
+    stagedSubStep,
+    stagedOuter,
+    stagedNames,
+    stagedLocs,
+    activeMode,
+    onApplied,
+    onClose,
+    say,
+  ]);
 
   // ------------------------------------------------------------------
   // Render
@@ -185,15 +216,23 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }) => {
     return (
       <Modal onClose={onClose} width={560} label="ISP settings">
         <HeaderRow onClose={onClose} />
-        <div style={{ padding: '16px 4px', color: t.textMuted, fontSize: 12 }}>Loading ISP modes…</div>
+        <div style={{ padding: '16px 4px', color: t.textMuted, fontSize: 12 }}>
+          Loading ISP modes…
+        </div>
       </Modal>
     );
   }
 
   const inputStyle = {
-    background: t.inputBg, color: t.text, border: `1px solid ${t.chipBorder}`,
-    borderRadius: 4, padding: '3px 6px', fontSize: 12, width: 56,
-    fontFamily: 'ui-monospace,Menlo,monospace', textAlign: 'right',
+    background: t.inputBg,
+    color: t.text,
+    border: `1px solid ${t.chipBorder}`,
+    borderRadius: 4,
+    padding: '3px 6px',
+    fontSize: 12,
+    width: 56,
+    fontFamily: 'ui-monospace,Menlo,monospace',
+    textAlign: 'right',
   };
 
   const renameableSlots = activeMode.channels.filter((c) => c.renameable);
@@ -204,29 +243,65 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }) => {
 
       {/* Mode dropdown + description */}
       <Section label="Mode">
-        <select value={stagedModeId} onChange={(e) => pickMode(e.target.value)}
+        <select
+          value={stagedModeId}
+          onChange={(e) => pickMode(e.target.value)}
           style={{
-            appearance: 'none', WebkitAppearance: 'none',
-            background: t.inputBg, color: t.text,
-            border: `1px solid ${t.chipBorder}`, borderRadius: 5,
-            fontSize: 12.5, padding: '5px 24px 5px 9px', cursor: 'pointer',
-            fontFamily: 'inherit', width: '100%',
-          }}>
+            appearance: 'none',
+            WebkitAppearance: 'none',
+            background: t.inputBg,
+            color: t.text,
+            border: `1px solid ${t.chipBorder}`,
+            borderRadius: 5,
+            fontSize: 12.5,
+            padding: '5px 24px 5px 9px',
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+            width: '100%',
+          }}
+        >
           {modes.map((m) => (
-            <option key={m.id} value={m.id}>{m.display_name}</option>
+            <option key={m.id} value={m.id}>
+              {m.display_name}
+            </option>
           ))}
         </select>
-        <div style={{ fontSize: 11.5, color: t.textMuted, lineHeight: 1.5,
-                      marginTop: 8 }}>{activeMode.description}</div>
+        <div style={{ fontSize: 11.5, color: t.textMuted, lineHeight: 1.5, marginTop: 8 }}>
+          {activeMode.description}
+        </div>
       </Section>
 
       {/* Super-pixel geometry */}
       <Section label="Super-pixel geometry">
-        <GeomRow label="Origin"       pair={stagedOrigin}  setPair={setStagedOrigin}  inputStyle={inputStyle} min={0} />
-        <GeomRow label="Sub-step"     pair={stagedSubStep} setPair={setStagedSubStep} inputStyle={inputStyle} min={1} />
-        <GeomRow label="Outer stride" pair={stagedOuter}   setPair={setStagedOuter}   inputStyle={inputStyle} min={1} />
-        <div style={{ fontSize: 10.5, color: t.textFaint, marginTop: 8,
-                      fontFamily: 'ui-monospace,Menlo,monospace' }}>
+        <GeomRow
+          label="Origin"
+          pair={stagedOrigin}
+          setPair={setStagedOrigin}
+          inputStyle={inputStyle}
+          min={0}
+        />
+        <GeomRow
+          label="Sub-step"
+          pair={stagedSubStep}
+          setPair={setStagedSubStep}
+          inputStyle={inputStyle}
+          min={1}
+        />
+        <GeomRow
+          label="Outer stride"
+          pair={stagedOuter}
+          setPair={setStagedOuter}
+          inputStyle={inputStyle}
+          min={1}
+        />
+        <div
+          style={{
+            fontSize: 10.5,
+            color: t.textFaint,
+            marginTop: 8,
+            fontFamily: 'ui-monospace,Menlo,monospace',
+          }}
+        >
           preview: {_formulaPreview(activeMode, stagedOrigin, stagedSubStep, stagedOuter)}
         </div>
       </Section>
@@ -235,15 +310,33 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }) => {
           for renameable slots. Color swatch on the left; slot label +
           loc inputs + optional rename input + status chip on the right. */}
       <Section label="Channels">
-        <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 10,
-                      alignItems: 'center', fontSize: 10, color: t.textFaint,
-                      marginBottom: 4 }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'auto 1fr',
+            gap: 10,
+            alignItems: 'center',
+            fontSize: 10,
+            color: t.textFaint,
+            marginBottom: 4,
+          }}
+        >
           <span />
-          <div style={{ display: 'grid',
-                        gridTemplateColumns: '40px auto auto auto auto 1fr auto',
-                        gap: 6, alignItems: 'center' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '40px auto auto auto auto 1fr auto',
+              gap: 6,
+              alignItems: 'center',
+            }}
+          >
             <span style={{ paddingLeft: 2 }}>slot</span>
-            <span>row</span><span /><span>col</span><span /><span>name</span><span />
+            <span>row</span>
+            <span />
+            <span>col</span>
+            <span />
+            <span>name</span>
+            <span />
           </div>
         </div>
         <div style={{ display: 'grid', gap: 6 }}>
@@ -268,45 +361,110 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }) => {
             };
             const overridden = stagedLocs[c.slot_id] != null;
             return (
-              <div key={c.slot_id} style={{
-                display: 'grid', gridTemplateColumns: '24px 1fr',
-                alignItems: 'center', gap: 10,
-              }}>
-                <span style={{
-                  width: 14, height: 14, borderRadius: 3, border: `1px solid ${t.chipBorder}`,
-                  background: c.color_hint, display: 'inline-block',
-                }} />
-                <div style={{ display: 'grid',
-                              gridTemplateColumns: '40px auto auto auto auto 1fr auto',
-                              gap: 6, alignItems: 'center' }}>
-                  <span style={{ fontSize: 12, color: t.text,
-                                 fontFamily: 'ui-monospace,Menlo,monospace' }}>
+              <div
+                key={c.slot_id}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '24px 1fr',
+                  alignItems: 'center',
+                  gap: 10,
+                }}
+              >
+                <span
+                  style={{
+                    width: 14,
+                    height: 14,
+                    borderRadius: 3,
+                    border: `1px solid ${t.chipBorder}`,
+                    background: c.color_hint,
+                    display: 'inline-block',
+                  }}
+                />
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '40px auto auto auto auto 1fr auto',
+                    gap: 6,
+                    alignItems: 'center',
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 12,
+                      color: t.text,
+                      fontFamily: 'ui-monospace,Menlo,monospace',
+                    }}
+                  >
                     {c.default_name}
                   </span>
                   <span style={{ fontSize: 10, color: t.textFaint }}>r</span>
-                  <input type="number" min={0} value={effectiveLoc[0]}
-                         onChange={(e) => setLocCell(0, e.target.value)}
-                         style={{ ...inputStyle, width: 48 }} />
+                  <input
+                    type="number"
+                    min={0}
+                    value={effectiveLoc[0]}
+                    onChange={(e) => setLocCell(0, e.target.value)}
+                    style={{ ...inputStyle, width: 48 }}
+                  />
                   <span style={{ fontSize: 10, color: t.textFaint }}>c</span>
-                  <input type="number" min={0} value={effectiveLoc[1]}
-                         onChange={(e) => setLocCell(1, e.target.value)}
-                         style={{ ...inputStyle, width: 48 }} />
+                  <input
+                    type="number"
+                    min={0}
+                    value={effectiveLoc[1]}
+                    onChange={(e) => setLocCell(1, e.target.value)}
+                    style={{ ...inputStyle, width: 48 }}
+                  />
                   {c.renameable ? (
-                    <input value={displayName}
+                    <input
+                      value={displayName}
                       placeholder={c.default_name}
-                      onChange={(e) => setStagedNames((prev) => ({
-                        ...prev, [c.slot_id]: e.target.value,
-                      }))}
-                      style={{ ...inputStyle, textAlign: 'left' }} />
+                      onChange={(e) =>
+                        setStagedNames((prev) => ({
+                          ...prev,
+                          [c.slot_id]: e.target.value,
+                        }))
+                      }
+                      style={{ ...inputStyle, textAlign: 'left' }}
+                    />
                   ) : (
-                    <span style={{ fontSize: 11, color: t.textFaint, textAlign: 'right', paddingRight: 6 }}>—</span>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        color: t.textFaint,
+                        textAlign: 'right',
+                        paddingRight: 6,
+                      }}
+                    >
+                      —
+                    </span>
                   )}
-                  {overridden
-                    ? <span title="loc override staged"
-                            style={{ fontSize: 9.5, color: t.accent, letterSpacing: 0.4, fontWeight: 600 }}>LOC*</span>
-                    : (c.renameable
-                        ? <span style={{ fontSize: 9.5, color: t.accent, letterSpacing: 0.4, fontWeight: 600 }}>RENAME</span>
-                        : <span style={{ fontSize: 9.5, color: t.textFaint, letterSpacing: 0.4 }}>default</span>)}
+                  {overridden ? (
+                    <span
+                      title="loc override staged"
+                      style={{
+                        fontSize: 9.5,
+                        color: t.accent,
+                        letterSpacing: 0.4,
+                        fontWeight: 600,
+                      }}
+                    >
+                      LOC*
+                    </span>
+                  ) : c.renameable ? (
+                    <span
+                      style={{
+                        fontSize: 9.5,
+                        color: t.accent,
+                        letterSpacing: 0.4,
+                        fontWeight: 600,
+                      }}
+                    >
+                      RENAME
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: 9.5, color: t.textFaint, letterSpacing: 0.4 }}>
+                      default
+                    </span>
+                  )}
                 </div>
               </div>
             );
@@ -317,9 +475,20 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }) => {
       {/* RGB composite toggle — only for modes that expose R/G/B slots */}
       {activeMode.supports_rgb_composite && (
         <Section label="Display">
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 12 }}>
-            <input type="checkbox" checked={!!rgbCompositeDisplay}
-              onChange={(e) => setRgbCompositeDisplay(e.target.checked)} />
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              cursor: 'pointer',
+              fontSize: 12,
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={!!rgbCompositeDisplay}
+              onChange={(e) => setRgbCompositeDisplay(e.target.checked)}
+            />
             <span style={{ color: t.text }}>Show RGB color composite on canvas</span>
             <span style={{ color: t.textFaint, fontSize: 10.5 }}>
               (picks / ROIs / probes still compute on per-channel data)
@@ -329,18 +498,35 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }) => {
       )}
 
       {lastError && (
-        <div style={{ marginTop: 10, color: t.danger, fontSize: 11.5,
-                      fontFamily: 'ui-monospace,Menlo,monospace' }}>
+        <div
+          style={{
+            marginTop: 10,
+            color: t.danger,
+            fontSize: 11.5,
+            fontFamily: 'ui-monospace,Menlo,monospace',
+          }}
+        >
           {lastError}
         </div>
       )}
 
       {/* Actions */}
-      <div style={{ display: 'flex', gap: 8, marginTop: 18, paddingTop: 14,
-                    borderTop: `1px solid ${t.border}` }}>
-        <Button variant="subtle" onClick={revert} disabled={!dirty || applying}>Revert</Button>
+      <div
+        style={{
+          display: 'flex',
+          gap: 8,
+          marginTop: 18,
+          paddingTop: 14,
+          borderTop: `1px solid ${t.border}`,
+        }}
+      >
+        <Button variant="subtle" onClick={revert} disabled={!dirty || applying}>
+          Revert
+        </Button>
         <div style={{ flex: 1 }} />
-        <Button variant="subtle" onClick={onClose} disabled={applying}>Cancel</Button>
+        <Button variant="subtle" onClick={onClose} disabled={applying}>
+          Cancel
+        </Button>
         <Button onClick={apply} disabled={!dirty || applying}>
           {applying ? 'Applying…' : 'Apply'}
         </Button>
@@ -365,8 +551,18 @@ const Section = ({ label, children }) => {
   const t = useTheme();
   return (
     <div style={{ marginBottom: 16 }}>
-      <div style={{ fontSize: 9.5, color: t.textFaint, textTransform: 'uppercase',
-                    letterSpacing: 0.7, fontWeight: 600, marginBottom: 8 }}>{label}</div>
+      <div
+        style={{
+          fontSize: 9.5,
+          color: t.textFaint,
+          textTransform: 'uppercase',
+          letterSpacing: 0.7,
+          fontWeight: 600,
+          marginBottom: 8,
+        }}
+      >
+        {label}
+      </div>
       {children}
     </div>
   );
@@ -377,18 +573,39 @@ const GeomRow = ({ label, pair, setPair, inputStyle, min = 0 }) => {
   // outer_stride rows so the UI rejects 0 client-side instead of letting
   // the user submit and then eat a server 422. See bugfix bug_003.
   const t = useTheme();
-  const set = (i, v) => setPair((prev) => {
-    const n = [...prev];
-    n[i] = Math.max(min, Math.floor(Number(v) || min));
-    return n;
-  });
+  const set = (i, v) =>
+    setPair((prev) => {
+      const n = [...prev];
+      n[i] = Math.max(min, Math.floor(Number(v) || min));
+      return n;
+    });
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '100px auto auto auto auto', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '100px auto auto auto auto',
+        alignItems: 'center',
+        gap: 10,
+        marginBottom: 4,
+      }}
+    >
       <span style={{ fontSize: 12, color: t.text }}>{label}</span>
       <span style={{ fontSize: 10.5, color: t.textFaint }}>row</span>
-      <input type="number" min={min} value={pair[0]} onChange={(e) => set(0, e.target.value)} style={inputStyle} />
+      <input
+        type="number"
+        min={min}
+        value={pair[0]}
+        onChange={(e) => set(0, e.target.value)}
+        style={inputStyle}
+      />
       <span style={{ fontSize: 10.5, color: t.textFaint }}>col</span>
-      <input type="number" min={min} value={pair[1]} onChange={(e) => set(1, e.target.value)} style={inputStyle} />
+      <input
+        type="number"
+        min={min}
+        value={pair[1]}
+        onChange={(e) => set(1, e.target.value)}
+        style={inputStyle}
+      />
     </div>
   );
 };

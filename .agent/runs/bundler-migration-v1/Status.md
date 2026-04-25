@@ -84,12 +84,74 @@ after the Phase 3 commit was pushed. Findings + dispositions:
 
 - [x] Phase 1 — infrastructure (shipped 2026-04-24, commit e5bab0e)
 - [x] Phase 2 — parallel `shared-esm.js` (shipped 2026-04-24)
-- [x] Phase 3 — atomic cutover (**this commit**)
-- [ ] Phase 4 — ESLint + Prettier
+- [x] Phase 3 — atomic cutover (2026-04-24, commits cb3cbaf + febb365)
+- [x] Phase 4 — ESLint + Prettier (**this commit**)
 - [ ] Phase 5 — TypeScript gradual migration
 - [ ] Phase 6 — axe-core integration
 - [ ] Phase 7 — Storybook + initial stories
 - [ ] Phase 8 — docs + close
+
+## Phase 4 shipment (2026-04-24)
+
+- `package.json` — added devDeps: `eslint@^9`, `@eslint/js@^9`,
+  `eslint-plugin-react@^7`, `eslint-plugin-react-hooks@^5`,
+  `eslint-plugin-react-refresh@^0.4`, `prettier@^3`,
+  `eslint-config-prettier@^9`. New scripts: `lint`, `lint:fix`,
+  `format`, `format:check`.
+- `eslint.config.js` — flat config targeting `web/src/**/*.{js,jsx}`.
+  Extends `@eslint/js` recommended + `eslint-plugin-react/recommended`
+  + `react-hooks` (rules-of-hooks error, exhaustive-deps warn) +
+  `react-refresh` (warn). Explicit browser globals (no reliance on
+  `env: { browser: true }` which the flat-config world doesn't have).
+- `.prettierrc.json` — 100-col, single quotes, double JSX quotes,
+  es5 trailing commas, LF endings. Matches the existing codebase
+  style byte-for-byte on every primitive's intent; auto-formatting
+  added line breaks around multi-arg imports + nested object
+  literals. ~5200 deletions / 15665 insertions across the 8 jsx
+  files, pure whitespace.
+- `.prettierignore` — excludes `web/dist/`, `node_modules/`,
+  `outputs/`, and `package-lock.json` (npm owns lockfile formatting).
+- Fixed the 9 genuine ESLint errors that surfaced:
+  - `analysis.jsx` `MarkerShape` took `scaled(2, style)` with
+    `style` out of scope; added `style` prop (default `{}`) + both
+    call sites pass `style` from the parent's `usePlotStyle()`.
+  - `analysis.jsx::DetectionHeatmapTab` called `useMemoA` after an
+    early `!channels.length` return — rules-of-hooks violation.
+    Moved the early return below the hook.
+  - `analysis.jsx` "Enable \"All 4 metrics\"" JSX text used raw
+    double quotes — escaped to `&ldquo;`/`&rdquo;`.
+  - `shared.jsx` used `FileReader` and `XMLSerializer` — added to
+    the eslint globals whitelist (they are legitimate browser APIs).
+- `scripts/check_frontend_lint.py` — new Tier 0 scanner. Runs
+  `npx prettier --check` + `npx eslint --max-warnings 9999`
+  against `web/src/`. Degrades gracefully when `node_modules/` isn't
+  populated (skips with clear message, doesn't fail). Wired into
+  `scripts/smoke_test.py`.
+- `scripts/doctor.py::check_frontend_lint_config` — new check that
+  verifies `eslint.config.js` + `.prettierrc.json` exist and the
+  required devDeps are declared in `package.json`.
+- `.agent/TOOLS_AND_SKILLS.md` — updated pre-commit suggested
+  config to include prettier + eslint + the new
+  `check_frontend_lint.py` hook.
+
+## Phase 4 final verification (2026-04-24)
+
+- [x] Tier 0 — 5 scanners PASS (new `check_frontend_lint`)
+- [x] Tier 1 — PASS (15 modules)
+- [x] Tier 2 — PASS (headless figures)
+- [x] Tier 3 — PASS (FastAPI endpoints)
+- [x] pytest — 108/108 green
+- [x] `npm run lint` — 0 errors, 224 warnings (mostly
+      `react-refresh/only-export-components` + a few
+      `react-hooks/exhaustive-deps` and `no-unused-vars` —
+      tracked, not blocking).
+- [x] `npm run format:check` — clean (auto-applied via
+      `npm run format`).
+- [x] `npm run build` — still clean, 41 modules, 5.35 MB.
+- [x] `tests/web/test_web_boot.py` — 3/3 pass (boot + ISP API +
+      analysis-modal Plotly).
+- [x] `python scripts/doctor.py` — new "Frontend lint/format" row
+      reports OK.
 
 ## Phase 3 probe finding (2026-04-24)
 

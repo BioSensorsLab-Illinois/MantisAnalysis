@@ -1,7 +1,7 @@
 # HANDOFF — current live state pointer
 
-Last updated: **2026-04-24**, end of `bundler-migration-v1 Phase 3
-+ post-review cleanup` (Claude Opus 4.7, 1M context).
+Last updated: **2026-04-24**, end of `bundler-migration-v1 Phase 4`
+(Claude Opus 4.7, 1M context).
 
 ## Current state of the working tree
 
@@ -15,9 +15,33 @@ Last updated: **2026-04-24**, end of `bundler-migration-v1 Phase 3
 
 ## What just shipped
 
-**bundler-migration-v1 Phase 3 — atomic CDN→ESM cutover** (`cb3cbaf`)
-+ a follow-up cleanup pass driven by `risk-skeptic` and
-`frontend-react-engineer` reviewer findings (this session).
+**bundler-migration-v1 Phase 4 — ESLint + Prettier** (this session;
+push pending).
+
+- `eslint.config.js` (flat config) + `.prettierrc.json` +
+  `.prettierignore`.
+- `package.json` — 7 new devDeps (eslint, @eslint/js, 3 react
+  plugins, prettier, eslint-config-prettier); 4 new scripts
+  (`lint`, `lint:fix`, `format`, `format:check`).
+- Prettier-formatted every `.jsx` under `web/src/` (whitespace-
+  only; build + tests stay green).
+- Fixed 9 real ESLint errors caught by the first pass — notably
+  `analysis.jsx::DetectionHeatmapTab` rules-of-hooks violation +
+  `MarkerShape`'s `style` variable bound to no scope.
+- `scripts/check_frontend_lint.py` — new Tier 0 scanner that runs
+  prettier-check + eslint; degrades gracefully when `node_modules/`
+  is absent so Python-only checkouts still pass.
+- `scripts/doctor.py` — new "Frontend lint/format" row.
+- `.agent/TOOLS_AND_SKILLS.md` — ESLint + Prettier added to the
+  tooling matrix; pre-commit config proposal updated.
+- `.agent/runs/bundler-migration-v1/reviews/` — checked in Phase 3
+  risk-skeptic + frontend-react-engineer review findings as
+  required by `check_reviewer_evidence`.
+
+**Previous session** (already pushed):
+bundler-migration-v1 Phase 3 atomic cutover (`cb3cbaf`) + Phase 3
+follow-up (`febb365`) — ES modules across the board, FastAPI serves
+`web/dist/`, PyInstaller pipeline rebuilt, docs swept.
 
 Phase 3 itself (already pushed):
 
@@ -70,8 +94,8 @@ Follow-up cleanup this session (pending push):
 
 ## Smoke status, last verified 2026-04-24
 
-- ✅ Tier 0 — 4 scanners pass (docs, skills, stopping-criteria,
-  reviewer-evidence)
+- ✅ Tier 0 — 5 scanners pass (docs, skills, stopping-criteria,
+  reviewer-evidence, frontend-lint [new in Phase 4])
 - ✅ Tier 1 — PASS (15 modules imported)
 - ✅ Tier 2 — PASS (figures written)
 - ✅ Tier 3 — PASS (FastAPI endpoints exercised)
@@ -102,10 +126,9 @@ python -m mantisanalysis --no-browser --port 8773
 
 ## Active initiative
 
-**`bundler-migration-v1`** — Phases 1, 2, 3 closed. Phases 4–8
-remain (multi-session):
+**`bundler-migration-v1`** — Phases 1, 2, 3, **4** closed. Phases
+5–8 remain (multi-session):
 
-- Phase 4 — ESLint + Prettier
 - Phase 5 — TypeScript gradual migration (`.jsx` and `.tsx`)
 - Phase 6 — axe-core integration under `pytest -m web_smoke`
 - Phase 7 — Storybook with component stories
@@ -118,19 +141,26 @@ be built ES-modules-native from the start.
 
 ## Where to pick up next
 
-1. **bundler-migration-v1 Phase 4** — ESLint + Prettier. Self-
-   contained session.
-2. **analysis-page-overhaul-v1 Phase 3** — paused; unified
+1. **bundler-migration-v1 Phase 5** — TypeScript gradual migration.
+   Start with `tsconfig.json` (`allowJs: true`, `checkJs: false`)
+   then move `shared.jsx` → `shared.tsx` first (it's the dependency
+   hub).
+2. **Warning-cleanup pass** — 224 ESLint warnings to triage:
+   `react-refresh/only-export-components` dominates (cleaning
+   requires splitting shared.jsx primitives from hook exports),
+   plus a dozen `react-hooks/exhaustive-deps` + a few
+   `no-unused-vars`. Pair well with Phase 5.
+3. **analysis-page-overhaul-v1 Phase 3** — paused; unified
    `<AnalysisModal>` shell refactor. Now safe to do ES-modules-
-   native.
-3. **H5 recording-inspection feature** — originally-deferred
-   product work; now safe under the hardened harness + Vite stack.
-   Open via `skills/execplan-large-feature/SKILL.md`.
+   native + typed.
+4. **H5 recording-inspection feature** — originally-deferred
+   product work; now safe under the hardened harness + Vite +
+   linter stack. Open via `skills/execplan-large-feature/SKILL.md`.
 
 ## Deferred with explicit rationale
 
-- **B-0014** — Vite bundler migration. **Phases 1–3 SHIPPED**
-  (2026-04-24). Phases 4–8 upcoming.
+- **B-0014** — Vite bundler migration. **Phases 1–4 SHIPPED**
+  (2026-04-24). Phases 5–8 upcoming.
 - **B-0015 extended** — per-mode Playwright interaction suites
   (USAF / FPN / DoF analysis modals). Substantial; depends on
   analysis-page-overhaul-v1 Phase 3 landing.

@@ -4,6 +4,103 @@ Append-only log of agent sessions. One bullet per session, newest at top.
 
 ---
 
+## 2026-04-24 — bundler-migration-v1 Phase 4 (Claude Opus 4.7, 1M context)
+
+User: "continue phase 4" (resume bundler-migration-v1 after Phase 3
+close + follow-up).
+
+Phase 4 wires ESLint 9 + Prettier 3 into the frontend toolchain +
+the Tier 0 gate. This is the first time the codebase has had a
+linter — every prior session relied on human review + Babel's
+parse-time errors.
+
+### What shipped
+
+- `package.json` — added devDeps: `eslint@^9`, `@eslint/js@^9`,
+  `eslint-plugin-react@^7`, `eslint-plugin-react-hooks@^5`,
+  `eslint-plugin-react-refresh@^0.4`, `prettier@^3`,
+  `eslint-config-prettier@^9`. New scripts: `lint`, `lint:fix`,
+  `format`, `format:check`.
+- `eslint.config.js` — flat config targeting `web/src/**/*.{js,jsx}`.
+  Includes `@eslint/js:recommended`, `eslint-plugin-react:recommended`
+  (overridden to turn off `prop-types`, `react-in-jsx-scope`),
+  `react-hooks/rules-of-hooks: error`,
+  `react-hooks/exhaustive-deps: warn`,
+  `react-refresh/only-export-components: warn`. Explicit browser
+  globals (flat config has no `env: { browser: true }` shortcut).
+- `.prettierrc.json` — 100-col, single quotes (JS) / double
+  quotes (JSX), es5 trailing commas, LF endings. Matches the
+  existing style; re-emit is whitespace-only.
+- `.prettierignore` — excludes `web/dist/`, `node_modules/`,
+  `outputs/`, `package-lock.json`.
+- **Prettier bomb** — `npm run format` auto-reformatted 8 files
+  (≈ 15.7 K insertions / 5.2 K deletions), pure whitespace +
+  one-import-per-line restructuring. Build + Playwright tests
+  remained green.
+- Fixed 9 genuine ESLint errors that surfaced:
+  - `analysis.jsx::MarkerShape` — `scaled(2, style)` with `style`
+    undefined in scope. Added `style` prop (default `{}`) + both
+    call sites now pass `style` from the parent's `usePlotStyle()`.
+  - `analysis.jsx::DetectionHeatmapTab` — `useMemoA` called after
+    an early `!channels.length` return. Rules-of-hooks bug. Moved
+    early return below the hook.
+  - `analysis.jsx` JSX text used unescaped `"` — switched to
+    `&ldquo;`/`&rdquo;`.
+  - `shared.jsx` referenced `FileReader` + `XMLSerializer` —
+    added to the eslint browser-globals whitelist.
+- `scripts/check_frontend_lint.py` (new) — Tier 0 scanner. Runs
+  `npx prettier --check` + `npx eslint --max-warnings 9999`
+  against `web/src/`. Skips with a clear message if Node or
+  `node_modules/` is absent (lets Python-only checkouts still
+  pass Tier 0).
+- `scripts/smoke_test.py` — added `check_frontend_lint` to the
+  Tier 0 scanner list (now 5 scanners).
+- `scripts/doctor.py::check_frontend_lint_config` — verifies
+  `eslint.config.js` + `.prettierrc.json` + required devDeps are
+  present in `package.json`.
+- `.agent/TOOLS_AND_SKILLS.md` — added ESLint + Prettier rows
+  under "Frontend tooling"; updated the pre-commit proposal to
+  include `prettier`, `eslint`, and `check_frontend_lint.py`.
+- `.agent/BACKLOG.md` + `.agent/runs/bundler-migration-v1/Status.md`
+  — closed Phase 4, marked Phase 5 (TypeScript) as the natural
+  next session.
+- `.agent/runs/bundler-migration-v1/reviews/` (new folder) —
+  checked in the Phase 3 reviewer findings that had been in
+  `Status.md` but not in `reviews/`. `risk-skeptic-2026-04-24.md`
+  + `frontend-react-engineer-2026-04-24.md`. This closes the
+  `check_reviewer_evidence` Tier 0 gap that was otherwise going
+  to fail.
+
+### Verification
+
+- Tier 0 — 5 scanners PASS (new check_frontend_lint)
+- Tier 1 — 15 modules PASS
+- Tier 2 — headless figures PASS
+- Tier 3 — FastAPI endpoints PASS
+- pytest — 108/108 (3/3 web_smoke)
+- `npm run lint` — 0 errors, 224 warnings
+- `npm run format:check` — clean
+- `npm run build` — 41 modules, 5.35 MB
+
+### Honesty
+
+- **224 warnings** are real code smells: `react-refresh/only-export-components`
+  (mostly in shared.jsx — primitives + hook exports coexisting
+  with `Chart` / `Page` / `PlotStylePanel` components), a handful
+  of `react-hooks/exhaustive-deps` (intentional closures over
+  stable refs), and a few `no-unused-vars`. Phase 4 sets the gate
+  at "errors only"; cleaning warnings is a Phase 5+ exercise
+  (TypeScript migration will dissolve many of them).
+- **The prettier bomb is a one-time formatting event.** Line
+  numbers across the frontend shifted — any outstanding branch
+  / unmerged commit against the pre-Phase-4 tree will conflict.
+  No such branches exist today.
+- **Pre-commit is documented but not installed.** The equivalent
+  gate runs via `python scripts/smoke_test.py --tier 0` on
+  demand.
+
+---
+
 ## 2026-04-24 — bundler-migration-v1 Phase 3 atomic cutover (Claude Opus 4.7, 1M context)
 
 User: "1." (pick Phase 3 atomic cutover from the previous close).

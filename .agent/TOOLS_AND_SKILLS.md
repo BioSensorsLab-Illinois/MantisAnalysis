@@ -44,7 +44,9 @@ roles, see [`agents/`](agents/).
 | **Vite + @vitejs/plugin-react** | ✅ | `package.json`, `vite.config.js` | Bundler. `npm run build` emits `web/dist/`. Vite 5.4; Node ≥ 20 required. The CDN + Babel-standalone path was retired in `bundler-migration-v1` Phase 3 (2026-04-24). |
 | **Plotly.js** | ✅ | `analysis.jsx` (`plotly.js-dist-min` npm) | Native vector charts in the analysis modal. |
 | **dom-to-image-more** | ✅ | `shared.jsx` + `analysis.jsx` (npm) | Export path: rasterizes inline SVG/HTML cards to PNG. |
-| **Storybook + Chromatic** | 🔵 | — | Gated on bundler decision. Component-level docs + interaction tests + a11y + visual regression if adopted. |
+| **ESLint 9 (flat config)** | ✅ | `eslint.config.js`, `npm run lint` | React + React Hooks rules; errors block Tier 0, warnings tracked. `bundler-migration-v1` Phase 4 (2026-04-24). |
+| **Prettier 3** | ✅ | `.prettierrc.json`, `npm run format[:check]` | Auto-format `web/src/` at 100-col, single quotes, es5 trailing commas. Phase 4 (2026-04-24). |
+| **Storybook + Chromatic** | 🔵 | — | Phase 7 of `bundler-migration-v1`. Component-level docs + interaction tests + a11y + visual regression. |
 | **React DevTools** | 🟡 | Browser extension (manual install) | Used for performance review. |
 
 ## Testing tooling
@@ -83,16 +85,33 @@ repos:
 - repo: https://github.com/astral-sh/ruff-pre-commit
   rev: v0.5.7
   hooks:
-    - id: ruff           # lint
-    - id: ruff-format    # format
+    - id: ruff           # Python lint
+    - id: ruff-format    # Python format
+- repo: https://github.com/pre-commit/mirrors-prettier
+  rev: v3.8.3
+  hooks:
+    - id: prettier
+      files: ^web/src/.*\.(js|jsx|json|css|html)$
 - repo: local
   hooks:
+    - id: eslint
+      name: eslint (web/src only)
+      entry: npx --no-install eslint
+      language: system
+      pass_filenames: true
+      files: ^web/src/.*\.(js|jsx)$
     - id: check-agent-docs
       name: agent docs consistency (Tier 0)
       entry: python scripts/check_agent_docs.py
       language: system
       pass_filenames: false
       files: ^(\.agent/|CLAUDE\.md|AGENTS\.md)
+    - id: check-frontend-lint
+      name: ESLint + Prettier (web/src — Tier 0)
+      entry: python scripts/check_frontend_lint.py
+      language: system
+      pass_filenames: false
+      files: ^web/src/.*\.(js|jsx)$
     - id: smoke-tier-1
       name: smoke tier 1 (imports)
       entry: python scripts/smoke_test.py --tier 1
@@ -104,6 +123,10 @@ repos:
 Install with `pre-commit install`. Skipping on a single commit:
 `git commit --no-verify` — but only with user consent per
 `AGENT_RULES.md`.
+
+**Note**: this is a proposal — pre-commit itself is not installed
+in the repo today. The equivalent Tier 0 gate runs via
+`python scripts/smoke_test.py --tier 0` on demand.
 
 ## Skills catalogue (always up-to-date roster)
 

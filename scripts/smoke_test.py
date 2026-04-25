@@ -61,6 +61,7 @@ def tier0() -> Tuple[bool, str]:
         ("check_skill_frontmatter", ["scripts/check_skill_frontmatter.py"]),
         ("check_stopping_criteria", ["scripts/check_stopping_criteria.py", "--all"]),
         ("check_reviewer_evidence", ["scripts/check_reviewer_evidence.py", "--all"]),
+        ("check_frontend_lint", ["scripts/check_frontend_lint.py"]),
     ]
     outputs: List[str] = []
     failed = False

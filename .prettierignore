@@ -1,0 +1,13 @@
+# Build artifacts
+web/dist/
+node_modules/
+build/
+dist/
+outputs/
+
+# Package manager lockfiles — npm / pip manage these
+package-lock.json
+
+# Minified / generated
+*.min.js
+*.min.css

@@ -251,6 +251,53 @@ def check_node_npm() -> Tuple[bool, bool]:
     return True, False
 
 
+def check_frontend_lint_config() -> Tuple[bool, bool]:
+    """bundler-migration-v1 Phase 4: ESLint + Prettier must be wired up.
+
+    We check for the config files + the presence of the devDependencies
+    in package.json. We do NOT run the linter here — that's slow;
+    `npm run lint` / `npm run format:check` are the CI gates.
+    """
+    eslint_cfg = ROOT / "eslint.config.js"
+    prettier_cfg = ROOT / ".prettierrc.json"
+    pkg = ROOT / "package.json"
+
+    missing = []
+    if not eslint_cfg.is_file():
+        missing.append("eslint.config.js")
+    if not prettier_cfg.is_file():
+        missing.append(".prettierrc.json")
+
+    if missing:
+        _status(
+            "Frontend lint/format config",
+            "WARN",
+            f"missing: {', '.join(missing)}. Phase 4 not fully installed.",
+        )
+        return True, True
+
+    if pkg.is_file():
+        import json as _json
+
+        try:
+            data = _json.loads(pkg.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+        dev = data.get("devDependencies", {})
+        need = {"eslint", "prettier", "eslint-plugin-react", "eslint-plugin-react-hooks"}
+        absent = [p for p in need if p not in dev]
+        if absent:
+            _status(
+                "Frontend lint/format devDeps",
+                "WARN",
+                f"missing in package.json devDependencies: {absent}",
+            )
+            return True, True
+
+    _status("ESLint + Prettier configured (eslint.config.js + .prettierrc.json)", "OK")
+    return True, False
+
+
 def check_tier0() -> Tuple[bool, bool]:
     script = ROOT / "scripts" / "smoke_test.py"
     if not script.is_file():
@@ -283,6 +330,7 @@ CHECKS = [
     ("Dev deps", check_dev_deps),
     ("Web-smoke deps (optional)", check_web_smoke),
     ("Node + npm (required post bundler-migration-v1)", check_node_npm),
+    ("Frontend lint/format (Phase 4)", check_frontend_lint_config),
     ("Editable install", check_editable_install),
     ("Harness scripts", check_scripts),
     ("Agent layer", check_agent_layer),
