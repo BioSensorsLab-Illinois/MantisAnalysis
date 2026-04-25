@@ -8,7 +8,7 @@
 // they reach the regular load-path / upload routes.
 
 // @ts-nocheck
-import { API_BASE, apiFetch } from '../shared.tsx';
+import { API_BASE, apiFetch, apiUpload } from '../shared.tsx';
 
 export const playbackApi = {
   health: () => apiFetch('/api/playback/health'),
@@ -27,6 +27,7 @@ export const playbackApi = {
       headers: { 'Content-Type': 'application/json' },
     }),
   loadSampleRecording: () => apiFetch('/api/playback/recordings/load-sample', { method: 'POST' }),
+  uploadRecording: (file) => apiUpload('/api/playback/recordings/upload', file),
   listRecordings: () => apiFetch('/api/playback/recordings'),
   deleteRecording: (rid) => apiFetch(`/api/playback/recordings/${rid}`, { method: 'DELETE' }),
 
@@ -38,6 +39,13 @@ export const playbackApi = {
       headers: { 'Content-Type': 'application/json' },
     }),
   loadSampleDark: () => apiFetch('/api/playback/darks/load-sample', { method: 'POST' }),
+  uploadDark: (file, opts = {}) => {
+    const q = new URLSearchParams();
+    if (opts.strategy) q.set('strategy', opts.strategy);
+    if (opts.sigma_threshold != null) q.set('sigma_threshold', String(opts.sigma_threshold));
+    if (opts.max_frames != null) q.set('max_frames', String(opts.max_frames));
+    return apiUpload(`/api/playback/darks/upload?${q.toString()}`, file);
+  },
   listDarks: () => apiFetch('/api/playback/darks'),
   deleteDark: (did) => apiFetch(`/api/playback/darks/${did}`, { method: 'DELETE' }),
 

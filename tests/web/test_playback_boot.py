@@ -133,6 +133,98 @@ def test_playback_load_sample_renders_workspace_placeholder(
 
 
 @pytest.mark.web_smoke
+def test_playback_dark_strategy_picker_renders(web_server: str) -> None:
+    """M6: dark-strategy picker (mean / median / 3σ clip) renders in the
+    Sources panel and toggles aria-pressed on click."""
+    pytest.importorskip("playwright")
+    from playwright.sync_api import sync_playwright
+
+    if not _DIST_INDEX.is_file():
+        pytest.skip("web/dist not built")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        ctx = browser.new_context()
+        page = ctx.new_page()
+        page.add_init_script(
+            "try { localStorage.setItem('mantis/playback/enabled', '1'); } catch (e) {}"
+        )
+        page.goto(web_server, wait_until="networkidle", timeout=15_000)
+        page.locator('[data-mode-tile="play"]').first.click()
+        page.wait_for_selector('[data-section="darks"]', state="visible",
+                                timeout=5_000)
+        # Three strategy buttons exist.
+        for label in ("Mean", "Median", "3σ clip"):
+            assert page.get_by_role("button", name=label).count() >= 1
+        # Click "Median" → aria-pressed=true.
+        page.get_by_role("button", name="Median").first.click()
+        page.wait_for_function(
+            """() => {
+                const btns = Array.from(document.querySelectorAll('[data-section=\"darks\"] button'));
+                return btns.some(b => b.textContent === 'Median' && b.getAttribute('aria-pressed') === 'true');
+            }""",
+            timeout=2_000,
+        )
+        browser.close()
+
+
+@pytest.mark.web_smoke
+def test_playback_stream_builder_opens_for_two_recordings(
+    web_server: str,
+) -> None:
+    """M6: loading two recordings via the test endpoint auto-opens the
+    Stream Builder modal; clicking Apply binds the new stream."""
+    pytest.importorskip("playwright")
+    from playwright.sync_api import sync_playwright
+
+    if not _DIST_INDEX.is_file():
+        pytest.skip("web/dist not built")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        ctx = browser.new_context()
+        page = ctx.new_page()
+        page.add_init_script(
+            "try { localStorage.setItem('mantis/playback/enabled', '1'); } catch (e) {}"
+        )
+        page.goto(web_server, wait_until="networkidle", timeout=15_000)
+        page.locator('[data-mode-tile="play"]').first.click()
+        page.wait_for_selector('[data-screen-label="Playback empty state"]',
+                                state="visible", timeout=5_000)
+        # Clear any state left by earlier session-scoped tests, then
+        # POST two fresh synthetic recordings via the test endpoint.
+        page.evaluate(
+            """async () => {
+                const streams = await fetch('/api/playback/streams').then(r => r.json());
+                for (const s of (streams || [])) {
+                    await fetch(`/api/playback/streams/${s.stream_id}`, { method: 'DELETE' });
+                }
+                const recs = await fetch('/api/playback/recordings').then(r => r.json());
+                for (const r of (recs || [])) {
+                    await fetch(`/api/playback/recordings/${r.recording_id}`, { method: 'DELETE' });
+                }
+                for (let i = 0; i < 2; i++) {
+                    await fetch('/api/playback/recordings/load-sample', { method: 'POST' });
+                }
+            }"""
+        )
+        # Trigger the auto-open flow by hydrating from the server.
+        # `mode=play` is persisted in localStorage so reload comes back
+        # to Playback automatically — no re-click of the rail tile.
+        page.evaluate("() => window.location.reload()")
+        page.wait_for_load_state("networkidle")
+        # Stream Builder modal opens from the hydrate effect when 2+
+        # recordings exist with no active stream.
+        page.wait_for_selector('[data-region="stream-builder"]',
+                                state="visible", timeout=8_000)
+        # Apply the stream.
+        page.get_by_role("button", name="Apply").first.click()
+        page.wait_for_selector('[data-region="workspace-placeholder"]',
+                                state="visible", timeout=8_000)
+        browser.close()
+
+
+@pytest.mark.web_smoke
 def test_playback_eviction_kind_filter(web_server: str) -> None:
     """Risk-skeptic P0-B regression: dispatching `mantis:source-evicted`
     with `detail.kind='stream'` must NOT trigger /api/sources/load-sample."""
