@@ -449,7 +449,10 @@ const AnalysisModal = ({ run, onClose, onToast }) => {
     return <USAFAnalysisModal run={run} onClose={onClose} onToast={onToast} />;
   if (run.mode === 'fpn') return <FPNAnalysisModal run={run} onClose={onClose} onToast={onToast} />;
   if (run.mode === 'dof') return <DoFAnalysisModal run={run} onClose={onClose} onToast={onToast} />;
-  return <LegacyPngModal run={run} onClose={onClose} onToast={onToast} />;
+  // run.mode is always one of {usaf, fpn, dof} — no fallback needed.
+  // analysis-page-overhaul-v1 Phase 8 partial: deleted LegacyPngModal (was
+  // unreachable; kept "for safety" since the bundler-migration era).
+  return null;
 };
 
 // ---------------------------------------------------------------------------
@@ -6941,142 +6944,10 @@ const TiltPlaneSVG = ({ r, color }) => {
 };
 
 // ===========================================================================
-// Legacy modal for modes that haven't been migrated (none left; here for safety)
+// LegacyPngModal — DELETED in analysis-page-overhaul-v1 Phase 8 partial.
+// Was a fallback for `run.mode ∉ {usaf,fpn,dof}` which the dispatcher
+// never produced. ~135 lines retired.
 // ===========================================================================
-const LegacyPngModal = ({ run, onClose, _onToast }) => {
-  const t = useTheme();
-  const { mode, response = {} } = run;
-  const tabs = useMemoA(() => {
-    if (mode === 'fpn') {
-      const figs = response.figures || {};
-      return [
-        { key: 'fpn-overview', label: 'Overview', png: figs.overview },
-        { key: 'fpn-rowcol', label: 'Row + Col FPN', png: figs.rowcol },
-        { key: 'fpn-map', label: '2-D FPN map', png: figs.map },
-        { key: 'fpn-psd', label: 'Power spectrum', png: figs.psd },
-      ];
-    }
-    if (mode === 'dof') {
-      const figs = response.figures || {};
-      return [
-        { key: 'dof-heatmap', label: 'Focus heatmap', png: figs.heatmap },
-        { key: 'dof-line', label: 'Line scan', png: figs.linescan },
-        { key: 'dof-points', label: 'Picked points', png: figs.points },
-      ];
-    }
-    return [];
-  }, [mode, response]);
-  const [tab, setTab] = useStateA(0);
-  const current = tabs[tab] || {};
-  const title = mode === 'fpn' ? 'FPN analysis' : 'DoF analysis';
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(10,12,18,0.62)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 80,
-        padding: 24,
-      }}
-      onClick={onClose}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: '100%',
-          maxWidth: 1400,
-          height: '92vh',
-          background: t.panel,
-          border: `1px solid ${t.border}`,
-          borderRadius: 10,
-          boxShadow: t.shadowLg,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}
-      >
-        <div
-          style={{
-            padding: '14px 18px',
-            borderBottom: `1px solid ${t.border}`,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-          }}
-        >
-          <div
-            style={{
-              width: 28,
-              height: 28,
-              borderRadius: 6,
-              background: t.accentSoft,
-              color: t.accent,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Icon name="run" size={14} />
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: t.text }}>{title}</div>
-          </div>
-          <Button variant="subtle" icon="close" onClick={onClose} size="sm" />
-        </div>
-        <div
-          style={{
-            display: 'flex',
-            borderBottom: `1px solid ${t.border}`,
-            background: t.panelAlt,
-            padding: '0 8px',
-            gap: 2,
-          }}
-        >
-          {tabs.map((x, i) => (
-            <button
-              key={x.key}
-              onClick={() => setTab(i)}
-              style={{
-                padding: '10px 14px',
-                fontSize: 12,
-                fontWeight: tab === i ? 600 : 450,
-                background: 'transparent',
-                border: 'none',
-                cursor: 'pointer',
-                color: tab === i ? t.accent : t.textMuted,
-                borderBottom: `2px solid ${tab === i ? t.accent : 'transparent'}`,
-                marginBottom: -1,
-                fontFamily: 'inherit',
-              }}
-            >
-              {x.label}
-            </button>
-          ))}
-        </div>
-        <div style={{ flex: 1, overflow: 'auto', padding: 16, background: t.panelAlt }}>
-          {current.png ? (
-            <img
-              src={`data:image/png;base64,${current.png}`}
-              alt={current.label}
-              style={{
-                maxWidth: '100%',
-                maxHeight: 'calc(92vh - 180px)',
-                borderRadius: 6,
-                background: '#fff',
-              }}
-            />
-          ) : (
-            <div style={{ color: t.textFaint, textAlign: 'center', padding: 40 }}>No figure.</div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
-
 // ---------------------------------------------------------------------------
 // analysis-page-overhaul-v1 Phase 3 — bridge exports for the new shell
 // (`web/src/analysis/`). Each `_*TabBody` dispatches the active tab to the

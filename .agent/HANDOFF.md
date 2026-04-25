@@ -1,7 +1,8 @@
 # HANDOFF — current live state pointer
 
-Last updated: **2026-04-24**, end of `bundler-migration-v1` Phases
-6 + 7 + 8 — **B-0014 INITIATIVE CLOSED** (Claude Opus 4.7, 1M context).
+Last updated: **2026-04-24**, end of `analysis-page-overhaul-v1`
+Phases 3 + 4 (Wave A/B/C) + 4.5 + 5 + 8 partial — 7 commits ahead
+of origin/main, push pending (Claude Opus 4.7, 1M context).
 
 ## Current state of the working tree
 
@@ -15,9 +16,23 @@ Last updated: **2026-04-24**, end of `bundler-migration-v1` Phases
 
 ## What just shipped
 
-**Tech-debt cleanup pass — B-0026 CLOSED, lint clean, more Storybook
-stories, H5 deferred-feature mentions removed** (this session;
-push pending).
+**analysis-page-overhaul-v1 Phases 3 → 5 + Phase 8 partial** —
+the major user-visible refactor of the analysis-results modal.
+7 commits ahead of origin/main, push pending. New
+`web/src/analysis/` type-clean subtree (zero `@ts-nocheck`). All
+17 chart types in `analysis.tsx` now render through the unified
+`<Chart>` primitive (gain per-card PNG buttons + plotStyle-slider
+liveness). DoF gains BgColorPicker parity. Esc-to-close listener
+installed. Initial bundle dropped 5.38 MB → 549 kB (Plotly
+dynamic-imported). Single export pipeline (`renderChartToPng`);
+duplicate `mantisExport` deleted. `LegacyPngModal` deleted (~135
+lines retired). New shell mounted under `?newshell=1` for cutover.
+Phases 6 (token wiring + empty states + drop @ts-nocheck) and 7
+(Playwright suite + visual baselines) remain for follow-up
+sessions per ExecPlan §9 effort estimate.
+
+**Previous session: Tech-debt cleanup pass — B-0026 CLOSED, lint clean,
+more Storybook stories, H5 deferred-feature mentions removed**.
 
 - **B-0026 a11y baseline → 0**: all 5 critical/serious WCAG A/AA
   violations on the boot page resolved.
@@ -125,7 +140,11 @@ python -m mantisanalysis --no-browser --port 8773
 
 ## Active initiative
 
-**None.** Outstanding tech debt:
+**`analysis-page-overhaul-v1`** — Phases 3 → 5 + Phase 8 partial
+shipped this session. **Phase 6 + Phase 7 + Phase 8 final** remain.
+Status pointer: `.agent/runs/analysis-page-overhaul-v1/Status.md`.
+
+Outstanding tech debt:
 
 - **Phase 5c** — DEFERRED, multi-session, paired-with-feature-work.
   Drop `@ts-nocheck` file-by-file (empirically 98 strict-mode
@@ -134,25 +153,25 @@ python -m mantisanalysis --no-browser --port 8773
   to `typescript-eslint/recommendedTypeChecked`. Not blocking
   anything.
 
-`analysis-page-overhaul-v1` remains at Phase 2 done / Phase 3 next
-— paused since the harness rework. With Phase 3 of the bundler
-migration landed, the new `web/src/analysis/` subtree refactor can
-be built ES-modules-native from the start.
-
 ## Where to pick up next
 
-The frontend tooling is fully migrated; tech debt is at zero (lint
-+ tsc + a11y all green). Next initiatives are product work:
+The big infrastructure work (new shell, chart-chrome unification,
+Plotly chunk split, single export pipeline) shipped this session.
+The remaining work is polish + tests + final cutover:
 
-1. **analysis-page-overhaul-v1 Phase 3** — paused; unified
-   `<AnalysisModal>` shell refactor. Pairs well with Phase 5c
-   (type the analysis tab components on the way through).
-2. **Phase 5c type-tightening** — drop `@ts-nocheck` per-file as
-   feature touches happen. Start with the smallest file when its
-   next change comes.
-3. **More Storybook stories** — Brand + Button + ChannelChip are
-   in. Card / Slider / Chart / Page / PlotStylePanel remain;
-   pair with their next behavioral change.
+1. **Phase 6** — empty states for the 6 charts that currently render
+   blank, typography sweep through `tokens()`, wire `showLegend` /
+   `tickWeight` / `annotationSize` per-chart, drop `@ts-nocheck`
+   from `analysis.tsx`. ~1 session.
+2. **Phase 7** — `tests/web/test_analysis_{usaf,fpn,dof}.py` +
+   `test_plotstyle_controls.py` + `test_analysis_export.py` +
+   Storybook visual-regression baselines. ~1.5 sessions.
+3. **Phase 8 final** — flip `?newshell=1` to default, delete the
+   three legacy mode-modal function bodies + bridge `_*TabBody`
+   exports + the feature flag itself. ~0.5 sessions.
+4. **Phase 5c type-tightening** — drop `@ts-nocheck` per-file as
+   feature touches happen. The new `web/src/analysis/` subtree is
+   already type-clean.
 
 ## Deferred with explicit rationale
 

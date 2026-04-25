@@ -4,6 +4,102 @@ Append-only log of agent sessions. One bullet per session, newest at top.
 
 ---
 
+## 2026-04-24 — analysis-page-overhaul-v1 Phases 3 → 5 + Phase 8 partial (Claude Opus 4.7, 1M context)
+
+User: "finish the analysis page refactor" — and then re-evaluate the
+plan against post-`bundler-migration-v1` infrastructure.
+
+Re-evaluated the ExecPlan against the new reality (ESM + TypeScript
++ Storybook + axe baseline + 9-gate ladder) and rewrote Phases 3–8.
+ExecPlan grew 292 → 578 lines; new Phase 4.5 (Plotly dynamic
+import) inserted; sweep order in Phase 4 grouped into Wave A/B/C
+by closeness to `<Chart>` chrome. Then shipped 7 commits across
+the next phases:
+
+**Commit 1 — Phase 3** (`e552c83`)
+New type-clean `web/src/analysis/` subtree (no `@ts-nocheck`):
+`types.ts`, `registry.ts`, `shell.tsx`, `filterbar.tsx`,
+`modes/{usaf,fpn,dof}.tsx`, `shell.stories.tsx`. The new shell
+unifies the three near-duplicate modals into one component +
+typed mode registry; mounted under `?newshell=1` query-param flag
+for incremental cutover. **DoF gains BgColorPicker parity**
+(was missing). **Esc-to-close** listener installed (the "(Esc)"
+hint on the close button stops being a lie).
+
+**Commit 2 — Phase 4 Wave A** (`5c97353`)
+8 ChartCard-using charts ported to `<Chart>` (DoF: MetricOverlay,
+LineOverlay, ChromaticShift, GaussianFit, PointsBar+Tilt,
+DoFHeatmap; FPN: FPNHeatmap, HotPix). `ChartCard` deleted.
+Per-card PNG flows through `renderChartToPng` instead of
+`mantisExport` (advances Phase 5 partially).
+
+**Commit 3 — Phase 4 Wave B** (`7d90ce4`)
+6 raw-`cardChromeFor` charts ported (USAF: MiniMTF, GroupMini,
+FFTSpectraGrid; FPN: FPNHist, FPNPSD1DTab cards, MetricBars).
+**These charts now have per-card PNG buttons** (didn't before);
+plotStyle slider sliders that previously dead-wired on these
+cards are now live.
+
+**Commit 4 — Phase 4 Wave C** (`52cfe9c`)
+3 cards that bypassed `cardChromeFor` entirely ported (USAF:
+ProfileCard, HeatmapPanel; FPN: RowColCard). `cardBackground` /
+`cardBorder` / `cardPadding` / `cardBorderRadius` sliders now
+react on these cards too. ProfileCard preserves its pass/fail
+border via per-instance `style` override on `<Chart>`.
+`cardChromeFor` import dropped from analysis.tsx.
+
+**Commit 5 — Phase 4.5** (`ba2a8f7`)
+Plotly is dynamic-imported. Initial bundle: 5.38 MB → 549 kB
+(gzip 165 kB). Plotly chunk (4.81 MB / gzip 1.45 MB) loads
+on demand on first FFTMTFOverlay mount; module-level promise
+cache means concurrent mounts share a single fetch.
+
+**Commit 6 — Phase 5** (`f4206a0`)
+The duplicate `mantisExport` in analysis.tsx is gone. All three
+modal-level "Export tab" buttons (USAF / FPN / DoF, both legacy
+and new shell) route through `renderChartToPng`. Single export
+pipeline. dom-to-image only stays as the HTML-only fallback
+inside `renderNodeToPng` for the Summary table tab.
+
+**Commit 7 — Phase 8 partial** (this commit)
+`LegacyPngModal` deleted (~135 lines; was unreachable since
+`run.mode` is always one of `{usaf, fpn, dof}`). Initiative
+docs (HANDOFF.md, Status.md, this file) updated with current
+state. Phase 6 (token wiring + empty states + drop `@ts-nocheck`
+from analysis.tsx) and Phase 7 (Playwright suite + visual
+baselines) remain for follow-up sessions per ExecPlan §9 effort
+estimate.
+
+### Verification at each commit boundary
+- `npm run typecheck` — 0 errors
+- `npm run lint` — 0 errors / 0 warnings
+- `npm run build` — clean
+- `prettier --check` — clean
+- Tier 1 + Tier 2 + Tier 3 smoke — PASS
+- pytest 108/109 (the 1 fail is `test_tier0_wrapper_pass_via_smoke`
+  blocked by a broken cross-reference in concurrent
+  `recording-inspection-implementation-v1` ExecPlan; unrelated to
+  this initiative — owner needs to either create the referenced
+  skill or remove the link)
+- Storybook all-three shell stories (USAF / FPN / DoF) mount at
+  1600×1000 with zero console errors
+
+### What's still open
+- **Phase 6** — empty states for the 6 charts that currently
+  render blank, typography sweep through `tokens()`, wire
+  `showLegend` / `tickWeight` / `annotationSize` per-chart, drop
+  `@ts-nocheck` from analysis.tsx (now ~6900 lines after the
+  deletes — still substantial). 1 session.
+- **Phase 7** — Playwright `test_analysis_{usaf,fpn,dof}.py` +
+  `test_plotstyle_controls.py` + `test_analysis_export.py` +
+  Storybook visual-regression baselines. 1.5 sessions.
+- **Phase 8 final** — flip `?newshell=1` to default, delete the
+  three `USAFAnalysisModal` / `FPNAnalysisModal` /
+  `DoFAnalysisModal` legacy bodies + the bridge `_*TabBody`
+  exports + the `?newshell` flag itself. 0.5 sessions.
+
+---
+
 ## 2026-04-24 — Tech-debt cleanup pass (Claude Opus 4.7, 1M context)
 
 User: "get all tech debt taken care of. remove h5 recording page from

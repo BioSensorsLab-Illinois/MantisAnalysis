@@ -19,19 +19,21 @@ feature-flag cutover, Storybook story for the shell.
 - [x] Phase 2 — plotStyle model cleanup (dropped `chartScale`,
       `useChartSize` hook, "Chart ×" slider). Card bg → Page bg
       rename deferred to Phase 6.
-- [ ] Phase 3 — `<AnalysisShell>` + typed mode registry under
+- [x] Phase 3 — `<AnalysisShell>` + typed mode registry under
       type-clean `web/src/analysis/` subtree, `?newshell=1` flag,
       DoF `BgColorPicker` parity, Esc-to-close, Storybook shell
-      story.
-- [ ] Phase 4 — Rewrite every chart through `<Chart>` (Wave A: 8
-      ChartCard charts → Wave B: 6 raw-`cardChromeFor` charts →
-      Wave C: 3 ignore-`cardChromeFor` cards). Companion
-      `.stories.tsx` per chart.
-- [ ] Phase 4.5 — **NEW** — Dynamic `import('plotly.js-dist-min')`
-      to chunk the 3.5 MB Plotly dep out of the initial bundle.
-- [ ] Phase 5 — Collapse `analysis.tsx` `mantisExport` duplicate
-      onto `renderChartToPng` / `renderNodeToPng`. Drop SVG-width-
-      freeze + transform-scale hacks.
+      story. **Shipped 2026-04-24 (`e552c83`).**
+- [x] Phase 4 Wave A — 8 ChartCard-using charts ported to
+      `<Chart>`; `ChartCard` deleted. **Shipped (`5c97353`).**
+- [x] Phase 4 Wave B — 6 raw-`cardChromeFor` charts ported. Per-
+      card PNG buttons gained. **Shipped (`7d90ce4`).**
+- [x] Phase 4 Wave C — 3 ignore-`cardChromeFor` cards ported.
+      `cardChromeFor` import dropped from analysis.tsx.
+      **Shipped (`52cfe9c`).**
+- [x] Phase 4.5 — Plotly dynamic-import. Initial bundle 5.38 MB
+      → 549 kB. **Shipped (`ba2a8f7`).**
+- [x] Phase 5 — `mantisExport` collapsed onto `renderChartToPng`.
+      Single export pipeline. **Shipped (`f4206a0`).**
 - [ ] Phase 6 — Empty states + typography sweep + wire deferred
       tokens (`showLegend`, `tickWeight`, `annotationSize`) +
       "Card bg → Page bg" rename + drop `@ts-nocheck` from
@@ -39,21 +41,22 @@ feature-flag cutover, Storybook story for the shell.
 - [ ] Phase 7 — Playwright analysis-modal suite (closes B-0015) +
       Storybook visual regression baselines (closes R-0011) +
       lint/tsc/a11y gates.
-- [ ] Phase 8 — Delete `LegacyPngModal` + duplicate `mantisExport`
-      + `?newshell=1` flag + vestigial mode modals. ARCHITECTURE /
-      HANDOFF / REPO_MAP / DECISIONS / RISKS / BACKLOG /
-      CHANGELOG_AGENT updates. Memory note for the type-clean
-      island.
+- [~] Phase 8 partial — `LegacyPngModal` deleted (~135 lines).
+      HANDOFF + Status + CHANGELOG_AGENT updated. Final cutover
+      (flip `?newshell=1` to default, delete legacy modal bodies
+      + bridge `_*TabBody` exports) deferred until Phase 6 + 7
+      land.
 
 ## Active phase
 
-Phase 3 — extract `<AnalysisShell>` + typed mode registry into a
-new type-clean `web/src/analysis/` subtree. Born without
-`@ts-nocheck`. Replaces three near-duplicate modal functions in
-`analysis.tsx` (~2700 lines combined). Adds DoF `BgColorPicker`,
-Esc-to-close, Storybook story. Cuts over via `?newshell=1` query
-param so the existing modals stay live as the safety net through
-Phase 4.
+**Phase 6** — empty states for the 6 charts that currently render
+blank, typography sweep through `tokens()`, wire deferred plotStyle
+tokens (`showLegend`, `tickWeight`, `annotationSize`) per-chart,
+"Card bg → Page bg" rename in PlotStylePanel, drop `@ts-nocheck`
+from `analysis.tsx`. ~1 session.
+
+Then **Phase 7** (Playwright + visual baselines) and **Phase 8 final**
+(flip flag, delete legacy bodies). ~2 sessions combined.
 
 ## What Phase 1 added (shared.jsx)
 
@@ -98,7 +101,42 @@ Kept deliberately:
 
 ## Next session entry
 
-**Phase 3 — concrete starting moves**:
+**Phase 6 — concrete starting moves**:
+
+1. Empty-state polish for the 6 charts that currently `return null`
+   on no-data (per inventory §B): `MiniMTFChart` (line ~1180),
+   `GroupMiniChart` (~2142), `PSD1DChart` (~3941), `MetricBars`
+   (~4451), `RowColCard` (~3672), and the inner `FFTSpectraGrid`
+   per-card path. Replace `return null` with
+   `<Chart noExport>(empty-state JSX)</Chart>` so empty cards have
+   coherent chrome.
+2. Typography sweep: every chart body that still inlines
+   `fontSize: 12, fontWeight: 600` etc. should consume
+   `useTokens()` (`tok.title`, `tok.tick`, `tok.legend`,
+   `tok.annotation`).
+3. Wire `showLegend`: every chart that has a legend block should
+   gate it with `if (!tok.showLegend) return null` around the
+   legend group.
+4. Wire `tickWeight`: the `tokens.tick` already includes it; just
+   confirm chart bodies consume `tok.tick` instead of inlining
+   `fontWeight`.
+5. Drop `@ts-nocheck` from `analysis.tsx` once the file is small
+   enough (currently ~6900 lines after the deletes; HANDOFF
+   warns of ~98 strict-mode errors per file when removed cold —
+   the remaining work is per-line type tightening).
+6. PlotStylePanel: rename "Card background" → "Page background"
+   in the dropdown's tooltip. (Field name `cardBackground` stays
+   for backwards-compat with saved JSON.)
+
+**Crosswalk**: see `inventory.md` §H for Phase → code-map. Note
+that the inventory was authored with `.jsx` paths; everything is
+`.tsx` now, and the file line numbers have shifted since the
+mass deletes in Waves A-C and Phase 5.
+
+---
+
+## Original Phase 3 starting moves (kept for reference)
+
 
 1. Create `web/src/analysis/` subtree (no `@ts-nocheck`):
    - `types.ts` — `RunRecord`, `AnalysisMode`, `FilterState`,
