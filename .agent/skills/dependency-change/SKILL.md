@@ -5,9 +5,9 @@ when_to_use:
   - adding a new entry to pyproject.toml
   - upgrading a pinned version
   - removing a dependency
-  - adding a JS library (note — no bundler today; CDN only)
+  - adding a JS library (npm install — Vite bundler post bundler-migration-v1 Phase 3)
 outputs:
-  - pyproject.toml updated
+  - pyproject.toml or package.json updated
   - TOOLS_AND_SKILLS.md row added / updated
   - SETUP_AND_RUN.md updated if install changed
   - DECISIONS.md entry justifying the add
@@ -22,7 +22,7 @@ Any edit to:
 
 - `pyproject.toml [project.dependencies]`
 - `pyproject.toml [project.optional-dependencies].*`
-- `web/index.html` `<script>` / `<link>` tags (adding a CDN asset)
+- `package.json` `dependencies` / `devDependencies` (npm — post bundler-migration-v1 Phase 3)
 
 ## Hard rules
 
@@ -114,19 +114,21 @@ Same structure in reverse:
 4. Update `DECISIONS.md` if it was originally a named decision.
 5. Verify gates still pass.
 
-## JS / CDN deps
+## JS / npm deps
 
-Current frontend is bundler-free. Any new JS lib loads via CDN in
-`web/index.html`. Rules:
+The frontend is Vite-bundled (post `bundler-migration-v1` Phase 3).
+Add JS deps via `npm install --save <pkg>` (or `--save-dev` for
+build-only deps). Rules:
 
-1. Pin to a specific version (`@1.2.3`).
-2. Prefer ES modules when the lib offers them.
-3. Verify SRI hash if the CDN supports it (jsDelivr, unpkg do).
-4. Document the CDN URL + version in
-   `.agent/TOOLS_AND_SKILLS.md` under a JS section.
-
-When the frontend eventually moves to Vite (B-0014), migrate CDN deps
-to npm + lockfile.
+1. Pin to a specific minor (`^x.y.z` is fine; the lockfile pins exact).
+2. Prefer ES-module-first packages (Vite handles CommonJS but ESM
+   tree-shakes better).
+3. Run `npm run build` and confirm the bundle still loads in-browser
+   (Tier 4 / `pytest -m web_smoke`). Plotly-style large packages
+   may need `optimizeDeps.include` in `vite.config.js`.
+4. Document the package + version in
+   `.agent/TOOLS_AND_SKILLS.md` under "Frontend tooling".
+5. Commit `package.json` + `package-lock.json` together.
 
 ## Acceptance
 

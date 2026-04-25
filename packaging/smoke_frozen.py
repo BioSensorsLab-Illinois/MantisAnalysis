@@ -82,12 +82,23 @@ def main() -> int:
                 # Accept a few shapes; just demand a 200 + parseable JSON with a truthy flag
                 print("warning: health payload shape unexpected", file=sys.stderr)
 
-        # Quick root check — serves the SPA
+        # Quick root check — must serve the actual Vite-built SPA, NOT the
+        # "build the frontend first" placeholder. Post bundler-migration-v1
+        # Phase 3 the real bundle always references a hashed asset under
+        # /assets/, so we assert that as proof we shipped the dist.
         with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/", timeout=5.0) as resp:
-            head = resp.read(512).decode("utf-8", "replace")
-            if "<html" not in head.lower():
-                raise SystemExit(f"root did not return HTML:\n{head!r}")
-            print("GET / → OK (HTML served)")
+            body = resp.read(2048).decode("utf-8", "replace")
+            if "<html" not in body.lower():
+                raise SystemExit(f"root did not return HTML:\n{body!r}")
+            if "Frontend bundle not built" in body or "/assets/" not in body:
+                raise SystemExit(
+                    "root served the unbuilt-frontend placeholder OR no "
+                    "/assets/ reference found.\n"
+                    "The frozen binary did NOT ship web/dist/. Check the "
+                    "PyInstaller spec + that `npm run build` ran before "
+                    f"freezing.\n--- body ---\n{body!r}"
+                )
+            print("GET / → OK (Vite-built SPA served)")
 
         print("\n✔ frozen binary smoke test passed")
         return 0

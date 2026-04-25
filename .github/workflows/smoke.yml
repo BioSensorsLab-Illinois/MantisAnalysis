@@ -94,3 +94,44 @@ jobs:
 
       - name: Smoke tier 3 (FastAPI endpoints)
         run: python scripts/smoke_test.py --tier 3
+
+  tier4-web-smoke:
+    # bundler-migration-v1 Phase 3 — Playwright now actually exercises the
+    # Vite-built SPA, not the CDN path. Without `npm run build` the boot
+    # test would skip and CI would have zero browser coverage of the new
+    # bundle. Linux-only because Playwright Chromium is heaviest there +
+    # the other matrix tiers already cover Python portability.
+    name: tier4 web smoke (Vite build + Playwright)
+    runs-on: ubuntu-latest
+    needs: unit-and-tier1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install runtime + web-smoke deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .[dev,web-smoke]
+
+      - name: Install Playwright Chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: Build the SPA (npm install + npm run build)
+        run: |
+          npm install
+          npm run build
+
+      - name: Pytest -m web_smoke
+        run: python -m pytest -m web_smoke -q

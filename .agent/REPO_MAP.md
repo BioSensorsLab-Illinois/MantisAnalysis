@@ -132,9 +132,11 @@ MantisAnalysis/
 ├── docs/
 │   └── validation/               ← B-0018 staging for real-sample captures (git-ignored contents)
 │       └── README.md
-├── web/                          ← React 18 SPA (CDN; no bundler)
-│   ├── index.html                ← entry: React 18 + Babel standalone via CDN
+├── web/                          ← React 18 SPA (Vite-bundled; npm run build → web/dist/)
+│   ├── index.html                ← Vite entry; loads /src/main.jsx as ES module
+│   ├── dist/                     ← built artifacts (git-ignored; FastAPI serves at /)
 │   └── src/
+│       ├── main.jsx              ← Vite entry — mounts <App /> via createRoot
 │       ├── shared.jsx            ← BRAND, THEMES, icons, hooks, Chart primitive,
 │       │                            useChartGeom, tokens(), renderChartToPng,
 │       │                            API helpers (apiFetch, apiUpload, channelPngUrl)
@@ -180,7 +182,8 @@ uvicorn skips both.
 | `pyproject.toml` `[project.dependencies]` | Canonical runtime deps — FastAPI, uvicorn, Pydantic, NumPy, SciPy, matplotlib, h5py, Pillow, tifffile, python-multipart |
 | `pyproject.toml` `[project.optional-dependencies].dev` | `pytest`, `httpx`, `ruff`, `mypy` |
 | `pyproject.toml` `[project.optional-dependencies].web-smoke` | `playwright`, `pytest-playwright` (opt-in) |
-| `web/index.html` CDN `<script>` tags | React 18 + ReactDOM 18 + Babel standalone + dom-to-image-more |
+| `package.json` `dependencies` | React 18 + ReactDOM 18 + Plotly.js + dom-to-image-more (npm install) |
+| `package.json` `devDependencies` | Vite 5.4 + @vitejs/plugin-react |
 
 ## Where to look up a topic
 

@@ -48,6 +48,15 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      - name: Set up Node 20
+        # bundler-migration-v1 Phase 3 — the SPA is now Vite-bundled. The
+        # frozen binary ships web/dist/, so `npm install && npm run build`
+        # MUST run before PyInstaller (build.py invokes it for us).
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
       - name: Install project + build extras
         shell: bash
         run: |
@@ -55,6 +64,7 @@ jobs:
           python -m pip install -e .[build]
 
       - name: Build standalone executable
+        # build.py runs `npm install && npm run build` first, then PyInstaller.
         shell: bash
         run: python packaging/build.py --no-venv
 

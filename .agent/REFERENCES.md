@@ -190,12 +190,12 @@ documented, not ignored.
 - Plays well with React (via `@vitejs/plugin-react`).
 - Enables npm + lockfile + Storybook + dev-time TypeScript.
 
-**For MantisAnalysis**: the current CDN + in-browser Babel works
-but carries cost (boot time, lack of lockfile, Storybook blocked).
-Migration is recommended in `TOOLS_AND_SKILLS.md` when the
-analysis-page overhaul's `web/src/analysis/` subtree lands — that's
-when the CDN boot cost will start to bite. Not mandatory until
-someone measures the pain.
+**For MantisAnalysis**: this is the bundler we use as of
+`bundler-migration-v1` Phase 3 (2026-04-24). `npm run build` emits
+`web/dist/` (FastAPI serves it at `/`); `npm run dev` runs the
+Vite dev server on `:5173` with `/api` proxied to FastAPI on
+`:8765`. Phase 4 (ESLint + Prettier) and Phase 5 (TypeScript
+gradual migration) are next on the bundler-migration-v1 roadmap.
 
 ---
 

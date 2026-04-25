@@ -9,7 +9,7 @@
 import React from 'react';
 import {
   Icon, Card, Row, Slider, Select, Button, Segmented, Modal, Toast,
-  Kbd, Checkbox, Spinbox, useTheme, apiFetch, formatApiDetail,
+  Kbd, Checkbox, Spinbox, useTheme, useSource, apiFetch, formatApiDetail,
   useLocalStorageState,
 } from './shared.jsx';
 const { useState: useStateI, useEffect: useEffectI, useMemo: useMemoI,

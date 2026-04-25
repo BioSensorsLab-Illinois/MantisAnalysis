@@ -121,9 +121,9 @@ Markdown review with:
 ## Must not
 
 - Recommend global rewrites just to satisfy style preferences.
-- Ignore the project's current pattern (no bundler, React via CDN,
-  Babel standalone) unless arguing for a specific initiative to move
-  to Vite (see B-0014).
+- Ignore the project's current pattern (Vite-bundled ES modules
+  post bundler-migration-v1 Phase 3 — `npm run build` emits
+  `web/dist/`). The CDN + Babel-standalone path is gone.
 - Weaken `PlotStyleCtx` or `ChartGeomCtx` contracts without coordinating
   with `analysis-page-overhaul-v1`.
 

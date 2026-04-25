@@ -67,12 +67,31 @@ hiddenimports += collect_submodules("mantisanalysis")
 
 
 # ---------------------------------------------------------------------------
-# Data files — ship the web SPA, plus matplotlib font cache / mpl-data
+# Data files — ship the Vite-built SPA, plus matplotlib font cache / mpl-data
 # ---------------------------------------------------------------------------
+# bundler-migration-v1 Phase 3 — FastAPI now serves web/dist/, NOT the source
+# tree. We MUST bundle the built dist or the frozen exe will boot into the
+# friendly "build the frontend first" placeholder. Fail fast at spec eval if
+# `npm run build` was forgotten.
 datas: list[tuple[str, str]] = []
 
-if WEB.exists():
-    datas.append((str(WEB), "web"))
+DIST = WEB / "dist"
+DIST_INDEX = DIST / "index.html"
+if not DIST_INDEX.is_file():
+    raise SystemExit(
+        f"PyInstaller spec: {DIST_INDEX} is missing.\n"
+        "Run `npm install && npm run build` from the repo root before "
+        "invoking pyinstaller — otherwise the frozen binary will ship the "
+        "unbuilt-frontend placeholder page."
+    )
+
+# Ship the entire web/dist/ tree at <bundle>/web/dist/. This matches what
+# `_resolve_web_dir() / 'dist'` expects under `_MEIPASS` / onedir.
+datas.append((str(DIST), "web/dist"))
+# Also bundle web/index.html as a marker so older `_resolve_web_dir()` callers
+# that look for `<bundle>/web/index.html` still find a sentinel — harmless.
+if (WEB / "index.html").is_file():
+    datas.append((str(WEB / "index.html"), "web"))
 
 datas += collect_data_files("matplotlib")
 datas += collect_data_files("h5py")

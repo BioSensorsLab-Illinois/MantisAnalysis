@@ -37,7 +37,18 @@ For development (pytest + ruff + mypy + httpx):
 python -m pip install -e .[dev]
 ```
 
-No Node / npm — the frontend is React 18 + Babel standalone, loaded from CDN by `web/index.html` and transpiled in the browser. No build step.
+**Frontend bundler.** Source checkouts also need **Node ≥ 20 + npm**: the
+React 18 SPA is bundled by Vite (post `bundler-migration-v1` Phase 3, see
+`.agent/runs/bundler-migration-v1/`). Bootstrap once, then build:
+
+```bash
+npm install                # first time only
+npm run build              # emits web/dist/, served by FastAPI at /
+npm run dev                # optional: Vite HMR on :5173 with /api proxy
+```
+
+Pre-built binaries (see "Standalone executable" below) bundle the
+already-built `web/dist/` so end users do not need Node.
 
 ## Run
 
@@ -173,7 +184,7 @@ MantisAnalysis/
 │   ├── session.py           ← in-memory source store (LRU)
 │   ├── app.py               ← `mantisanalysis` CLI → uvicorn + browser
 │   └── __main__.py          ← `python -m mantisanalysis`
-├── web/                     ← React 18 SPA (CDN; no toolchain)
+├── web/                     ← React 18 SPA (Vite-bundled; npm run build → web/dist/)
 │   ├── index.html
 │   └── src/{shared,app,usaf,fpn,dof,analysis}.jsx
 ├── scripts/

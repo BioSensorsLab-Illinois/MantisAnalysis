@@ -67,9 +67,9 @@ extraction math exactly — see
 - **Backend**: FastAPI 0.110+ + uvicorn, Pydantic 2.5+.
 - **Analysis math**: NumPy, SciPy (pure — no GUI imports).
 - **Figures**: matplotlib (server-rendered PNGs for export).
-- **Frontend**: React 18 + Babel standalone, loaded from CDN.
-  No bundler — `web/index.html` is the entry. `B-0014` tracks the
-  future Vite migration decision.
+- **Frontend**: React 18 + Vite 5.4 (ES modules; `npm run build` →
+  `web/dist/`). FastAPI serves the built dist at `/`. The CDN +
+  Babel-standalone path was retired in `bundler-migration-v1` Phase 3.
 - **Testing**: pytest (unit + headless + FastAPI TestClient), opt-in
   Playwright for browser smoke.
 

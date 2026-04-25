@@ -54,9 +54,9 @@ const applyAccent = (base, accent, mode) => {
 // File-picker "type" filters. The `accept` string is what ends up on the
 // <input type="file"> element. Empty string = show all files (native OS dialog
 // won't filter at all). The labels mirror what a user would expect from
-// "Save As" dialogs in most desktop apps. Also assigned to window so other
-// bundles (usaf.jsx, fpn.jsx, dof.jsx) can render parallel filter dropdowns
-// for their own auxiliary file inputs (dark frame, etc.) without copy-paste.
+// "Save As" dialogs in most desktop apps. Mode files consume this through
+// the `FileFilterCtx` provider rooted in <App>; no global bridge needed
+// post bundler-migration-v1 Phase 3.
 const FILE_FILTERS = {
   all:    { label: 'All files (*.*)',              accept: '' },
   h5:     { label: 'H5 / HDF5 (*.h5, *.hdf5)',     accept: '.h5,.hdf5' },
@@ -65,7 +65,6 @@ const FILE_FILTERS = {
   tiff:   { label: 'TIFF only (*.tif, *.tiff)',    accept: '.tif,.tiff,image/tiff' },
   jpeg:   { label: 'JPEG only (*.jpg, *.jpeg)',    accept: '.jpg,.jpeg,image/jpeg' },
 };
-window.FILE_FILTERS = FILE_FILTERS;
 
 const App = () => {
   const [themeName, setThemeName] = useLocalStorageState('theme', 'light');

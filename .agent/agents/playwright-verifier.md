@@ -93,8 +93,10 @@ Every boot-level test must:
 
 - Attach a `console` listener and fail on `msg.type === 'error'`.
 - Attach a `pageerror` listener.
-- Filter the benign Babel-in-browser transformer warning (already
-  handled in `tests/web/test_web_boot.py`).
+- (Pre Phase 3 the CDN path emitted a benign Babel-in-browser
+  transformer warning; the Vite-bundled path no longer does. The
+  filter in `tests/web/test_web_boot.py` is kept for older checkouts
+  but is otherwise dead code.)
 
 Non-boot tests that exercise API calls must:
 

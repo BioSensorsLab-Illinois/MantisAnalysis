@@ -17,6 +17,7 @@ import {
   PlotStyleCtx, usePlotStyle, usePlotStyleState,
   scaled, plotPaletteColor, cardChromeFor, PlotStylePanel,
   HeatmapCanvas, HeatmapColorBar, decodeFloat32Grid,
+  channelColor, paletteColor,
 } from './shared.jsx';
 
 const { useState: useStateA, useEffect: useEffectA, useMemo: useMemoA,
@@ -96,22 +97,10 @@ const PlotlyChart = ({ data, layout, config, style }) => {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-const channelColor = (ch) =>
-  CHANNEL_COLORS[parseChannel(ch.includes('-') ? ch : `HG-${ch}`).band] || '#888';
-
-// Stable per-band index so non-channel palettes map each channel to a
-// distinct cyclic-palette entry. Keyed by the band suffix of the channel
-// (HG-R → 'R', LG-NIR → 'NIR', etc.).
-const _BAND_IDX = { R: 0, G: 1, B: 2, NIR: 3, Y: 4, L: 5 };
-// `paletteColor(style, ch)` returns the canonical per-channel color when
-// `style.palette === 'channel'`, or the matching entry of the named
-// palette (viridis / magma / mono-dark / mono-light) otherwise. Lets the
-// Palette selector in PlotStylePanel actually recolor every chart.
-const paletteColor = (style, ch) => {
-  const tail = (ch && typeof ch === 'string') ? ch.split('-').pop() : '';
-  const idx = _BAND_IDX[tail] ?? 0;
-  return plotPaletteColor(style, channelColor, ch, idx);
-};
+// `channelColor` and `paletteColor` are imported from shared.jsx — single
+// source of truth post bundler-migration-v1 Phase 3. The shared versions
+// are functionally identical to the previous local copies (same band
+// resolution, same `_BAND_IDX_FOR_PALETTE` table {R,G,B,NIR,Y,L}).
 
 const lpmmFor = (g, e) => Math.pow(2, g + (e - 1) / 6);
 

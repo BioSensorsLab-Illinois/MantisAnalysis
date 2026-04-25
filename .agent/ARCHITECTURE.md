@@ -137,9 +137,13 @@ Analysis response shape:
    settings). Server state (loaded sources) is in-memory and does not
    survive process restarts. Any localStorage schema change needs a
    migration shim or a tolerant reader.
-7. **No frontend bundler today.** `web/index.html` loads React 18 +
-   Babel standalone from CDN; JSX is transpiled in-browser. B-0014
-   tracks the Vite migration decision.
+7. **Vite-bundled frontend.** `web/index.html` loads
+   `/src/main.jsx` as an ES module; `npm run build` emits
+   `web/dist/`, which FastAPI serves at `/`. React, Plotly, and
+   dom-to-image-more are real npm packages (post
+   `bundler-migration-v1` Phase 3 — 2026-04-24). Source checkouts
+   require Node ≥ 20 + npm; pre-built binaries bundle the already-
+   built dist.
 
 ## Web GUI (single authoritative surface, D-0009)
 
@@ -157,8 +161,12 @@ The `web/` tree is the only frontend. Important properties:
 - **Branding + metadata** centralized at `web/src/shared.jsx:10` in the
   `BRAND` object. Keep in sync with `mantisanalysis/__init__.py` on
   version bumps.
-- **No bundler.** React + Babel standalone from CDN, transpiled in-browser.
-  B-0014 is still on the backlog if boot time becomes a problem.
+- **Vite-bundled.** `web/src/*.jsx` are ES modules; `npm run build`
+  emits `web/dist/index.html` + hashed `assets/index-XXXX.js`. The
+  CDN + Babel-standalone path was retired in
+  `bundler-migration-v1` Phase 3 (2026-04-24). FastAPI serves the
+  built dist; if it's missing, `/` returns a friendly "run npm run
+  build" page instead of 500ing.
 - **Channel-key schema** identical on both sides: `HG-R / HG-G / HG-B /
   HG-NIR / HG-Y / LG-R / LG-G / LG-B / LG-NIR / LG-Y` for H5 sources;
   `R / G / B / Y` for RGB images; `L` for grayscale. See

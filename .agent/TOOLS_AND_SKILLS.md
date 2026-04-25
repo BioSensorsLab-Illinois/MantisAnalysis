@@ -40,10 +40,10 @@ roles, see [`agents/`](agents/).
 
 | Tool | Status | Where | Notes |
 |---|---|---|---|
-| **React 18** | ✅ | `web/index.html` (CDN), `web/src/*.jsx` | Core UI. |
-| **Babel standalone** | ✅ | `web/index.html` (CDN) | JSX transpiled in-browser. |
-| **dom-to-image-more** | 🟡 | CDN in `web/index.html` | Used for export path; known CORS issues being migrated away in `analysis-page-overhaul-v1` Phase 5. |
-| **Vite + @vitejs/plugin-react** | 🟡 | `package.json`, `vite.config.js` | bundler-migration-v1 Phase 1 (2026-04-24) landed: `npm install` + `npm run dev`/`npm run build` work. Phase 2+ migrates the real `.jsx` files to ES modules; Phase 3 deletes the CDN path. Vite 5.4; Node >= 20. |
+| **React 18** | ✅ | `package.json` (npm), `web/src/*.jsx` (ES modules) | Core UI. |
+| **Vite + @vitejs/plugin-react** | ✅ | `package.json`, `vite.config.js` | Bundler. `npm run build` emits `web/dist/`. Vite 5.4; Node ≥ 20 required. The CDN + Babel-standalone path was retired in `bundler-migration-v1` Phase 3 (2026-04-24). |
+| **Plotly.js** | ✅ | `analysis.jsx` (`plotly.js-dist-min` npm) | Native vector charts in the analysis modal. |
+| **dom-to-image-more** | ✅ | `shared.jsx` + `analysis.jsx` (npm) | Export path: rasterizes inline SVG/HTML cards to PNG. |
 | **Storybook + Chromatic** | 🔵 | — | Gated on bundler decision. Component-level docs + interaction tests + a11y + visual regression if adopted. |
 | **React DevTools** | 🟡 | Browser extension (manual install) | Used for performance review. |
 

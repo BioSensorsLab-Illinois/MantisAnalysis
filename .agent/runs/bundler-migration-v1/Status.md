@@ -53,13 +53,32 @@ FPN / DoF. Phase 4 (ESLint + Prettier) is next.
 - [x] Tier 1 — imports PASS (15 modules)
 - [x] Tier 2 — headless figures PASS
 - [x] Tier 3 — FastAPI endpoints PASS
-- [x] pytest — 107/107 green
-- [x] `npm run build` — 41 modules, 5.35 MB (gzip 1.62 MB), 14.75 s
+- [x] pytest — **108/108** green (107 pre-Phase-3 + 1 new
+      `test_analysis_modal_plotly_renders`)
+- [x] `npm run build` — 41 modules, 5.35 MB (gzip 1.62 MB), ~15 s
 - [x] Browser verification via Preview MCP — FastAPI + `web/dist/`
       renders DoF (default), USAF, and FPN modes with no console
       errors; `/api/health` returns `{"ok": true, "version": "0.2.0",
       "sources": 1}`; full sidebar cards + channel chips + mode rail
       all functional.
+
+## Reviewer findings — Phase 3 (2026-04-24)
+
+Spawned `risk-skeptic` and `frontend-react-engineer` in parallel
+after the Phase 3 commit was pushed. Findings + dispositions:
+
+| ID | Reviewer | Severity | Title | Disposition |
+|---|---|---|---|---|
+| F-1 | frontend-react-engineer | P0 | `useSource` referenced but not imported in `isp_settings.jsx` | Fixed — added to import block. |
+| RS-1 | risk-skeptic | P0 | Frozen binaries ship the "build the frontend first" placeholder (`web/dist/` not in spec) | Fixed — `mantisanalysis.spec` hard-fails when dist missing; `build.py` runs `npm install && npm run build` before PyInstaller; `smoke_frozen.py` asserts `/assets/` reference (not placeholder); `release.yml` adds Set-up-Node-20; `smoke.yml` adds `tier4-web-smoke` job. |
+| RS-2 | risk-skeptic | P0 | README + `.agent/` docs claim "no Node / npm" / CDN / Babel | Fixed — README + 9 `.agent/` docs scrubbed. |
+| RS-3 | risk-skeptic | P1 | Test gap: analysis-modal Plotly path uncovered | Fixed — added `test_analysis_modal_plotly_renders`. |
+| RS-4 | risk-skeptic | P1 | Stale comments in `fpn.jsx`, `main.jsx` | Fixed. |
+| F-2 | frontend-react-engineer | P1 | `analysis.jsx` duplicate `channelColor`/`paletteColor` | Fixed — deleted local copies, imported from shared. |
+| F-3 | frontend-react-engineer | P3 | Dead `window.FILE_FILTERS` | Fixed — deleted. |
+| F-4 | frontend-react-engineer | P3 | Hook-alias pattern (`useStateU`, etc.) | Deferred to Phase 4 cleanup — cosmetic. |
+| RS-5 | risk-skeptic | P2 | Vite `optimizeDeps.include` for Plotly (dev-mode UX only) | Deferred — production build pre-bundles regardless. |
+| RS-6 | risk-skeptic | P2 | `main.jsx` doesn't guard `#root` against null | Fixed — added a clear error throw. |
 
 ## Progress
 

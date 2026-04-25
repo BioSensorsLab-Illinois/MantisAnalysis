@@ -12,7 +12,7 @@ project:
 languages:
   primary: python
   python_floor: "3.10"
-  ui_stack: "FastAPI + React 18 (Babel standalone via CDN; no bundler today — see B-0014)"
+  ui_stack: "FastAPI + React 18 (Vite-bundled SPA; built to web/dist/ via npm run build — bundler-migration-v1 Phase 3)"
 
 major_modules:
   - path: mantisanalysis/__init__.py
@@ -54,7 +54,9 @@ major_modules:
   - path: mantisanalysis/resolution.py
     role: "LEGACY auto-strip FFT MTF (kept per D-0004)"
   - path: web/index.html
-    role: "React 18 SPA entry; Babel standalone + CDN React"
+    role: "React 18 SPA entry — Vite root; loads /src/main.jsx as ES module"
+  - path: web/src/main.jsx
+    role: "Vite entry — mounts <App /> via createRoot"
   - path: web/src/shared.jsx
     role: "BRAND, THEMES, icons, hooks, chart primitives (Chart, Page, useChartGeom, tokens, renderChartToPng)"
   - path: web/src/app.jsx

@@ -1365,9 +1365,9 @@ const FPNCanvas = ({
 };
 
 // ---------------------------------------------------------------------------
-// Rulers — minimal inline versions for FPN (USAF has its own; we don't
-// cross-import since each mode file is a self-contained Babel module in
-// the current no-bundler setup).
+// Rulers — minimal inline versions for FPN (USAF has its own; the duplication
+// is small enough that we don't bother sharing — keeping each mode file's
+// ruler self-contained also keeps tweaks local).
 // ---------------------------------------------------------------------------
 const RulerH = ({ t, imgSize, step, ticks, zoom, panPx, cursorImg, leftInset }) => {
   // Width in screen px of the ruler strip is the container width minus

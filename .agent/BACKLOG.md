@@ -11,18 +11,21 @@ Tracked under `.agent/runs/bundler-migration-v1/`. 8-phase plan:
   alongside CDN path; `npm install` + `npm run dev` + `npm run build`
   operational; `scripts/doctor.py` Node/npm check; hello-world entry
   at `web/src/main.jsx` parallel to the live CDN app.
-- Phase 2 — migrate `web/src/shared.jsx` from `window.*` globals to
-  ES modules.
-- Phase 3 — migrate remaining 6 `.jsx` files + delete CDN + Babel
-  path; FastAPI serves `web/dist/`.
+- **Phase 2** (CLOSED 2026-04-24) — pivoted to a parallel
+  `shared-esm.js` subset + a Vite shell with live API round-trip;
+  proved the ES-module pipeline before the atomic cutover.
+- **Phase 3** (CLOSED 2026-04-24, commit cb3cbaf) — atomic CDN→ESM
+  cutover. All `.jsx` migrated to `import`/`export`; React + Plotly
+  + dom-to-image-more are real npm packages; FastAPI serves
+  `web/dist/`; doctor's Node check promoted to FAIL.
 - Phase 4 — ESLint + Prettier.
 - Phase 5 — gradual TypeScript (`.jsx` and `.tsx` side-by-side).
 - Phase 6 — axe-core integration under `pytest -m web_smoke`.
 - Phase 7 — Storybook with component stories.
 - Phase 8 — docs + close.
 
-Each phase is its own session. Rollback per-phase is trivial until
-Phase 3 (which deletes the CDN).
+Each phase is its own session. Phases 1–3 shipped 2026-04-24;
+Phases 4–8 remain.
 
 ---
 

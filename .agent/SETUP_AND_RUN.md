@@ -23,8 +23,19 @@ opens your default browser. Use the **⌘K** / **Ctrl+K** command
 palette to load a sample or navigate; or click **Load sample** in the
 top bar to fetch the bundled synthetic frame.
 
-No Node / npm required. React + Babel standalone are loaded from
-CDN by `web/index.html` and transpiled in the browser.
+**Frontend bundler.** Source checkouts also need Node ≥ 20 + npm.
+The React 18 SPA is bundled by Vite (post bundler-migration-v1
+Phase 3). Bootstrap once, then build:
+
+```bash
+npm install         # first time only
+npm run build       # emits web/dist/ — FastAPI serves it at /
+```
+
+If the dist isn't built, FastAPI's `/` returns a friendly
+"build the frontend first" page instead of erroring. Pre-built
+binaries (see "Standalone executable" in the README) bundle the
+already-built dist so end users don't need Node.
 
 ## First-time install (developer)
 
@@ -48,29 +59,23 @@ playwright install chromium
 ~300 MB chromium download. Only needed if you'll run the opt-in
 Tier-4 browser smoke (`pytest -m web_smoke`).
 
-### Optional: Vite toolchain (bundler-migration-v1)
+### Vite toolchain (required post bundler-migration-v1 Phase 3)
 
-The frontend currently ships two rendering paths in parallel:
-
-- **CDN + Babel-standalone** (production) — `web/index.html` served
-  by FastAPI; no Node required.
-- **Vite** (under migration) — `npm run dev` serves `web/src/main.jsx`
-  on `http://127.0.0.1:5173/` with HMR; `npm run build` emits
-  `web/dist/`.
-
-To enable the Vite path (Phase 1 is currently a hello-world
-placeholder; the real app migrates in Phases 2–3):
+The frontend is now Vite-bundled — the CDN + Babel-standalone path
+is gone. Source checkouts must run `npm run build` before FastAPI
+will serve the real SPA (otherwise `/` returns a friendly
+"build the frontend first" page).
 
 ```bash
 # Requires Node >= 20 + npm (engines field in package.json).
 npm install                    # one-time
-npm run dev                    # dev server on :5173 with HMR
-npm run build                  # production bundle to web/dist/
-npm run preview                # preview the built bundle on :4173
+npm run build                  # production bundle to web/dist/  (do this once)
+npm run dev                    # optional: HMR dev server on :5173 with /api proxy
+npm run preview                # optional: preview the built bundle on :4173
 ```
 
-The `scripts/doctor.py` check surfaces Node status at WARN level
-today; it'll be promoted to FAIL when Phase 3 deletes the CDN path.
+`scripts/doctor.py`'s Node check is FAIL-level — without Node the
+SPA cannot be built or served.
 
 ## Run the app
 

@@ -56,6 +56,25 @@ def _install(py: Path) -> None:
     _run([str(py), "-m", "pip", "install", "--upgrade", "-e", f"{REPO}[build]"])
 
 
+def _build_frontend() -> None:
+    """bundler-migration-v1 Phase 3 — emit `web/dist/` before PyInstaller.
+
+    The spec hard-fails if `web/dist/index.html` is missing, so this step
+    must run on every fresh build. Idempotent — if `web/dist/index.html`
+    already exists and the source tree is older, the user can re-run with
+    `--skip-frontend` to short-circuit.
+    """
+    npm = shutil.which("npm")
+    if npm is None:
+        raise SystemExit(
+            "npm not found on PATH. Install Node >= 20 + npm before building "
+            "the frozen binary — the SPA is now Vite-bundled (post "
+            "bundler-migration-v1 Phase 3)."
+        )
+    _run([npm, "install"], cwd=REPO)
+    _run([npm, "run", "build"], cwd=REPO)
+
+
 def _clean() -> None:
     for target in (DIST, REPO / "build" / "MantisAnalysis"):
         if target.exists():
@@ -101,6 +120,8 @@ def main() -> int:
                         help="use the current interpreter instead of creating build/venv")
     parser.add_argument("--skip-install", action="store_true",
                         help="skip pip install step (assumes deps already present)")
+    parser.add_argument("--skip-frontend", action="store_true",
+                        help="skip `npm install && npm run build` (web/dist/ must already exist)")
     parser.add_argument("--skip-archive", action="store_true",
                         help="skip zipping / tarring")
     args = parser.parse_args()
@@ -110,6 +131,9 @@ def main() -> int:
     py = Path(sys.executable) if args.no_venv else _ensure_venv()
     if not args.skip_install:
         _install(py)
+
+    if not args.skip_frontend:
+        _build_frontend()
 
     _pyinstaller(py)
 
