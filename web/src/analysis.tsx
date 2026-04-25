@@ -112,6 +112,34 @@ const GridTabFrame = ({
 };
 
 // ---------------------------------------------------------------------------
+// EmptyChartBody — analysis-page-overhaul-v1 Phase 6.
+// Used inside <Chart> wrappers when the chart has no plottable data so the
+// grid layout stays consistent (vs. parent grid cells silently disappearing
+// via `return null`). Phrased as "do X to see Y" per ExecPlan §Phase 6.
+// ---------------------------------------------------------------------------
+const EmptyChartBody = ({ message, minHeight = 140 }) => {
+  const t = useTheme();
+  return (
+    <div
+      style={{
+        minHeight,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: t.textFaint,
+        fontSize: 11,
+        fontFamily: 'ui-monospace,Menlo,monospace',
+        textAlign: 'center',
+        padding: 8,
+        lineHeight: 1.5,
+      }}
+    >
+      {message}
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
 // Plotly wrapper — Phase 4.5: Plotly is dynamic-imported.
 // First time `<PlotlyChart>` mounts in a session, Vite fetches the Plotly
 // chunk; subsequent mounts reuse the cached module. Initial bundle drops
@@ -5467,7 +5495,14 @@ const LineOverlayChart = ({ idx, channels, results, label, unitPref = 'auto', ti
       return { ch, lr };
     })
     .filter(Boolean);
-  if (!series.length) return null;
+  if (!series.length)
+    return (
+      <Chart sub={label} exportName={`mantis-dof-line-${label}`} noExport>
+        <EmptyChartBody
+          message={`No focus samples for ${label}. Pick at least one channel and run analysis.`}
+        />
+      </Chart>
+    );
   // Axis unit: whatever `dofDisplayUnit` picks for the first series (all
   // series share a frame here, so we anchor on the first). Per-series
   // conversion uses that line's own `px_per_unit`. `toAxisFor` also folds
@@ -5664,38 +5699,40 @@ const LineOverlayChart = ({ idx, channels, results, label, unitPref = 'auto', ti
           normalized focus
         </text>
       </svg>
-      <div style={{ display: 'flex', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
-        {series.map(({ ch, lr }) => {
-          const g = lr.gaussian;
-          const peakPx = g?.converged ? g.mu : lr.peak_position_px;
-          return (
-            <span
-              key={ch}
-              style={{
-                fontSize: scaled(style.legendSize, style),
-                fontWeight: style.legendWeight,
-                color: paletteColor(style, ch),
-                fontFamily: 'ui-monospace,Menlo,monospace',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-              }}
-            >
+      {style.showLegend !== false && (
+        <div style={{ display: 'flex', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
+          {series.map(({ ch, lr }) => {
+            const g = lr.gaussian;
+            const peakPx = g?.converged ? g.mu : lr.peak_position_px;
+            return (
               <span
+                key={ch}
                 style={{
-                  width: Math.max(6, scaled(style.legendSize, style) * 0.8),
-                  height: Math.max(6, scaled(style.legendSize, style) * 0.8),
-                  borderRadius: '50%',
-                  background: paletteColor(style, ch),
+                  fontSize: scaled(style.legendSize, style),
+                  fontWeight: style.legendWeight,
+                  color: paletteColor(style, ch),
+                  fontFamily: 'ui-monospace,Menlo,monospace',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
                 }}
-              />
-              {ch}: peak {dofFmt(lr, dofScaled(peakPx, tiltFactor), unitPref, 1)}
-              {lr.dof_width_px != null &&
-                `, DoF ${dofFmt(lr, dofScaled(lr.dof_width_px, tiltFactor), unitPref, 1)}`}
-            </span>
-          );
-        })}
-      </div>
+              >
+                <span
+                  style={{
+                    width: Math.max(6, scaled(style.legendSize, style) * 0.8),
+                    height: Math.max(6, scaled(style.legendSize, style) * 0.8),
+                    borderRadius: '50%',
+                    background: paletteColor(style, ch),
+                  }}
+                />
+                {ch}: peak {dofFmt(lr, dofScaled(peakPx, tiltFactor), unitPref, 1)}
+                {lr.dof_width_px != null &&
+                  `, DoF ${dofFmt(lr, dofScaled(lr.dof_width_px, tiltFactor), unitPref, 1)}`}
+              </span>
+            );
+          })}
+        </div>
+      )}
     </Chart>
   );
 };
@@ -5763,7 +5800,19 @@ const MetricOverlayChart = ({ ch, lr, label, unitPref = 'auto', tiltFactor = 1 }
     fft_hf: '#9467bd',
   };
   const xsPx = lr.positions_px || [];
-  if (!xsPx.length) return null;
+  if (!xsPx.length)
+    return (
+      <Chart
+        channel={ch}
+        sub={`· ${label}`}
+        exportName={`mantis-dof-metric-${ch}-${label}`}
+        noExport
+      >
+        <EmptyChartBody
+          message={`No metric sweep for ${ch} on ${label}. Enable "All 4 metrics" before running.`}
+        />
+      </Chart>
+    );
   const unitName = dofDisplayUnit(lr, unitPref);
   const toAxis = (px) => {
     const v = dofToDisplay(lr, dofScaled(px, tiltFactor), unitPref);
@@ -5824,25 +5873,27 @@ const MetricOverlayChart = ({ ch, lr, label, unitPref = 'auto', tiltFactor = 1 }
           );
         })}
       </svg>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
-        {['laplacian', 'brenner', 'tenengrad', 'fft_hf'].map((m) => {
-          const msw = lr.metric_sweep?.[m];
-          if (!msw) return null;
-          return (
-            <span
-              key={m}
-              style={{
-                fontSize: scaled(style.legendSize, style),
-                fontWeight: style.legendWeight,
-                color: METRIC_COLORS[m],
-                fontFamily: 'ui-monospace,Menlo,monospace',
-              }}
-            >
-              ● {m} peak {dofFmt(lr, dofScaled(msw.peak_position_px, tiltFactor), unitPref, 1)}
-            </span>
-          );
-        })}
-      </div>
+      {style.showLegend !== false && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+          {['laplacian', 'brenner', 'tenengrad', 'fft_hf'].map((m) => {
+            const msw = lr.metric_sweep?.[m];
+            if (!msw) return null;
+            return (
+              <span
+                key={m}
+                style={{
+                  fontSize: scaled(style.legendSize, style),
+                  fontWeight: style.legendWeight,
+                  color: METRIC_COLORS[m],
+                  fontFamily: 'ui-monospace,Menlo,monospace',
+                }}
+              >
+                ● {m} peak {dofFmt(lr, dofScaled(msw.peak_position_px, tiltFactor), unitPref, 1)}
+              </span>
+            );
+          })}
+        </div>
+      )}
       <div
         style={{
           marginTop: 4,
@@ -5950,7 +6001,16 @@ const ChromaticShiftChart = ({
       if (peak != null) allPeaks.push(asAxis(ln, peak));
     }
   }
-  if (!allPeaks.length) return null;
+  if (!allPeaks.length)
+    return (
+      <Chart
+        sub={`Peak position per channel (${unitName})`}
+        exportName="mantis-dof-chromatic"
+        noExport
+      >
+        <EmptyChartBody message="No peaks detected. Need ≥2 channels with completed Gaussian fits." />
+      </Chart>
+    );
   const yMin = Math.min(...allPeaks) * 0.9;
   const yMax = Math.max(...allPeaks) * 1.1;
   const yOf = (y) => PAD_T + (1 - (y - yMin) / (yMax - yMin || 1)) * (H - PAD_T - PAD_B);

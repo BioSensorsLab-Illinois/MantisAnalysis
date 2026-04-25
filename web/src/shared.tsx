@@ -3418,7 +3418,8 @@ const PlotStylePanel = ({ open, onToggle }) => {
             <select
               value={style.cardBackground}
               onChange={(e) => setStyle({ cardBackground: e.target.value })}
-              title="Card background"
+              title="Page background — applies to chart card chrome and exports"
+              aria-label="Page background"
               style={{
                 background: t.inputBg,
                 color: t.text,
