@@ -10,20 +10,15 @@ to override can pass ``isp_mode_id`` + ``isp_config`` to dispatch through
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
 from . import isp_modes as _isp
 from .extract import (
-    LOC,
-    ORIGIN,
-    extract_by_spec,
     extract_rgb_nir,
     load_recording,
     split_dual_gain,
 )
-
 
 H5_EXTS = {".h5", ".hdf5"}
 IMAGE_EXTS = {".png", ".tif", ".tiff", ".jpg", ".jpeg", ".bmp"}
@@ -44,7 +39,7 @@ def is_h5_recording(path: Path) -> bool:
         return False
 
 
-def luminance_from_rgb(rgb: Dict[str, np.ndarray]) -> np.ndarray:
+def luminance_from_rgb(rgb: dict[str, np.ndarray]) -> np.ndarray:
     """Rec.601 luminance Y = 0.299·R + 0.587·G + 0.114·B (in source dtype)."""
     r = rgb["R"].astype(np.float64)
     g = rgb["G"].astype(np.float64)
@@ -57,163 +52,36 @@ def luminance_from_rgb(rgb: Dict[str, np.ndarray]) -> np.ndarray:
     return y.astype(out_dtype, copy=False)
 
 
-def rgb_composite(channels: Dict[str, np.ndarray],
-                  mapping: Optional[Dict[str, str]] = None) -> np.ndarray:
-    """Stack three named grayscale channels into an H×W×3 array.
-
-    ``mapping`` picks which channel keys play R, G, B. Default maps each
-    primary to itself (``R→R, G→G, B→B``); pass e.g.
-    ``{"R":"HG-R","G":"HG-G","B":"HG-B"}`` on a dual-gain source to pin
-    the composite to one gain. Caller is responsible for providing keys
-    that exist in ``channels``; missing keys raise KeyError.
-    """
-    mp = mapping or {"R": "R", "G": "G", "B": "B"}
-    return np.dstack([channels[mp["R"]], channels[mp["G"]], channels[mp["B"]]])
-
-
-# ---------------------------------------------------------------------------
-# Mode-driven extraction
-# ---------------------------------------------------------------------------
-
-
-def _crop_channels_to_common_shape(channels: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
-    """Trim every channel to the minimum (H, W) across the dict.
-
-    Needed because ``half[r::s, c::s]`` can yield slightly different
-    shapes per channel when the half-frame dims aren't clean multiples
-    of the stride (e.g. a 2046-row half with stride 4 → some channels
-    1024 rows, others 1023). Downstream math (luminance synthesis,
-    multi-channel overlays, dark subtraction) requires a common shape,
-    so crop here once at the extraction boundary.
-    """
-    if not channels:
-        return channels
-    min_h = min(a.shape[0] for a in channels.values())
-    min_w = min(a.shape[1] for a in channels.values())
-    same = all(a.shape[0] == min_h and a.shape[1] == min_w
-               for a in channels.values())
-    if same:
-        return channels
-    return {k: (v if (v.shape[0] == min_h and v.shape[1] == min_w) else v[:min_h, :min_w])
-            for k, v in channels.items()}
-
-
-def _apply_mode_to_half(half: np.ndarray,
-                        mode: _isp.ISPMode,
-                        config: Dict[str, Any]) -> Dict[str, np.ndarray]:
-    """Run ``extract_by_spec`` for every slot in ``mode`` against one half.
-
-    ``config`` is the output of ``isp_modes.normalize_config``. Channel
-    names reflect any rename overrides. Per-channel loc overrides from
-    ``config["channel_loc_overrides"]`` take precedence over the mode's
-    declared default loc. For bare modes (``sub_step=(1,1)``,
-    ``outer_stride=(1,1)``), the extraction is effectively ``half[::1, ::1]``
-    i.e. an array view equal to the input half.
-    """
-    names = config["channel_name_overrides"]
-    loc_overrides = config.get("channel_loc_overrides") or {}
-    origin = config["origin"]
-    sub_step = config["sub_step"]
-    outer_stride = config["outer_stride"]
-    out: Dict[str, np.ndarray] = {}
-    for spec in mode.channels:
-        name = _isp.resolved_channel_name(mode, spec, names)
-        loc = tuple(loc_overrides.get(spec.slot_id, spec.loc))
-        out[name] = extract_by_spec(half, loc, origin, sub_step, outer_stride)
-    return _crop_channels_to_common_shape(out)
-
-
-def extract_with_mode(raw_frame: np.ndarray,
-                      mode: _isp.ISPMode,
-                      config: Dict[str, Any]) -> Dict[str, np.ndarray]:
-    """Top-level extraction entry point for ISP-aware loaders.
-
-    For dual-gain modes the frame is split into HG / LG halves first
-    and channel dicts are emitted with ``HG-`` / ``LG-`` prefixes;
-    otherwise the whole frame is treated as one half. The final dict
-    is shape-normalized: every channel is cropped to the common
-    (min H, min W) so downstream math (luminance synthesis, multi-
-    channel overlays, dark subtraction) sees consistent arrays even
-    when the raw half dims aren't clean multiples of the stride.
-    """
-    if mode.dual_gain:
-        hg_half, lg_half = split_dual_gain(raw_frame)
-        hg = _apply_mode_to_half(hg_half, mode, config)
-        lg = _apply_mode_to_half(lg_half, mode, config)
-        out: Dict[str, np.ndarray] = {}
-        for k, v in hg.items():
-            out[f"HG-{k}"] = v
-        for k, v in lg.items():
-            out[f"LG-{k}"] = v
-        # split_dual_gain uses ``W//2`` so odd-width frames produce HG and
-        # LG halves that differ in width by one pixel; the second crop
-        # normalizes across that boundary too.
-        return _crop_channels_to_common_shape(out)
-    # Single-gain mode — treat the whole frame as one half. The array may
-    # arrive 3-D from PIL/tifffile; _apply_mode_to_half squeezes a trailing
-    # length-1 axis via extract_by_spec itself.
-    if raw_frame.ndim == 3 and raw_frame.shape[-1] == 1:
-        raw_frame = raw_frame[..., 0]
-    return _apply_mode_to_half(raw_frame, mode, config)
-
-
-# ---------------------------------------------------------------------------
-# Source-kind loaders
-# ---------------------------------------------------------------------------
-
-
-def load_h5_channels(path: Path, frame_index: int = 0,
-                     isp_mode_id: Optional[str] = None,
-                     isp_config: Optional[Dict[str, Any]] = None,
-                     ) -> Tuple[Dict[str, np.ndarray], Dict[str, str],
-                                np.ndarray, str, Dict[str, Any]]:
-    """Load an H5 dual-gain recording and extract channels.
-
-    Returns ``(channels, attrs, raw_frame, mode_id, resolved_config)``.
-    The raw frame is returned so the session store can cache it and
-    re-extract when the user switches ISP mode without touching disk.
-
-    Backward compat: when ``isp_mode_id`` is ``None`` we default to
-    ``rgb_nir`` — the only H5 mode that existed pre-isp-modes-v1 — and
-    the emitted channel dict is byte-identical to the prior loader
-    (``HG/LG × {R,G,B,NIR,Y}``).
-    """
+def load_h5_channels(
+    path: Path, frame_index: int = 0
+) -> tuple[dict[str, np.ndarray], dict[str, str]]:
+    """Return ({"HG-R", "HG-G", ..., "LG-NIR", "HG-Y", "LG-Y"}, attrs)."""
     rec = load_recording(path, frame_slice=slice(frame_index, frame_index + 1))
     frame = rec.frames[0]
-    mode_id = isp_mode_id or _isp.default_mode_id_for_source_kind("h5",
-                                                                   is_dual_gain=True)
-    mode = _isp.get_mode(mode_id)
-    cfg = _isp.normalize_config(mode, isp_config)
-    channels = extract_with_mode(frame, mode, cfg)
-    # Only the RGB-NIR path carries a synthesized luminance channel — a
-    # frozen invariant (ARCHITECTURE.md Key invariants #3) that downstream
-    # analysis + UI assume. Other dual-gain modes don't get Y.
-    if mode.id == _isp.RGB_NIR.id:
-        hg = {"R": channels["HG-R"], "G": channels["HG-G"], "B": channels["HG-B"]}
-        lg = {"R": channels["LG-R"], "G": channels["LG-G"], "B": channels["LG-B"]}
-        channels["HG-Y"] = luminance_from_rgb(hg)
-        channels["LG-Y"] = luminance_from_rgb(lg)
-    return channels, dict(rec.attrs), frame, mode.id, cfg
+    hg_half, lg_half = split_dual_gain(frame)
+    hg_ch = extract_rgb_nir(hg_half)
+    lg_ch = extract_rgb_nir(lg_half)
+    out: dict[str, np.ndarray] = {}
+    for k, v in hg_ch.items():
+        out[f"HG-{k}"] = v
+    for k, v in lg_ch.items():
+        out[f"LG-{k}"] = v
+    out["HG-Y"] = luminance_from_rgb(hg_ch)
+    out["LG-Y"] = luminance_from_rgb(lg_ch)
+    return out, dict(rec.attrs)
 
 
-def load_image_channels(path: Path,
-                        isp_mode_id: Optional[str] = None,
-                        isp_config: Optional[Dict[str, Any]] = None,
-                        ) -> Tuple[Dict[str, np.ndarray], Dict[str, str],
-                                   np.ndarray, str, Dict[str, Any]]:
-    """Load a PNG/TIFF/JPG and return per-channel dict + raw array.
-
-    For backward compat, the default path emits ``R/G/B/Y`` for 3-channel
-    images and ``L`` for 1-channel ones. Explicit ``isp_mode_id`` (e.g.
-    ``bare_single``) is supported but rarely useful for image files.
-    """
+def load_image_channels(path: Path) -> tuple[dict[str, np.ndarray], dict[str, str]]:
+    """Load PNG/TIFF/JPG and return per-channel dict."""
     suf = path.suffix.lower()
     arr: np.ndarray
     if suf in (".tif", ".tiff"):
         import tifffile
+
         arr = np.asarray(tifffile.imread(str(path)))
     else:
         from PIL import Image
+
         with Image.open(path) as im:
             arr = np.asarray(im)
     attrs = {"source": str(path), "shape": str(arr.shape)}
@@ -246,33 +114,8 @@ def load_image_channels(path: Path,
     raise ValueError(f"unsupported image shape: {arr.shape}")
 
 
-def load_any(path: str | Path,
-             isp_mode_id: Optional[str] = None,
-             isp_config: Optional[Dict[str, Any]] = None,
-             ) -> Tuple[Dict[str, np.ndarray], Dict[str, str], str]:
-    """Returns (channel_dict, attrs, source_kind in {"h5", "image"}).
-
-    Backward-compatible signature — ``load_any(path)`` keeps working
-    unchanged. Pass ``isp_mode_id`` / ``isp_config`` to request a
-    non-default ISP layout at load time. Callers that need the cached
-    raw frame (for later reconfiguration) should hit ``load_any_detail``.
-    """
-    channels, attrs, _raw, _mode_id, _cfg, kind = load_any_detail(
-        path, isp_mode_id=isp_mode_id, isp_config=isp_config,
-    )
-    return channels, attrs, kind
-
-
-def load_any_detail(path: str | Path,
-                    isp_mode_id: Optional[str] = None,
-                    isp_config: Optional[Dict[str, Any]] = None,
-                    ) -> Tuple[Dict[str, np.ndarray], Dict[str, str],
-                               np.ndarray, str, Dict[str, Any], str]:
-    """Like ``load_any`` but also returns the raw frame + resolved mode.
-
-    Session store uses this so it can cache the raw frame for
-    ``reconfigure_isp`` without re-reading from disk.
-    """
+def load_any(path: str | Path) -> tuple[dict[str, np.ndarray], dict[str, str], str]:
+    """Returns (channel_dict, attrs, source_kind in {"h5", "image"})."""
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(p)

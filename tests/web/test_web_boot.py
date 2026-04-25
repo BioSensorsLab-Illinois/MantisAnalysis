@@ -86,9 +86,7 @@ def test_root_page_boots(web_server: str) -> None:
         root_children = page.evaluate(
             "() => document.querySelector('#root')?.children?.length ?? 0"
         )
-        assert root_children >= 1, (
-            f"React failed to mount (0 children in #root). Console: {errors}"
-        )
+        assert root_children >= 1, f"React failed to mount (0 children in #root). Console: {errors}"
 
         # Three mode-rail buttons render.
         for label in ("USAF", "FPN", "DoF"):
@@ -105,10 +103,7 @@ def test_root_page_boots(web_server: str) -> None:
     # Babel-standalone transformer warning is gone post-Phase 3 but
     # the filter is cheap to keep for older checkouts.
     errors = [
-        e
-        for e in errors
-        if "in-browser Babel transformer" not in e
-        and "React DevTools" not in e
+        e for e in errors if "in-browser Babel transformer" not in e and "React DevTools" not in e
     ]
     assert not errors, f"console errors during boot: {errors}"
 

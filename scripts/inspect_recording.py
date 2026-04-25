@@ -1,4 +1,5 @@
 """Quick inspector: dump metadata and save a preview of HG/LG/RGB."""
+
 from __future__ import annotations
 
 import sys
@@ -13,7 +14,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from mantisanalysis.extract import load_recording, split_dual_gain, extract_rgb_nir, make_rgb_image
+from mantisanalysis.extract import extract_rgb_nir, load_recording, make_rgb_image, split_dual_gain
 
 
 def main(path: str, out_dir: Path) -> None:
@@ -22,7 +23,9 @@ def main(path: str, out_dir: Path) -> None:
     print(f"n_frames    : {rec.n_frames}")
     print(f"frame shape : {rec.shape}  (full dual-gain HG|LG)")
     print(f"dtype       : {rec.frames.dtype}")
-    print(f"int_time us : min={rec.int_time.min()} max={rec.int_time.max()} mean={rec.int_time.mean():.1f}")
+    print(
+        f"int_time us : min={rec.int_time.min()} max={rec.int_time.max()} mean={rec.int_time.mean():.1f}"
+    )
     print("camera attrs:")
     for k, v in rec.attrs.items():
         print(f"  {k}: {v}")
