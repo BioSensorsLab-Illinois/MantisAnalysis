@@ -1,32 +1,334 @@
 """FastAPI surface for Playback. Thin — most logic is in workspace.py.
 
-Routes (target ~10 total):
+Routes (10 total):
 
-* ``GET    /api/playback/workspace``       — full state snapshot
-* ``GET    /api/playback/events``          — SSE event stream
-* ``POST   /api/playback/recordings``      — register a recording (multipart upload OR path)
-* ``DELETE /api/playback/recordings/{id}`` — cascade-delete
-* ``POST   /api/playback/darks``           — register a dark frame
-* ``DELETE /api/playback/darks/{id}``
-* ``POST   /api/playback/streams``         — build a stream from rec_ids
-* ``DELETE /api/playback/streams/{id}``
-* ``POST   /api/playback/tabs``            — open a tab on a stream
-* ``DELETE /api/playback/tabs/{id}``
-* ``GET    /api/playback/tabs/{id}/frame.png`` — preview PNG (uses render.py)
-* ``POST   /api/playback/exports/image``   — image export (uses render.py)
-* ``POST   /api/playback/exports/video``   — video export (uses render.py)
+* ``GET    /api/playback/workspace``                       — full state snapshot
+* ``GET    /api/playback/events``                          — Server-Sent-Events stream
+* ``POST   /api/playback/recordings`` (multipart upload OR ``{path}``)
+* ``DELETE /api/playback/recordings/{rec_id}``
+* ``POST   /api/playback/darks``                           — register a dark
+* ``DELETE /api/playback/darks/{dark_id}``
+* ``POST   /api/playback/streams``                         — build a stream from rec_ids
+* ``DELETE /api/playback/streams/{stream_id}``
+* ``POST   /api/playback/tabs``                            — open a tab on a stream
+* ``DELETE /api/playback/tabs/{tab_id}``
+
+Image / video export and per-frame PNG arrive in M5.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import asyncio
+import json
+from dataclasses import asdict
+from pathlib import Path
+from typing import Any, AsyncIterator, Dict, List, Optional
+
+from fastapi import FastAPI, HTTPException, UploadFile, File
+from pydantic import BaseModel
+from starlette.responses import StreamingResponse
+
+from .events import Event
+from .workspace import View, Workspace
 
 
-if TYPE_CHECKING:
-    from fastapi import FastAPI
+# Process-global workspace singleton. The FastAPI app keeps a single
+# Workspace; the same instance is reused across requests + SSE clients.
+WORKSPACE = Workspace()
 
 
-def mount(app: "FastAPI") -> None:
-    """Register Playback routes on a FastAPI app."""
+# ---------------------------------------------------------------------------
+# DTO serialization — mirror web/src/playback/api.ts
+# ---------------------------------------------------------------------------
 
-    raise NotImplementedError("M1 will implement mount()")
+
+def _recording_dto(rec) -> Dict[str, Any]:
+    return {
+        "rec_id": rec.rec_id,
+        "name": rec.name,
+        "path": str(rec.path),
+        "sample": rec.sample,
+        "view": rec.view,
+        "exposure_s": rec.exposure_s,
+        "n_frames": rec.n_frames,
+        "raw_shape": list(rec.raw_shape),
+        "timestamp_start_s": rec.timestamp_start_s,
+        "timestamp_end_s": rec.timestamp_end_s,
+    }
+
+
+def _dark_dto(d) -> Dict[str, Any]:
+    return {
+        "dark_id": d.dark_id,
+        "name": d.name,
+        "exposure_s": d.exposure_s,
+        "n_source_frames": d.n_source_frames,
+        "strategy": d.strategy,
+    }
+
+
+def _stream_dto(s, ws: Workspace) -> Dict[str, Any]:
+    return {
+        "stream_id": s.stream_id,
+        "name": s.name,
+        "rec_ids": list(s.rec_ids),
+        "fps_override": s.fps_override,
+        "total_frames": ws.stream_total_frames(s.stream_id),
+    }
+
+
+def _view_dto(v: View) -> Dict[str, Any]:
+    d = asdict(v)
+    return d
+
+
+def _tab_dto(t) -> Dict[str, Any]:
+    return {
+        "tab_id": t.tab_id,
+        "stream_id": t.stream_id,
+        "layout": t.layout,
+        "views": [_view_dto(v) for v in t.views],
+        "active_frame": t.active_frame,
+        "selected_view_id": t.selected_view_id,
+    }
+
+
+def _workspace_dto(ws: Workspace) -> Dict[str, Any]:
+    return {
+        "library": {
+            "recordings": [_recording_dto(r) for r in ws.library.list_recordings()],
+            "darks": [_dark_dto(d) for d in ws.library.list_darks()],
+        },
+        "streams": [_stream_dto(s, ws) for s in ws.list_streams()],
+        "tabs": [_tab_dto(t) for t in ws.list_tabs()],
+        "active_tab_id": ws.active_tab_id,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Request bodies
+# ---------------------------------------------------------------------------
+
+
+class RecordingFromPathRequest(BaseModel):
+    path: str
+    name: Optional[str] = None
+
+
+class BuildStreamRequest(BaseModel):
+    rec_ids: List[str]
+    name: Optional[str] = None
+    fps_override: Optional[float] = None
+
+
+class OpenTabRequest(BaseModel):
+    stream_id: str
+    layout: str = "single"
+
+
+class FromFolderRequest(BaseModel):
+    root: str
+
+
+# ---------------------------------------------------------------------------
+# SSE
+# ---------------------------------------------------------------------------
+
+
+def _format_sse(event: Event) -> str:
+    data = json.dumps({"type": event.type, "payload": event.payload})
+    return f"event: {event.type}\ndata: {data}\n\n"
+
+
+async def _event_stream(ws: Workspace) -> AsyncIterator[str]:
+    """Async generator yielding SSE-formatted events.
+
+    The synchronous EventBus.subscribe callback bridges into the async
+    loop via ``loop.call_soon_threadsafe(queue.put_nowait, …)``. A
+    periodic keepalive comment is sent every 15 s so reverse proxies
+    don't reap the connection.
+    """
+
+    loop = asyncio.get_running_loop()
+    q: "asyncio.Queue[Event]" = asyncio.Queue()
+
+    def _push(event: Event) -> None:
+        loop.call_soon_threadsafe(q.put_nowait, event)
+
+    unsubscribe = ws.events.subscribe(_push)
+    try:
+        yield "event: open\ndata: {}\n\n"
+        while True:
+            try:
+                event = await asyncio.wait_for(q.get(), timeout=15.0)
+            except asyncio.TimeoutError:
+                yield ": keepalive\n\n"
+                continue
+            yield _format_sse(event)
+    except asyncio.CancelledError:
+        raise
+    finally:
+        unsubscribe()
+
+
+# ---------------------------------------------------------------------------
+# Mount
+# ---------------------------------------------------------------------------
+
+
+def mount(app: FastAPI, workspace: Optional[Workspace] = None) -> Workspace:
+    """Register Playback routes. Returns the bound Workspace."""
+
+    ws = workspace or WORKSPACE
+
+    @app.get("/api/playback/workspace")
+    def get_workspace() -> Dict[str, Any]:
+        return _workspace_dto(ws)
+
+    @app.get("/api/playback/events")
+    async def stream_events():
+        return StreamingResponse(
+            _event_stream(ws),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    # ---- Recordings -------------------------------------------------
+
+    @app.post("/api/playback/recordings/from-path")
+    def register_recording_from_path(req: RecordingFromPathRequest) -> Dict[str, Any]:
+        p = Path(req.path).expanduser()
+        if not p.exists():
+            raise HTTPException(404, f"path does not exist: {p}")
+        try:
+            rec = ws.library.register_recording(p, name=req.name)
+        except (FileNotFoundError, ValueError) as e:
+            raise HTTPException(422, str(e)) from e
+        ws.events.emit(Event(
+            type="library.recording.added",
+            payload={"rec_id": rec.rec_id},
+        ))
+        return _recording_dto(rec)
+
+    @app.post("/api/playback/recordings/upload")
+    async def upload_recording(file: UploadFile = File(...)) -> Dict[str, Any]:
+        data = await file.read()
+        if not data:
+            raise HTTPException(400, "empty upload")
+        out_dir = Path("outputs/playback/uploads")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        target = out_dir / (file.filename or "upload.h5")
+        target.write_bytes(data)
+        try:
+            rec = ws.library.register_recording(target, name=file.filename)
+        except (FileNotFoundError, ValueError) as e:
+            try:
+                target.unlink()
+            except OSError:
+                pass
+            raise HTTPException(422, str(e)) from e
+        ws.events.emit(Event(
+            type="library.recording.added",
+            payload={"rec_id": rec.rec_id},
+        ))
+        return _recording_dto(rec)
+
+    @app.post("/api/playback/recordings/from-folder")
+    async def register_recordings_from_folder(req: FromFolderRequest) -> Dict[str, Any]:
+        """Bulk-register every .h5 / .hdf5 under ``root`` in one call.
+
+        Convenience for the lab workstation. Refuses if the path
+        doesn't exist or isn't a directory. Returns
+        ``{added: [recDTO], errors: [{path, error}]}``.
+        """
+        p = Path(req.root).expanduser()
+        if not p.exists() or not p.is_dir():
+            raise HTTPException(404, f"not a directory: {p}")
+        files = sorted(
+            q for q in p.iterdir()
+            if q.is_file() and q.suffix.lower() in {".h5", ".hdf5"}
+        )
+        added: List[Dict[str, Any]] = []
+        errors: List[Dict[str, str]] = []
+        loop = asyncio.get_running_loop()
+        for f in files:
+            # Run blocking h5py I/O in the default executor so the SSE
+            # event loop stays responsive between files.
+            try:
+                rec = await loop.run_in_executor(None, ws.library.register_recording, f)
+            except (FileNotFoundError, ValueError) as e:
+                errors.append({"path": str(f), "error": str(e)})
+                continue
+            ws.events.emit(Event(
+                type="library.recording.added",
+                payload={"rec_id": rec.rec_id},
+            ))
+            added.append(_recording_dto(rec))
+        return {"added": added, "errors": errors}
+
+    @app.delete("/api/playback/recordings/{rec_id}")
+    def delete_recording(rec_id: str) -> Dict[str, Any]:
+        try:
+            cascade = ws.delete_recording(rec_id)
+        except KeyError:
+            raise HTTPException(404, f"unknown recording id: {rec_id}")
+        return {"ok": True, **cascade}
+
+    # ---- Darks ------------------------------------------------------
+
+    @app.delete("/api/playback/darks/{dark_id}")
+    def delete_dark(dark_id: str) -> Dict[str, Any]:
+        try:
+            cleared = ws.delete_dark(dark_id)
+        except KeyError:
+            raise HTTPException(404, f"unknown dark id: {dark_id}")
+        return {"ok": True, "cleared_views": cleared}
+
+    # ---- Streams ----------------------------------------------------
+
+    @app.post("/api/playback/streams")
+    def build_stream(req: BuildStreamRequest) -> Dict[str, Any]:
+        try:
+            s = ws.build_stream(
+                req.rec_ids, name=req.name, fps_override=req.fps_override
+            )
+        except KeyError as e:
+            raise HTTPException(404, f"unknown recording id: {e}")
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+        ws.events.emit(Event(
+            type="workspace.stream.built",
+            payload={"stream_id": s.stream_id, "rec_ids": list(s.rec_ids)},
+        ))
+        return _stream_dto(s, ws)
+
+    @app.delete("/api/playback/streams/{stream_id}")
+    def delete_stream(stream_id: str) -> Dict[str, Any]:
+        try:
+            closed = ws.delete_stream(stream_id)
+        except KeyError:
+            raise HTTPException(404, f"unknown stream id: {stream_id}")
+        return {"ok": True, "closed_tabs": closed}
+
+    # ---- Tabs -------------------------------------------------------
+
+    @app.post("/api/playback/tabs")
+    def open_tab(req: OpenTabRequest) -> Dict[str, Any]:
+        try:
+            tab = ws.open_tab(req.stream_id, layout=req.layout)  # type: ignore[arg-type]
+        except KeyError:
+            raise HTTPException(404, f"unknown stream id: {req.stream_id}")
+        return _tab_dto(tab)
+
+    @app.delete("/api/playback/tabs/{tab_id}")
+    def close_tab(tab_id: str) -> Dict[str, Any]:
+        try:
+            ws.close_tab(tab_id)
+        except KeyError:
+            raise HTTPException(404, f"unknown tab id: {tab_id}")
+        return {"ok": True}
+
+    return ws

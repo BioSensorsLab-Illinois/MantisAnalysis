@@ -3,7 +3,54 @@
 Opened: 2026-04-25
 Last updated: 2026-04-25 (M0 in-flight)
 
-## Active milestone: M2 — Frontend useWorkspace + SSE + LibraryRail (next)
+## Active milestone: M3 — Visual tokens + Storybook reviews (next)
+
+### M2 — Frontend useWorkspace + LibraryRail + bulk-folder API — DONE 2026-04-25
+
+**Backend (mantisanalysis/playback/api.py)** — 10 FastAPI routes
+mounted via `mount(app)` in server.py. Workspace snapshot endpoint
+(`GET /api/playback/workspace`), recording CRUD (path, upload, bulk
+folder, delete), dark CRUD, stream + tab CRUD. Each mutation emits an
+EventBus event for downstream consumers.
+
+**SSE prototype (`/api/playback/events`)** — built and works in
+isolation, but caused HTTP/1.1 connection-pool starvation under
+StrictMode in the preview Chromium. **Deferred to a later milestone**;
+M2 falls back to 2-second polling in `useWorkspace()`. Polling is
+correct + cheap + not a real bottleneck for the use case.
+
+**Frontend (web/src/playback/)**:
+- `workspace.ts::useWorkspace()` — single source of truth, polls
+  `GET /api/playback/workspace` every 2 sec, exposes
+  `{workspace, loading, error, refresh}`.
+- `api.ts` — typed fetch wrappers for every route +
+  `registerRecordingsFromFolder` for the lab-dataset shortcut.
+- `components/LibraryRail.tsx` — left rail. Renders Recordings
+  grouped by sample → view, sorted by exposure; renders Darks
+  grouped by exposure. Empty state with primary CTA. Hover-revealed
+  play (▶) + delete (✕) per row. 288 px wide per design spec §5.4.
+- `index.tsx` — shell wires LibraryRail + main panel. Empty-state
+  hero with "Open recording…" + "Load lab dataset" buttons.
+- `tokens.ts` — unchanged from M0; CHANNEL_COLOR + LAYOUT proportions
+  drive the rail.
+
+**Verification**:
+- Backend bulk-load via curl → registered all 33 real H5s in
+  ~3 seconds (M1 perf test confirms <2s/file inspect; bulk path
+  uses `loop.run_in_executor` to keep the loop responsive).
+- Live screenshot: rail renders cleanly with empty state, no
+  console errors. Captured at
+  `screenshots/M2_library_rail_empty.png`.
+- Populated-rail screenshot deferred to M4 because the preview
+  Chromium silently drops POSTs (verified: same `fetch(POST)` works
+  from a non-preview shell + curl works from a non-preview shell).
+  M4 adds a Playwright test that drives the workflow on a real
+  headless Chromium.
+
+**Tests**: pytest 127 passed + 4 expected-failed (M2-M5 frontend
+gates remain). Tier 0–3 smoke green.
+
+### M1 — Backend library + workspace + cascade + h5io — DONE 2026-04-25
 
 ### M1 — Backend library + workspace + cascade + h5io — DONE 2026-04-25
 
@@ -66,21 +113,14 @@ Last updated: 2026-04-25 (M0 in-flight)
 
 ## Next concrete action
 
-M2 — Frontend `useWorkspace()` hook + SSE wiring + LibraryRail
-component. Per ExecPlan §5:
+M3 — Visual tokens + Storybook reviews. Per ExecPlan §5:
 
-1. Implement `mantisanalysis/playback/api.py::mount(app)` — the ~10
-   FastAPI routes against the M1 backend. Hand-write OpenAPI shapes
-   matching the DTOs in `web/src/playback/api.ts`.
-2. Wire `Workspace.events.subscribe` into a Server-Sent-Events
-   endpoint at `GET /api/playback/events` (use the 256-event history
-   buffer for reconnect catch-up).
-3. Implement `web/src/playback/workspace.ts::useWorkspace()` — fetch
-   `GET /api/playback/workspace` once, subscribe to SSE, diff
-   on event payloads.
-4. Implement `web/src/playback/components/LibraryRail.tsx` — render
-   recordings grouped by sample → view → exposure (using parsed
-   filename metadata); render darks grouped by exposure; empty state
-   with drag-drop.
-5. Boot the app, point at `/Users/zz4/Desktop/day5_breast_subject_1/`,
-   capture screenshot showing all 33 H5s grouped, no console errors.
+1. Build Storybook stories for: ChannelChip (10 channels colored),
+   ProcessingBadge (8 codes × on/off), ExposurePill, RecordingRow,
+   LibraryRail (empty / populated / many groups), TabBar, ViewerCard
+   (selected / locked / failed states).
+2. Capture screenshots from Storybook and present to the user for
+   sign-off on the visual language.
+3. Iterate `tokens.ts` based on the review.
+4. Wire fixed token bindings into LibraryRail + EmptyState so the
+   visual language is the source of truth, not inline styles.

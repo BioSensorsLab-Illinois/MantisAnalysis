@@ -403,6 +403,8 @@ def create_app() -> FastAPI:
     )
 
     _mount_api(app)
+    from .playback.api import mount as _mount_playback
+    _mount_playback(app)
     _mount_static(app)
     return app
 
