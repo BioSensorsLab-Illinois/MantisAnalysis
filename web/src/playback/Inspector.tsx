@@ -860,6 +860,30 @@ const Inspector = () => {
             onChange={(v) => set({ overlay_on: v })}
             label="Show overlay"
           />
+          <button
+            type="button"
+            data-action="open-overlay-builder"
+            aria-label="Open Overlay Builder"
+            onClick={() =>
+              dispatch({
+                type: 'modal/open',
+                payload: { kind: 'overlay-builder', viewId: view.view_id },
+              })
+            }
+            style={{
+              padding: '4px 8px',
+              background: t.accentSoft,
+              color: t.accent,
+              border: `1px solid ${t.accent}`,
+              borderRadius: 3,
+              cursor: 'pointer',
+              fontSize: 11,
+              fontWeight: 600,
+              fontFamily: 'inherit',
+            }}
+          >
+            Open Overlay Builder…
+          </button>
           {view.overlay_on && (
             <>
               <ChannelPicker

@@ -365,6 +365,64 @@ def test_playback_inspector_renders_and_dispatches(web_server: str) -> None:
 
 
 @pytest.mark.web_smoke
+def test_playback_overlay_builder_apply(web_server: str) -> None:
+    """M9: Open Overlay Builder from Inspector → tweak config → Apply →
+    ViewerCard shows OVL badge and the <img> URL carries overlay params."""
+    pytest.importorskip("playwright")
+    from playwright.sync_api import sync_playwright
+
+    if not _DIST_INDEX.is_file():
+        pytest.skip("web/dist not built")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        ctx = browser.new_context()
+        page = ctx.new_page()
+        page.add_init_script(
+            "try { localStorage.setItem('mantis/playback/enabled', '1'); } catch (e) {}"
+        )
+        page.goto(web_server, wait_until="networkidle", timeout=15_000)
+        page.evaluate(
+            """async () => {
+                const streams = await fetch('/api/playback/streams').then(r => r.json());
+                for (const s of streams || []) await fetch(`/api/playback/streams/${s.stream_id}`, { method: 'DELETE' });
+                const recs = await fetch('/api/playback/recordings').then(r => r.json());
+                for (const r of recs || []) await fetch(`/api/playback/recordings/${r.recording_id}`, { method: 'DELETE' });
+            }"""
+        )
+        page.evaluate("() => window.location.reload()")
+        page.wait_for_load_state("networkidle")
+        page.locator('[data-mode-tile="play"]').first.click()
+        page.get_by_role("button", name="Load synthetic sample").first.click()
+        page.wait_for_selector('[data-region="inspector"]', state="visible",
+                                timeout=8_000)
+        # Open the Overlay Builder via the Inspector button.
+        page.locator('[data-action="open-overlay-builder"]').click()
+        page.wait_for_selector('[data-region="overlay-builder"]', state="visible",
+                                timeout=4_000)
+        # The preview pane renders an <img> with overlay_on=1.
+        page.wait_for_function(
+            """() => {
+                const img = document.querySelector('[data-region="overlay-preview"] img');
+                return img?.src.includes('overlay_on=1');
+            }""",
+            timeout=4_000,
+        )
+        # Apply.
+        page.get_by_role("button", name="Apply overlay").first.click()
+        # ViewerCard now carries the OVL badge.
+        page.wait_for_selector('[data-badge="OVL"]', state="visible", timeout=4_000)
+        # Re-open + Cancel keeps overlay state.
+        page.locator('[data-action="open-overlay-builder"]').click()
+        page.wait_for_selector('[data-region="overlay-builder"]', state="visible",
+                                timeout=4_000)
+        page.get_by_role("button", name="Cancel").first.click()
+        page.wait_for_selector('[data-region="overlay-builder"]', state="hidden",
+                                timeout=4_000)
+        browser.close()
+
+
+@pytest.mark.web_smoke
 def test_playback_eviction_kind_filter(web_server: str) -> None:
     """Risk-skeptic P0-B regression: dispatching `mantis:source-evicted`
     with `detail.kind='stream'` must NOT trigger /api/sources/load-sample."""

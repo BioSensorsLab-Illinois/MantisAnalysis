@@ -64,8 +64,8 @@ Next concrete actions for M6:
 - [x] **M5** — Frontend: rail tile + empty state + Sources skeleton (commit `cb612ce`); shared.tsx + app.tsx eviction kind-routing fixed (risk-skeptic P0-B).
 - [x] **M6** — Frontend: file loading, dark manager, Stream Builder modal.
 - [x] **M7** — Frontend: ViewerGrid + ViewerCard + TimelineStrip + play-head ticker + keyboard map.
-- [x] **M8** — Frontend: 9-section Inspector + CCM editor + presets + frame-LRU widget; backend solve_ccm_from_patches + 7 new routes (commit pending).
-- [ ] **M9** — Overlay system end-to-end.
+- [x] **M8** — Frontend: 9-section Inspector + CCM editor + presets + frame-LRU widget; backend solve_ccm_from_patches + 7 new routes.
+- [x] **M9** — Overlay system end-to-end (Overlay Builder modal w/ live preview + Apply commits to view) (commit pending).
 - [ ] **M10** — Export system: image + video (parallelized ProcessPool).
 - [ ] **M11** — Polish, a11y, responsive, perf, handoff routing, Storybook.
 - [ ] **M12** — Final verification + visual-regression baselines + CI wiring.

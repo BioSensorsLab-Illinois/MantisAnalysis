@@ -13,6 +13,7 @@ import React from 'react';
 import { useLocalStorageState, useTheme } from '../shared.tsx';
 import { playbackApi } from './api.ts';
 import { Inspector } from './Inspector.tsx';
+import { OverlayBuilderModal } from './OverlayBuilderModal.tsx';
 import { PlaybackEmptyState } from './EmptyState.tsx';
 import { SourcesPanel } from './SourcesPanel.tsx';
 import { StreamBuilderModal } from './StreamBuilderModal.tsx';
@@ -387,6 +388,19 @@ const PlaybackInner = ({ say }) => {
           initialRecordingIds={state.recordings.map((r) => r.recording_id)}
           onClose={closeModal}
           onApplied={() => {}}
+          say={say}
+        />
+      )}
+      {state.modal?.kind === 'overlay-builder' && (
+        <OverlayBuilderModal
+          viewId={state.modal.viewId}
+          onClose={closeModal}
+          onApply={(cfg) =>
+            dispatch({
+              type: 'view/update',
+              payload: { id: state.modal.viewId, patch: { ...cfg, overlay_on: true } },
+            })
+          }
           say={say}
         />
       )}
