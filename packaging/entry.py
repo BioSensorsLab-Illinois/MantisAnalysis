@@ -5,6 +5,7 @@ so PyInstaller has a top-level script to freeze. It also suppresses the
 console window close noise that Windows users see when the launcher
 exits quickly on a startup error.
 """
+
 from __future__ import annotations
 
 import multiprocessing

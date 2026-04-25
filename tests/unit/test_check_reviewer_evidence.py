@@ -1,4 +1,5 @@
 """Unit tests for scripts/check_reviewer_evidence.py."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -17,8 +18,7 @@ def _load(tmp_path: Path):
     return mod
 
 
-def _make_initiative(tmp_path: Path, slug: str, status_body: str,
-                     review_names=()) -> Path:
+def _make_initiative(tmp_path: Path, slug: str, status_body: str, review_names=()) -> Path:
     d = tmp_path / ".agent" / "runs" / slug
     d.mkdir(parents=True, exist_ok=True)
     (d / "Status.md").write_text(status_body, encoding="utf-8")
@@ -47,13 +47,17 @@ def test_table_with_no_evidence_fails(tmp_path: Path) -> None:
     mod = _load(tmp_path)
     _write_agent(tmp_path, "docs-handoff-curator")
     _write_agent(tmp_path, "risk-skeptic")
-    d = _make_initiative(tmp_path, "beta", (
-        "# Status\n\n## Reviewer findings\n\n"
-        "| ID | Reviewer | Severity | Title | Disposition |\n"
-        "|---|---|---|---|---|\n"
-        "| F-1 | docs-handoff-curator | P1 | Stale | Fixed |\n"
-        "| F-2 | risk-skeptic | P2 | Edge | Deferred |\n"
-    ))
+    d = _make_initiative(
+        tmp_path,
+        "beta",
+        (
+            "# Status\n\n## Reviewer findings\n\n"
+            "| ID | Reviewer | Severity | Title | Disposition |\n"
+            "|---|---|---|---|---|\n"
+            "| F-1 | docs-handoff-curator | P1 | Stale | Fixed |\n"
+            "| F-2 | risk-skeptic | P2 | Edge | Deferred |\n"
+        ),
+    )
     ok, msgs = mod.check(d)
     assert ok is False
     assert "docs-handoff-curator" in " ".join(msgs)
@@ -63,12 +67,17 @@ def test_table_with_no_evidence_fails(tmp_path: Path) -> None:
 def test_table_with_evidence_passes(tmp_path: Path) -> None:
     mod = _load(tmp_path)
     _write_agent(tmp_path, "docs-handoff-curator")
-    d = _make_initiative(tmp_path, "gamma", (
-        "# Status\n\n## Reviewer findings\n\n"
-        "| ID | Reviewer | Severity | Title | Disposition |\n"
-        "|---|---|---|---|---|\n"
-        "| F-1 | docs-handoff-curator | P1 | x | y |\n"
-    ), review_names=["docs-handoff-curator"])
+    d = _make_initiative(
+        tmp_path,
+        "gamma",
+        (
+            "# Status\n\n## Reviewer findings\n\n"
+            "| ID | Reviewer | Severity | Title | Disposition |\n"
+            "|---|---|---|---|---|\n"
+            "| F-1 | docs-handoff-curator | P1 | x | y |\n"
+        ),
+        review_names=["docs-handoff-curator"],
+    )
     ok, msgs = mod.check(d)
     assert ok is True, msgs
 
@@ -78,12 +87,17 @@ def test_unknown_agent_in_table_ignored(tmp_path: Path) -> None:
     # (might be a human reviewer or a typo).
     mod = _load(tmp_path)
     _write_agent(tmp_path, "docs-handoff-curator")
-    d = _make_initiative(tmp_path, "delta", (
-        "# Status\n\n## Reviewer findings\n\n"
-        "| ID | Reviewer | Severity | Title | Disposition |\n"
-        "|---|---|---|---|---|\n"
-        "| F-1 | docs-handoff-curator | P1 | x | y |\n"
-        "| F-2 | human-zhongmin | P2 | x | y |\n"
-    ), review_names=["docs-handoff-curator"])
+    d = _make_initiative(
+        tmp_path,
+        "delta",
+        (
+            "# Status\n\n## Reviewer findings\n\n"
+            "| ID | Reviewer | Severity | Title | Disposition |\n"
+            "|---|---|---|---|---|\n"
+            "| F-1 | docs-handoff-curator | P1 | x | y |\n"
+            "| F-2 | human-zhongmin | P2 | x | y |\n"
+        ),
+        review_names=["docs-handoff-curator"],
+    )
     ok, msgs = mod.check(d)
     assert ok is True, msgs
