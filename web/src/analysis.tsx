@@ -40,6 +40,7 @@ import {
   decodeFloat32Grid,
   channelColor,
   paletteColor,
+  Chart,
 } from './shared.tsx';
 
 const {
@@ -4199,8 +4200,8 @@ const FPNHeatmapCard = ({ ch, label, m, gridRaw, spec, cmap }) => {
     ? `${spec.label} · σ = ${fmtDN0(m?.std ?? 0)}`
     : `${spec.label} · ${grid.w}×${grid.h} cells`;
   return (
-    <ChartCard
-      ch={ch}
+    <Chart
+      channel={ch}
       sub={`· ${label} — ${sub}`}
       footer={
         <HeatmapColorBar
@@ -4222,7 +4223,7 @@ const FPNHeatmapCard = ({ ch, label, m, gridRaw, spec, cmap }) => {
         height={340}
         aspectLock={true}
       />
-    </ChartCard>
+    </Chart>
   );
 };
 
@@ -4269,7 +4270,7 @@ const HotPixCard = ({ ch, label, m }) => {
   const imgStrideY = m?.image_grid?.stride?.[0] || 1;
   const imgStrideX = m?.image_grid?.stride?.[1] || 1;
   return (
-    <ChartCard ch={ch} sub={`· ${label}`} footer={<HotColdList m={m} />}>
+    <Chart channel={ch} sub={`· ${label}`} footer={<HotColdList m={m} />}>
       <div
         style={{
           display: 'flex',
@@ -4334,7 +4335,7 @@ const HotPixCard = ({ ch, label, m }) => {
           );
         }}
       </HeatmapCanvas>
-    </ChartCard>
+    </Chart>
   );
 };
 
@@ -5608,7 +5609,7 @@ const LineOverlayChart = ({ idx, channels, results, label, unitPref = 'auto', ti
   const threshold = results[channels[0]]?.threshold ?? 0.5;
 
   return (
-    <ChartCard sub={label} exportName={`mantis-dof-line-${label}`}>
+    <Chart sub={label} exportName={`mantis-dof-line-${label}`}>
       <svg
         viewBox={`0 0 ${W} ${H}`}
         width="100%"
@@ -5805,7 +5806,7 @@ const LineOverlayChart = ({ idx, channels, results, label, unitPref = 'auto', ti
           );
         })}
       </div>
-    </ChartCard>
+    </Chart>
   );
 };
 
@@ -5883,7 +5884,7 @@ const MetricOverlayChart = ({ ch, lr, label, unitPref = 'auto', tiltFactor = 1 }
   const xOf = (x) => PAD_L + (x / (xMax || 1)) * (W - PAD_L - PAD_R);
   const yOf = (y) => PAD_T + (1 - Math.max(0, Math.min(1, y))) * (H - PAD_T - PAD_B);
   return (
-    <ChartCard ch={ch} sub={`· ${label}`} exportName={`mantis-dof-metric-${ch}-${label}`}>
+    <Chart channel={ch} sub={`· ${label}`} exportName={`mantis-dof-metric-${ch}-${label}`}>
       <svg
         viewBox={`0 0 ${W} ${H}`}
         width="100%"
@@ -5963,7 +5964,7 @@ const MetricOverlayChart = ({ ch, lr, label, unitPref = 'auto', tiltFactor = 1 }
       >
         position along line ({unitName})
       </div>
-    </ChartCard>
+    </Chart>
   );
 };
 
@@ -6064,7 +6065,7 @@ const ChromaticShiftChart = ({
   const yMax = Math.max(...allPeaks) * 1.1;
   const yOf = (y) => PAD_T + (1 - (y - yMin) / (yMax - yMin || 1)) * (H - PAD_T - PAD_B);
   return (
-    <ChartCard sub={`Peak position per channel (${unitName})`} exportName="mantis-dof-chromatic">
+    <Chart sub={`Peak position per channel (${unitName})`} exportName="mantis-dof-chromatic">
       <svg
         viewBox={`0 0 ${W} ${H}`}
         width="100%"
@@ -6182,7 +6183,7 @@ const ChromaticShiftChart = ({
           </span>
         ))}
       </div>
-    </ChartCard>
+    </Chart>
   );
 };
 
@@ -6299,120 +6300,11 @@ const mantisExport = async (node, filename, plotStyle, themeFallbackBg) => {
   return { format, scale, bytes: blob.size };
 };
 
-const ChartCard = ({ ch, sub, children, footer, exportName }) => {
-  const t = useTheme();
-  const { style } = usePlotStyle();
-  const chrome = cardChromeFor(style, t);
-  const cardRef = useRefA(null);
-  const onExport = async () => {
-    const name = exportName || (ch ? `mantis-${ch}` : 'mantis-chart');
-    try {
-      await mantisExport(
-        cardRef.current,
-        `${name}-${Date.now()}`.replace(/\s+/g, '_').toLowerCase(),
-        style,
-        t.panel
-      );
-    } catch (err) {
-      console.error('export failed', err);
-    }
-  };
-  return (
-    <div
-      ref={cardRef}
-      style={{
-        ...chrome,
-        display: 'flex',
-        flexDirection: 'column',
-        boxShadow: style.cardBorder ? `0 1px 2px ${t.shadow || 'rgba(0,0,0,0.04)'}` : 'none',
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'baseline',
-          gap: 8,
-          marginBottom: 6,
-          flexWrap: 'wrap',
-        }}
-      >
-        {ch && (
-          <>
-            <span
-              style={{
-                width: scaled(9, style),
-                height: scaled(9, style),
-                borderRadius: '50%',
-                background: paletteColor(style, ch),
-                flexShrink: 0,
-              }}
-            />
-            <span
-              style={{
-                fontFamily: style.fontFamily,
-                fontSize: scaled(style.titleSize, style),
-                fontWeight: style.titleWeight,
-                fontStyle: style.titleItalic ? 'italic' : 'normal',
-                color: t.text,
-              }}
-            >
-              {ch}
-            </span>
-          </>
-        )}
-        {sub && (
-          <span
-            style={{
-              fontFamily: style.fontFamily,
-              fontSize: scaled(style.legendSize, style),
-              fontWeight: style.legendWeight,
-              color: t.textMuted,
-            }}
-          >
-            {sub}
-          </span>
-        )}
-        <span style={{ flex: 1 }} />
-        <button
-          data-no-export
-          onClick={onExport}
-          title="Download this chart as an image (tight crop)"
-          style={{
-            background: 'transparent',
-            border: `1px solid ${t.border}`,
-            color: t.textMuted,
-            borderRadius: 4,
-            padding: '2px 6px',
-            cursor: 'pointer',
-            fontFamily: 'inherit',
-            fontSize: 10.5,
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 4,
-          }}
-        >
-          <Icon name="export" size={10} />
-          PNG
-        </button>
-      </div>
-      {children}
-      {footer && (
-        <div
-          style={{
-            marginTop: 6,
-            fontFamily: style.fontFamily,
-            fontSize: scaled(style.legendSize, style),
-            fontWeight: style.legendWeight,
-            color: t.textMuted,
-            lineHeight: 1.5,
-          }}
-        >
-          {footer}
-        </div>
-      )}
-    </div>
-  );
-};
+// analysis-page-overhaul-v1 Phase 4 Wave A (this commit) — `ChartCard` is
+// gone. All 8 callers ported to `<Chart>` (shared.tsx). Per-card PNG now
+// flows through `renderChartToPng` instead of the local `mantisExport`,
+// which partially advances Phase 5; `mantisExport` retires when the modal-
+// level (USAF/FPN/DoF) Export PNG buttons follow in Phase 5.
 
 // Native SVG Gaussian fit chart. For each (channel × line) we have the raw
 // focus samples (`ln.focus_norm`), the fit parameters (`ln.gaussian`), and
@@ -6517,8 +6409,8 @@ const GaussianFitChart = ({ ch, ln, label, unitPref = 'auto', tiltFactor = 1 }) 
       : '—';
 
   return (
-    <ChartCard
-      ch={ch}
+    <Chart
+      channel={ch}
       sub={
         <>
           · {label}
@@ -6765,7 +6657,7 @@ const GaussianFitChart = ({ ch, ln, label, unitPref = 'auto', tiltFactor = 1 }) 
           <span>fit did not converge</span>
         )}
       </div>
-    </ChartCard>
+    </Chart>
   );
 };
 
@@ -6848,8 +6740,8 @@ const DoFHeatmapCard = ({ ch, r, cmap, _lineLabel, _pointLabel }) => {
   // then CSS-scaled; overlays use viewBox aligned to the heatmap grid).
   const toCv = (imgPx, imgSize, gridSize) => (imgPx / imgSize) * gridSize;
   return (
-    <ChartCard
-      ch={ch}
+    <Chart
+      channel={ch}
       sub={`${r.metric} · half-win=${r.half_window}px · threshold=${(r.threshold * 100).toFixed(0)}%`}
       footer={
         <>
@@ -6978,7 +6870,7 @@ const DoFHeatmapCard = ({ ch, r, cmap, _lineLabel, _pointLabel }) => {
           label={`focus (${r.metric})`}
         />
       </div>
-    </ChartCard>
+    </Chart>
   );
 };
 
@@ -7007,14 +6899,14 @@ const DoFPointsTab = ({ channels, results, pointLabel, _unitPref = 'auto', _tilt
         const pts = r?.points || [];
         const tilt = r?.tilt_plane;
         return (
-          <ChartCard
+          <Chart
             key={ch}
-            ch={ch}
+            channel={ch}
             sub={`${pts.length} points${tilt ? ` · tilt ${tilt.tilt_direction_deg?.toFixed?.(1) ?? '—'}°, R²=${tilt.r_squared?.toFixed?.(3) ?? '—'}` : ''}`}
           >
             <PointsBarChart points={pts} pointLabel={pointLabel} color={paletteColor(style, ch)} />
             {tilt && <TiltPlaneSVG r={r} color={paletteColor(style, ch)} />}
-          </ChartCard>
+          </Chart>
         );
       })}
     </GridTabFrame>
