@@ -1,0 +1,806 @@
+"""FastAPI routes for the Playback (Recording Inspection) mode.
+
+Mounted via ``_mount_playback_api(app)`` from ``server.create_app``.
+This is the *adapter* layer — pure FastAPI / Pydantic. The real work
+lives in ``recording``, ``dark_frame``, ``playback_pipeline``, and
+``playback_session`` modules (all rule-7 pure).
+
+Routes (per API_DESIGN §1–9):
+
+  GET  /api/playback/health
+  POST /api/playback/recordings/inspect
+  POST /api/playback/recordings/load-path
+  POST /api/playback/recordings/upload
+  POST /api/playback/recordings/load-sample        (test-only)
+  GET  /api/playback/recordings
+  GET  /api/playback/recordings/{recording_id}
+  DELETE /api/playback/recordings/{recording_id}
+  POST /api/playback/darks/load-path
+  POST /api/playback/darks/upload
+  POST /api/playback/darks/load-sample             (test-only)
+  GET  /api/playback/darks
+  DELETE /api/playback/darks/{dark_id}
+  POST /api/playback/streams
+  GET  /api/playback/streams
+  GET  /api/playback/streams/{stream_id}
+  PUT  /api/playback/streams/{stream_id}
+  DELETE /api/playback/streams/{stream_id}
+  GET  /api/playback/streams/{stream_id}/lookup?frame=N
+  GET  /api/playback/streams/{stream_id}/frame/{frame}.png
+  POST /api/playback/exports/image                 (M10)
+  POST /api/playback/exports/video                 (M10)
+  GET  /api/playback/exports/{job_id}              (M10)
+  DELETE /api/playback/exports/{job_id}            (M10)
+
+Test-only endpoints are gated by ``MANTIS_PLAYBACK_TEST=1`` env var;
+the gate is read at app construction (per risk-skeptic P1-I).
+"""
+
+from __future__ import annotations
+
+import os
+import tempfile
+import uuid
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+import numpy as np
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
+
+from . import __version__
+from . import isp_modes as _isp
+from .dark_frame import (
+    MasterDark,
+    Strategy as DarkStrategy,
+    average_dark_h5,
+    match_dark_by_exposure,
+)
+from .playback_pipeline import (
+    BlendMode,
+    BurnInContext,
+    ViewState,
+    ViewType,
+    WBMode,
+    render_frame_to_png,
+)
+from .playback_session import (
+    PLAYBACK_STORE,
+    DarkHandle,
+    PlaybackStore,
+    RecordingHandle,
+    StreamHandle,
+    frame_lookup,
+)
+from .recording import (
+    ERR_LAYOUT,
+    Warning as RecWarning,
+    inspect_recording,
+)
+
+
+# ---------------------------------------------------------------------------
+# Pydantic schemas
+# ---------------------------------------------------------------------------
+
+
+class WarningOut(BaseModel):
+    code: str
+    severity: str
+    text: str
+
+    @classmethod
+    def from_dataclass(cls, w: RecWarning) -> "WarningOut":
+        return cls(code=w.code, severity=w.severity, text=w.text)
+
+
+class RecordingMetaOut(BaseModel):
+    path: Optional[str]
+    name: str
+    size_bytes: int
+    frame_count: int
+    frame_shape: Tuple[int, int]
+    raw_shape: Tuple[int, int]
+    channels: List[str]
+    isp_mode_id: str
+    frame_dataset_path: str
+    timestamps_available: bool
+    timestamp_start_s: Optional[float]
+    timestamp_end_s: Optional[float]
+    estimated_fps: Optional[float]
+    exposure_min: Optional[float]
+    exposure_max: Optional[float]
+    exposure_mean: Optional[float]
+    camera_attrs: Dict[str, str]
+    warnings: List[WarningOut]
+    errors: List[WarningOut]
+
+
+class RecordingHandleOut(RecordingMetaOut):
+    recording_id: str
+    loaded_at: float
+
+
+class DarkHandleOut(BaseModel):
+    dark_id: str
+    name: str
+    path: Optional[str]
+    isp_mode_id: str
+    frame_count_total: int
+    frames_averaged: int
+    exposure: Optional[float]
+    shape: Tuple[int, int]
+    channels: List[str]
+    strategy: str
+    sigma_threshold: Optional[float]
+    loaded_at: float
+    warnings: List[WarningOut]
+
+
+class StreamBoundaryOut(BaseModel):
+    recording_id: str
+    start_frame: int
+    end_frame: int
+    ts_start_s: float
+    ts_end_s: float
+    exposure: Optional[float]
+    gap_to_prev_s: Optional[float]
+
+
+class StreamOut(BaseModel):
+    stream_id: str
+    name: str
+    isp_mode_id: str
+    isp_config: Dict[str, Any]
+    recording_ids: List[str]
+    quarantined_recording_ids: List[str]
+    continuity_threshold_s: float
+    boundaries: List[StreamBoundaryOut]
+    total_frames: int
+    total_duration_s: float
+    fps: float
+    shape: Tuple[int, int]
+    available_channels: List[str]
+    issues: Dict[str, int]
+    warnings: List[WarningOut]
+    loaded_at: float
+    invalidated: bool
+
+
+class HealthOut(BaseModel):
+    ok: bool
+    version: str
+    ffmpeg_available: bool
+    ffmpeg_path: Optional[str]
+    max_recording_frames: int
+    max_dark_frames: int
+    supported_image_formats: List[str]
+    supported_video_formats: List[str]
+    supported_blend_modes: List[str]
+    supported_colormaps: List[str]
+    supported_dark_strategies: List[str]
+    supported_isp_modes: List[str]
+    live_stream_supported: bool
+    ccm_editor_enabled: bool
+    handoff_modes: List[str]
+    test_endpoints_enabled: bool
+
+
+class LoadPathRequest(BaseModel):
+    path: str
+    name: Optional[str] = None
+
+
+class DarkLoadPathRequest(BaseModel):
+    path: str
+    name: Optional[str] = None
+    max_frames: int = 256
+    strategy: str = "mean"
+    sigma_threshold: float = 3.0
+
+
+class BuildStreamRequest(BaseModel):
+    name: Optional[str] = None
+    recording_ids: List[str]
+    continuity_threshold_s: float = 1.0
+    isp_mode_id: Optional[str] = None
+    isp_config: Optional[Dict[str, Any]] = None
+
+
+class UpdateStreamRequest(BaseModel):
+    recording_ids: Optional[List[str]] = None
+    continuity_threshold_s: Optional[float] = None
+    isp_mode_id: Optional[str] = None
+    isp_config: Optional[Dict[str, Any]] = None
+    name: Optional[str] = None
+
+
+class LookupOut(BaseModel):
+    frame: int
+    recording_id: str
+    local_frame: int
+    ts_s: float
+    exposure: Optional[float]
+    boundary_index: int
+
+
+# ---------------------------------------------------------------------------
+# Serialization helpers
+# ---------------------------------------------------------------------------
+
+
+def _meta_payload(meta) -> Dict[str, Any]:
+    return {
+        "path": meta.path,
+        "name": meta.name,
+        "size_bytes": meta.size_bytes,
+        "frame_count": meta.frame_count,
+        "frame_shape": list(meta.frame_shape),
+        "raw_shape": list(meta.raw_shape),
+        "channels": list(meta.channels),
+        "isp_mode_id": meta.isp_mode_id,
+        "frame_dataset_path": meta.frame_dataset_path,
+        "timestamps_available": meta.timestamps_available,
+        "timestamp_start_s": meta.timestamp_start_s,
+        "timestamp_end_s": meta.timestamp_end_s,
+        "estimated_fps": meta.estimated_fps,
+        "exposure_min": meta.exposure_min,
+        "exposure_max": meta.exposure_max,
+        "exposure_mean": meta.exposure_mean,
+        "camera_attrs": dict(meta.camera_attrs),
+        "warnings": [WarningOut.from_dataclass(w).model_dump()
+                     for w in meta.warnings],
+        "errors": [WarningOut.from_dataclass(w).model_dump()
+                   for w in meta.errors],
+    }
+
+
+def _recording_payload(h: RecordingHandle) -> Dict[str, Any]:
+    p = _meta_payload(h.meta)
+    p["recording_id"] = h.recording_id
+    p["loaded_at"] = h.loaded_at
+    return p
+
+
+def _dark_payload(h: DarkHandle) -> Dict[str, Any]:
+    return {
+        "dark_id": h.dark_id,
+        "name": h.master.name,
+        "path": h.master.path,
+        "isp_mode_id": h.master.isp_mode_id,
+        "frame_count_total": h.master.frame_count_total,
+        "frames_averaged": h.master.frames_averaged,
+        "exposure": h.master.exposure,
+        "shape": list(h.master.shape),
+        "channels": sorted(h.master.channels.keys()),
+        "strategy": h.master.strategy,
+        "sigma_threshold": h.master.sigma_threshold,
+        "loaded_at": h.loaded_at,
+        "warnings": [WarningOut.from_dataclass(w).model_dump()
+                     for w in h.master.warnings],
+    }
+
+
+def _stream_payload(s: StreamHandle) -> Dict[str, Any]:
+    return {
+        "stream_id": s.stream_id,
+        "name": s.name,
+        "isp_mode_id": s.isp_mode_id,
+        "isp_config": dict(s.isp_config or {}),
+        "recording_ids": list(s.recording_ids),
+        "quarantined_recording_ids": list(s.quarantined_recording_ids),
+        "continuity_threshold_s": s.continuity_threshold_s,
+        "boundaries": [
+            {
+                "recording_id": b.recording_id,
+                "start_frame": b.start_frame,
+                "end_frame": b.end_frame,
+                "ts_start_s": b.ts_start_s,
+                "ts_end_s": b.ts_end_s,
+                "exposure": b.exposure,
+                "gap_to_prev_s": b.gap_to_prev_s,
+            }
+            for b in s.boundaries
+        ],
+        "total_frames": s.total_frames,
+        "total_duration_s": s.total_duration_s,
+        "fps": s.fps,
+        "shape": list(s.shape),
+        "available_channels": list(s.available_channels),
+        "issues": dict(s.issues),
+        "warnings": [WarningOut.from_dataclass(w).model_dump()
+                     for w in s.warnings],
+        "loaded_at": s.loaded_at,
+        "invalidated": s.invalidated,
+    }
+
+
+# ---------------------------------------------------------------------------
+# ffmpeg detection (risk-skeptic P1-D — must actually exec, not just exists)
+# ---------------------------------------------------------------------------
+
+
+_FFMPEG_CACHE: Dict[str, Tuple[bool, Optional[str], float]] = {}
+
+
+def _has_ffmpeg() -> Tuple[bool, Optional[str]]:
+    """Return ``(available, path)``. Caches for 60 s.
+
+    Per risk-skeptic P1-D: actually exec ``ffmpeg -version`` and check
+    returncode==0; ``Path.exists()`` is not enough.
+    """
+    import subprocess
+    import time
+    now = time.time()
+    cached = _FFMPEG_CACHE.get("ffmpeg")
+    if cached is not None and now - cached[2] < 60.0:
+        return cached[0], cached[1]
+    try:
+        import imageio_ffmpeg  # type: ignore[import-not-found]
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        _FFMPEG_CACHE["ffmpeg"] = (False, None, now)
+        return False, None
+    try:
+        proc = subprocess.run([exe, "-version"], capture_output=True,
+                              timeout=5, check=False)
+        ok = proc.returncode == 0
+    except Exception:
+        ok = False
+    _FFMPEG_CACHE["ffmpeg"] = (ok, exe if ok else None, now)
+    return ok, exe if ok else None
+
+
+# ---------------------------------------------------------------------------
+# View state from query params (preview endpoint)
+# ---------------------------------------------------------------------------
+
+
+def _view_from_query(q: Dict[str, Any]) -> ViewState:
+    """Build a ViewState from URL query parameters.
+
+    Per API_DESIGN §5, the preview endpoint takes ~30 query params; we
+    parse the canonical set and fall back to ViewState defaults for the
+    rest. The export endpoints take a richer JSON body; both call
+    ``render_frame``.
+    """
+    def _b(name: str, default: bool) -> bool:
+        v = q.get(name)
+        if v is None:
+            return default
+        return str(v).lower() in ("1", "true", "yes", "y")
+
+    def _f(name: str, default: float) -> float:
+        v = q.get(name)
+        if v is None:
+            return default
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return default
+
+    def _s(name: str, default: str) -> str:
+        v = q.get(name)
+        return str(v) if v is not None else default
+
+    channels_csv = _s("channels", "HG-R,HG-G,HG-B")
+    triplet = tuple(channels_csv.split(",")[:3]) + ("HG-R", "HG-G", "HG-B")
+    triplet = (triplet[0], triplet[1], triplet[2])
+
+    return ViewState(
+        view_id=_s("view_id", "v1"),
+        name=_s("name", "view"),
+        type=_s("view_type", "single"),  # type: ignore[arg-type]
+        channel=_s("channel", "HG-G"),
+        channels=triplet,  # type: ignore[arg-type]
+        dark_on=_b("dark_on", False),
+        gain=_f("gain", 1.0),
+        offset=_f("offset", 0.0),
+        normalize=_b("normalize", False),
+        low=_f("low", 30.0),
+        high=_f("high", 900.0),
+        colormap=_s("colormap", "viridis"),
+        invert=_b("invert", False),
+        show_clipped=_b("show_clipped", False),
+        rgb_gain=(_f("rgb_gain_r", 1.0),
+                  _f("rgb_gain_g", 1.0),
+                  _f("rgb_gain_b", 1.0)),
+        rgb_offset=(_f("rgb_offset_r", 0.0),
+                    _f("rgb_offset_g", 0.0),
+                    _f("rgb_offset_b", 0.0)),
+        gamma=_f("gamma", 1.0),
+        brightness=_f("brightness", 0.0),
+        contrast=_f("contrast", 1.0),
+        saturation=_f("saturation", 1.0),
+        wb_k=int(_f("wb_k", 5500.0)),
+        wb_mode=_s("wb_mode", "k"),  # type: ignore[arg-type]
+        wb_target_id=q.get("wb_target_id"),
+        ccm_on=_b("ccm_on", False),
+        overlay_on=_b("overlay_on", False),
+        overlay_channel=_s("overlay_channel", "HG-NIR"),
+        overlay_low=_f("overlay_low", 300.0),
+        overlay_high=_f("overlay_high", 900.0),
+        overlay_blend=_s("overlay_blend", "alpha"),  # type: ignore[arg-type]
+        overlay_strength=_f("overlay_strength", 0.65),
+        overlay_cmap=_s("overlay_cmap", "inferno"),
+        overlay_below=_s("overlay_below", "hide"),  # type: ignore[arg-type]
+        overlay_above=_s("overlay_above", "saturate"),  # type: ignore[arg-type]
+        labels_timestamp=_b("labels_timestamp", True),
+        labels_frame=_b("labels_frame", True),
+        labels_channel=_b("labels_channel", False),
+        labels_source=_b("labels_source", False),
+        labels_scale_bar=_b("labels_scale_bar", False),
+        labels_badges=_b("labels_badges", True),
+        labels_legend=_b("labels_legend", True),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test-only synthetic helpers (gated by MANTIS_PLAYBACK_TEST=1)
+# ---------------------------------------------------------------------------
+
+
+def _synthetic_recording_h5(tmp_dir: Path) -> Path:
+    """Build a tiny synthetic H5 the test endpoint can register.
+
+    Mirrors `_h5_fixtures.write_synthetic_recording(canonical)` but
+    without importing tests/.
+    """
+    import h5py
+    p = tmp_dir / f"synth-{uuid.uuid4().hex[:8]}.h5"
+    n_frames, h, w = 8, 32, 64
+    rr, cc = np.meshgrid(np.arange(h), np.arange(w), indexing="ij")
+    frames = np.stack([
+        ((i * 1_000_000 + rr * 1_000 + cc) % 65535).astype(np.uint16)
+        for i in range(n_frames)
+    ], axis=0)
+    ts = np.asarray([i / 30.0 for i in range(n_frames)], dtype=np.float64)
+    it = np.full((n_frames,), 20_000.0, dtype=np.float64)
+    with h5py.File(p, "w") as f:
+        cam = f.create_group("camera")
+        cam.create_dataset("frames", data=frames)
+        cam.create_dataset("timestamp", data=ts)
+        cam.create_dataset("integration-time", data=it)
+        cam.create_dataset("integration-time-expected", data=it)
+        cam.attrs["model-name"] = "Synthetic GSense (test endpoint)"
+        cam.attrs["fw-version"] = "v3.0"
+    return p
+
+
+def _synthetic_dark_h5(tmp_dir: Path) -> Path:
+    import h5py
+    p = tmp_dir / f"synth-dark-{uuid.uuid4().hex[:8]}.h5"
+    n_frames, h, w = 16, 32, 64
+    rng = np.random.default_rng(42)
+    base = np.full((n_frames, h, w), 140, dtype=np.int32)
+    noise = rng.integers(-12, 13, size=base.shape)
+    frames = np.clip(base + noise, 0, 65535).astype(np.uint16)
+    ts = np.arange(n_frames, dtype=np.float64) / 30.0
+    it = np.full((n_frames,), 20_000.0, dtype=np.float64)
+    with h5py.File(p, "w") as f:
+        cam = f.create_group("camera")
+        cam.create_dataset("frames", data=frames)
+        cam.create_dataset("timestamp", data=ts)
+        cam.create_dataset("integration-time", data=it)
+        cam.attrs["model-name"] = "Synthetic Dark"
+    return p
+
+
+# ---------------------------------------------------------------------------
+# Mount
+# ---------------------------------------------------------------------------
+
+
+def mount_playback_api(app: FastAPI,
+                       *,
+                       store: PlaybackStore = PLAYBACK_STORE) -> None:
+    """Add the /api/playback/* routes to ``app``.
+
+    Per risk-skeptic P1-I, the test-only endpoint gate is read at
+    *app construction time*, not at module import.
+    """
+    test_mode = os.getenv("MANTIS_PLAYBACK_TEST", "0") == "1"
+
+    # --- Health -----------------------------------------------------------
+
+    @app.get("/api/playback/health", response_model=None)
+    def playback_health() -> Dict[str, Any]:
+        ffm_ok, ffm_path = _has_ffmpeg()
+        return {
+            "ok": True,
+            "version": __version__,
+            "ffmpeg_available": ffm_ok,
+            "ffmpeg_path": ffm_path,
+            "max_recording_frames": 100_000,
+            "max_dark_frames": 256,
+            "supported_image_formats": ["png", "tif", "jpg"],
+            "supported_video_formats": (
+                ["mp4", "apng", "gif", "png-seq"] if ffm_ok
+                else ["gif", "png-seq"]
+            ),
+            "supported_blend_modes": ["alpha", "additive", "screen", "masked"],
+            "supported_colormaps": [
+                "viridis", "inferno", "magma", "plasma",
+                "cividis", "turbo", "gray", "hot", "cool",
+            ],
+            "supported_dark_strategies": ["mean", "median", "sigma_clipped"],
+            "supported_isp_modes": list(_isp.ALL_MODES.keys()),
+            "live_stream_supported": False,
+            "ccm_editor_enabled": True,
+            "handoff_modes": ["usaf", "fpn", "dof"],
+            "test_endpoints_enabled": test_mode,
+        }
+
+    # --- Recordings -------------------------------------------------------
+
+    @app.post("/api/playback/recordings/inspect")
+    def inspect_recording_route(req: LoadPathRequest) -> Dict[str, Any]:
+        meta = inspect_recording(req.path)
+        return _meta_payload(meta)
+
+    @app.post("/api/playback/recordings/load-path")
+    def load_path(req: LoadPathRequest) -> Dict[str, Any]:
+        try:
+            h = store.register_recording(req.path, name=req.name)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+        except FileNotFoundError as e:
+            raise HTTPException(404, str(e)) from e
+        return _recording_payload(h)
+
+    @app.post("/api/playback/recordings/upload")
+    async def upload_recording(file: UploadFile = File(...)) -> Dict[str, Any]:
+        data = await file.read()
+        if not data:
+            raise HTTPException(400, "empty upload")
+        # Risk-skeptic P1-H: persist to disk under outputs/playback/uploads,
+        # never bytes_cache.
+        out_dir = Path("outputs/playback/uploads")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        rec_id = uuid.uuid4().hex[:12]
+        p = out_dir / f"{rec_id}-{Path(file.filename or 'upload').name}"
+        p.write_bytes(data)
+        try:
+            h = store.register_recording(p, name=file.filename)
+        except ValueError as e:
+            try: p.unlink()
+            except OSError: pass
+            raise HTTPException(422, str(e)) from e
+        return _recording_payload(h)
+
+    @app.get("/api/playback/recordings")
+    def list_recordings() -> List[Dict[str, Any]]:
+        return [_recording_payload(h) for h in store.list_recordings()]
+
+    @app.get("/api/playback/recordings/{recording_id}")
+    def get_recording(recording_id: str) -> Dict[str, Any]:
+        try:
+            return _recording_payload(store.get_recording(recording_id))
+        except KeyError:
+            if store.was_evicted("recording", recording_id):
+                raise HTTPException(410, _evicted_detail("recording", recording_id))
+            raise HTTPException(404, f"unknown recording id: {recording_id}")
+
+    @app.delete("/api/playback/recordings/{recording_id}")
+    def delete_recording(recording_id: str) -> Dict[str, Any]:
+        try:
+            invalidated = store.delete_recording(recording_id)
+        except KeyError:
+            raise HTTPException(404, f"unknown recording id: {recording_id}")
+        return {"ok": True, "stream_ids_invalidated": invalidated}
+
+    # --- Dark frames ------------------------------------------------------
+
+    @app.post("/api/playback/darks/load-path")
+    def load_dark_path(req: DarkLoadPathRequest) -> Dict[str, Any]:
+        try:
+            master = average_dark_h5(
+                req.path,
+                max_frames=req.max_frames,
+                strategy=req.strategy,  # type: ignore[arg-type]
+                sigma_threshold=req.sigma_threshold,
+                name=req.name,
+            )
+        except FileNotFoundError as e:
+            raise HTTPException(404, str(e)) from e
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+        h = store.register_dark(master)
+        return _dark_payload(h)
+
+    @app.post("/api/playback/darks/upload")
+    async def upload_dark(file: UploadFile = File(...),
+                          strategy: str = Query("mean"),
+                          sigma_threshold: float = Query(3.0),
+                          max_frames: int = Query(256),
+                          ) -> Dict[str, Any]:
+        data = await file.read()
+        if not data:
+            raise HTTPException(400, "empty upload")
+        out_dir = Path("outputs/playback/uploads")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        dark_id = uuid.uuid4().hex[:12]
+        p = out_dir / f"dark-{dark_id}-{Path(file.filename or 'dark').name}"
+        p.write_bytes(data)
+        try:
+            master = average_dark_h5(p, max_frames=max_frames,
+                                     strategy=strategy,  # type: ignore[arg-type]
+                                     sigma_threshold=sigma_threshold,
+                                     name=file.filename)
+        except (ValueError, FileNotFoundError) as e:
+            try: p.unlink()
+            except OSError: pass
+            raise HTTPException(422, str(e)) from e
+        h = store.register_dark(master)
+        return _dark_payload(h)
+
+    @app.get("/api/playback/darks")
+    def list_darks() -> List[Dict[str, Any]]:
+        return [_dark_payload(h) for h in store.list_darks()]
+
+    @app.delete("/api/playback/darks/{dark_id}")
+    def delete_dark(dark_id: str) -> Dict[str, Any]:
+        try:
+            store.delete_dark(dark_id)
+        except KeyError:
+            raise HTTPException(404, f"unknown dark id: {dark_id}")
+        return {"ok": True}
+
+    # --- Streams ----------------------------------------------------------
+
+    @app.post("/api/playback/streams")
+    def build_stream_route(req: BuildStreamRequest) -> Dict[str, Any]:
+        try:
+            s = store.build_stream(
+                req.recording_ids,
+                name=req.name,
+                continuity_threshold_s=req.continuity_threshold_s,
+                isp_mode_id=req.isp_mode_id,
+                isp_config=req.isp_config,
+            )
+        except KeyError as e:
+            raise HTTPException(404, str(e)) from e
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+        return _stream_payload(s)
+
+    @app.get("/api/playback/streams")
+    def list_streams() -> List[Dict[str, Any]]:
+        return [_stream_payload(s) for s in store.list_streams()]
+
+    @app.get("/api/playback/streams/{stream_id}")
+    def get_stream(stream_id: str) -> Dict[str, Any]:
+        try:
+            s = store.get_stream(stream_id)
+        except KeyError:
+            if store.was_evicted("stream", stream_id):
+                raise HTTPException(410, _evicted_detail("stream", stream_id))
+            raise HTTPException(404, f"unknown stream id: {stream_id}")
+        return _stream_payload(s)
+
+    @app.delete("/api/playback/streams/{stream_id}")
+    def delete_stream(stream_id: str) -> Dict[str, Any]:
+        try:
+            store.delete_stream(stream_id)
+        except KeyError:
+            raise HTTPException(404, f"unknown stream id: {stream_id}")
+        except RuntimeError as e:
+            raise HTTPException(409, str(e)) from e
+        return {"ok": True}
+
+    @app.get("/api/playback/streams/{stream_id}/lookup")
+    def lookup_route(stream_id: str, frame: int = Query(...)
+                     ) -> Dict[str, Any]:
+        try:
+            s = store.get_stream(stream_id)
+        except KeyError:
+            raise HTTPException(404, f"unknown stream id: {stream_id}")
+        try:
+            boundary, rec_id, local = frame_lookup(s, frame)
+        except IndexError as e:
+            raise HTTPException(422, str(e)) from e
+        idx = next(i for i, b in enumerate(s.boundaries)
+                   if b.recording_id == rec_id and b.start_frame == boundary.start_frame)
+        return {
+            "frame": frame,
+            "recording_id": rec_id,
+            "local_frame": local,
+            "ts_s": boundary.ts_start_s + (local / max(s.fps, 1e-9)),
+            "exposure": boundary.exposure,
+            "boundary_index": idx,
+        }
+
+    @app.get("/api/playback/streams/{stream_id}/frame/{frame_idx}.png")
+    def frame_png_route(stream_id: str, frame_idx: int,
+                        request: Request,
+                        max_dim: int = Query(1024, ge=64, le=8192),
+                        ) -> Response:
+        try:
+            s = store.get_stream(stream_id)
+        except KeyError:
+            if store.was_evicted("stream", stream_id):
+                raise HTTPException(410, _evicted_detail("stream", stream_id))
+            raise HTTPException(404, f"unknown stream id: {stream_id}")
+        if frame_idx < 0 or frame_idx >= s.total_frames:
+            raise HTTPException(
+                422, f"frame {frame_idx} out of stream range [0, {s.total_frames})"
+            )
+        try:
+            channels = store.get_frame(stream_id, frame_idx)
+        except IndexError as e:
+            raise HTTPException(422, str(e)) from e
+
+        view = _view_from_query(dict(request.query_params))
+
+        # Build burn-in context from boundary + active dark.
+        boundary, rec_id, local = frame_lookup(s, frame_idx)
+        ctx = BurnInContext(
+            frame_index=frame_idx,
+            timestamp_s=boundary.ts_start_s + (local / max(s.fps, 1e-9)),
+            source_filename=Path(store.get_recording(rec_id).path).name,
+            badges=tuple(_badges_for(view)),
+        )
+        # Active dark: simple auto-match if dark_on=True and any dark has
+        # the recording's exposure.
+        dark_dict: Optional[Dict[str, np.ndarray]] = None
+        if view.dark_on:
+            target = boundary.exposure
+            if target is not None:
+                pool = [h.master for h in store.list_darks()]
+                best, _ = match_dark_by_exposure(target, pool)
+                if best is not None:
+                    dark_dict = best.channels
+        try:
+            png = render_frame_to_png(channels, view, dark_dict,
+                                      max_dim=max_dim, burn_ctx=ctx)
+        except KeyError as e:
+            raise HTTPException(422, f"channel error: {e}") from e
+        return Response(content=png, media_type="image/png",
+                        headers={"Cache-Control": "no-store"})
+
+    # Test-only synthetic endpoints (gated)
+    if test_mode:
+        @app.post("/api/playback/recordings/load-sample")
+        def load_sample_recording() -> Dict[str, Any]:
+            tmp_dir = Path(tempfile.mkdtemp(prefix="mantis-playback-"))
+            p = _synthetic_recording_h5(tmp_dir)
+            h = store.register_recording(p, name=p.name)
+            return _recording_payload(h)
+
+        @app.post("/api/playback/darks/load-sample")
+        def load_sample_dark() -> Dict[str, Any]:
+            tmp_dir = Path(tempfile.mkdtemp(prefix="mantis-playback-dark-"))
+            p = _synthetic_dark_h5(tmp_dir)
+            master = average_dark_h5(p, max_frames=16, strategy="mean")
+            return _dark_payload(store.register_dark(master))
+
+
+def _badges_for(view: ViewState) -> List[str]:
+    """Compute badge codes for a view (mirrors `playback_panels.jsx::badgesFor`)."""
+    badges: List[str] = []
+    if (not view.dark_on and not view.normalize and view.colormap == "gray"
+            and view.type != "rgb"):
+        badges.append("RAW")
+    if view.dark_on:
+        badges.append("DRK")
+    if view.normalize:
+        badges.append("NRM")
+    if view.colormap and view.colormap != "gray" and view.type != "rgb":
+        badges.append("LUT")
+    if view.type == "rgb":
+        badges.append("RGB")
+    if view.overlay_on:
+        badges.append("OVL")
+    return badges
+
+
+def _evicted_detail(kind: str, item_id: str) -> Dict[str, Any]:
+    return {
+        "detail": f"{kind} evicted from session cache",
+        "evicted_id": item_id,
+        "kind": kind,
+    }
+
+
+__all__ = ["mount_playback_api"]

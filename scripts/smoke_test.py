@@ -120,6 +120,8 @@ def tier1() -> Tuple[bool, str]:
         "mantisanalysis.recording",
         "mantisanalysis.dark_frame",
         "mantisanalysis.playback_session",
+        "mantisanalysis.playback_pipeline",
+        "mantisanalysis.playback_api",
     ]
     failures = []
     for m in modules:
@@ -489,6 +491,45 @@ def tier3() -> Tuple[bool, str]:
         return False, f"dof analyze missing result for {ch}"
     if ch not in (ana.get("figures") or {}):
         return False, f"dof analyze missing figures for {ch}"
+
+    # ----- Playback (recording-inspection-implementation-v1 M4+) ----------
+    # Test-only routes are gated by MANTIS_PLAYBACK_TEST=1; we set it here
+    # so the synthetic load-sample endpoint exists.
+    import os
+    os.environ["MANTIS_PLAYBACK_TEST"] = "1"
+    # Rebuild app so the gate is observed at construction time.
+    from mantisanalysis.server import create_app as _create_app
+    from mantisanalysis.playback_session import PLAYBACK_STORE
+    PLAYBACK_STORE._recordings.clear()
+    PLAYBACK_STORE._darks.clear()
+    PLAYBACK_STORE._streams.clear()
+    PLAYBACK_STORE._jobs.clear()
+    PLAYBACK_STORE._frame_lru.clear()
+    pb_client = TestClient(_create_app())
+
+    r = pb_client.get("/api/playback/health")
+    if r.status_code != 200:
+        return False, f"/api/playback/health -> {r.status_code}"
+    if not r.json().get("ok"):
+        return False, f"/api/playback/health unhealthy: {r.text}"
+
+    r = pb_client.post("/api/playback/recordings/load-sample")
+    if r.status_code != 200:
+        return False, f"/api/playback/recordings/load-sample -> {r.status_code}"
+    rid = r.json()["recording_id"]
+
+    r = pb_client.post("/api/playback/streams",
+                        json={"recording_ids": [rid]})
+    if r.status_code != 200:
+        return False, f"/api/playback/streams -> {r.status_code} :: {r.text}"
+    sid = r.json()["stream_id"]
+
+    r = pb_client.get(f"/api/playback/streams/{sid}/frame/0.png")
+    if r.status_code != 200:
+        return False, (f"/api/playback/streams/{{sid}}/frame/0.png "
+                       f"-> {r.status_code}")
+    if not r.content.startswith(b"\x89PNG"):
+        return False, "playback frame.png did not return PNG bytes"
 
     return True, "OK — FastAPI endpoints exercised end-to-end."
 
