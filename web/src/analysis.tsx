@@ -12,8 +12,10 @@
 // times per tab. No rasterized PNG plots anywhere.
 
 // bundler-migration-v1 Phase 3: ES-module native.
+// analysis-page-overhaul-v1 Phase 4.5: Plotly is dynamic-imported to
+// chunk it out of the initial bundle (~3.5 MB). Load happens lazily
+// inside `PlotlyChart`'s effect; Vite emits a separate chunk.
 import React from 'react';
-import Plotly from 'plotly.js-dist-min';
 import domtoimage from 'dom-to-image-more';
 import {
   useTheme,
@@ -107,16 +109,36 @@ const GridTabFrame = ({
 };
 
 // ---------------------------------------------------------------------------
-// Plotly wrapper
+// Plotly wrapper — Phase 4.5: Plotly is dynamic-imported.
+// First time `<PlotlyChart>` mounts in a session, Vite fetches the Plotly
+// chunk; subsequent mounts reuse the cached module. Initial bundle drops
+// by ~3.5 MB (the FFTMTFOverlay tab is the only consumer).
 // ---------------------------------------------------------------------------
-const plotlyReady = () =>
-  typeof Plotly !== 'undefined' && Plotly && typeof Plotly.newPlot === 'function';
+let _plotlyPromise = null;
+const loadPlotly = () => {
+  if (!_plotlyPromise) {
+    _plotlyPromise = import(/* webpackChunkName: "plotly" */ 'plotly.js-dist-min').then(
+      (mod) => mod.default || mod
+    );
+  }
+  return _plotlyPromise;
+};
 
 const PlotlyChart = ({ data, layout, config, style }) => {
   const ref = useRefA(null);
   const t = useTheme();
+  const [Plotly, setPlotly] = useStateA(null);
   useEffectA(() => {
-    if (!ref.current || !plotlyReady()) return;
+    let alive = true;
+    loadPlotly().then((P) => {
+      if (alive) setPlotly(() => P);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  useEffectA(() => {
+    if (!ref.current || !Plotly || typeof Plotly.newPlot !== 'function') return;
     const merged = {
       paper_bgcolor: t.panel,
       plot_bgcolor: t.panelAlt,
@@ -152,14 +174,34 @@ const PlotlyChart = ({ data, layout, config, style }) => {
       ...config,
     };
     Plotly.newPlot(ref.current, data, merged, mergedConfig);
+    const node = ref.current;
     return () => {
       try {
-        Plotly.purge(ref.current);
+        Plotly.purge(node);
       } catch {
         /* noop */
       }
     };
-  }, [data, layout, config, t.text, t.panel, t.panelAlt, t.border]);
+  }, [Plotly, data, layout, config, t.text, t.panel, t.panelAlt, t.border]);
+  if (!Plotly) {
+    return (
+      <div
+        style={{
+          width: '100%',
+          minHeight: 280,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: t.textFaint,
+          fontSize: 12,
+          ...style,
+        }}
+        aria-busy="true"
+      >
+        Loading chart engine…
+      </div>
+    );
+  }
   return <div ref={ref} style={{ width: '100%', height: '100%', minHeight: 280, ...style }} />;
 };
 
