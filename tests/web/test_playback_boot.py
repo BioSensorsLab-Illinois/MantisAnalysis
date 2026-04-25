@@ -629,3 +629,87 @@ def test_playback_eviction_kind_filter(web_server: str) -> None:
             f"/api/sources/load-sample reload: {load_sample_calls}"
         )
         browser.close()
+
+
+@pytest.mark.web_smoke
+def test_playback_empty_state_dropzone_drag_and_drop(web_server: str) -> None:
+    """playback-ux-polish-v1 M1: drop-zone is wired (was decorative
+    pre-M12 — react-ui-ux P1).
+
+    - Synthesizes a `dragover` with a fake .h5 File. The drop-zone's
+      `data-drag-over` attribute flips to `1` and the copy switches.
+    - Synthesizes a `drop` with the same File and asserts a POST to
+      `/api/playback/recordings/upload` fires (one request per .h5;
+      irrelevant non-.h5 entries are filtered out).
+    """
+    pytest.importorskip("playwright")
+    from playwright.sync_api import sync_playwright
+
+    if not _DIST_INDEX.is_file():
+        pytest.skip("web/dist not built")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        ctx = browser.new_context()
+        page = ctx.new_page()
+        page.add_init_script(
+            """try {
+                localStorage.setItem('mantis/playback/enabled', '1');
+                localStorage.setItem('mantis/mode', JSON.stringify('play'));
+            } catch (e) {}"""
+        )
+
+        upload_calls: list[str] = []
+        page.on(
+            "request",
+            lambda req: upload_calls.append(req.url)
+            if req.url.endswith("/api/playback/recordings/upload") and req.method == "POST"
+            else None,
+        )
+
+        page.goto(web_server, wait_until="networkidle", timeout=15_000)
+        page.wait_for_selector(
+            "[data-screen-label='Playback empty state']", state="visible", timeout=5_000
+        )
+
+        # dragover → copy + visual flip
+        page.evaluate(
+            """() => {
+                const screen = document.querySelector('[data-screen-label="Playback empty state"]');
+                const dt = new DataTransfer();
+                try { dt.items.add(new File(['x'], 'sample.h5')); } catch {}
+                screen.dispatchEvent(new DragEvent('dragover', {
+                    bubbles: true, cancelable: true, dataTransfer: dt
+                }));
+            }"""
+        )
+        dz = page.locator('[data-region="empty-state-dropzone"]')
+        assert dz.get_attribute("data-drag-over") == "1"
+        assert "Release to load" in (dz.text_content() or "")
+
+        # dragleave → revert
+        page.evaluate(
+            """() => document.querySelector('[data-screen-label="Playback empty state"]')
+                .dispatchEvent(new DragEvent('dragleave', { bubbles: true, cancelable: true }))"""
+        )
+        assert dz.get_attribute("data-drag-over") == "0"
+
+        # drop with one .h5 + one .txt → exactly one upload POST
+        page.evaluate(
+            """() => {
+                const screen = document.querySelector('[data-screen-label="Playback empty state"]');
+                const dt = new DataTransfer();
+                try {
+                    dt.items.add(new File(['hdf'], 'real.h5'));
+                    dt.items.add(new File(['ignored'], 'note.txt'));
+                } catch {}
+                screen.dispatchEvent(new DragEvent('drop', {
+                    bubbles: true, cancelable: true, dataTransfer: dt
+                }));
+            }"""
+        )
+        page.wait_for_load_state("networkidle")
+        assert len(upload_calls) == 1, (
+            f"expected 1 upload POST (one .h5 + one .txt filtered), got {upload_calls!r}"
+        )
+        browser.close()

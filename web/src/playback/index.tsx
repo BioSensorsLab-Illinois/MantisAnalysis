@@ -307,6 +307,7 @@ const PlaybackInner = ({ say, onHandoffApp }) => {
             <PlaybackEmptyState
               onLoadSample={loadSample}
               onOpenFile={() => recordingInputRef.current?.click()}
+              onDropFiles={onRecordingFiles}
               busy={busy}
             />
             {error && (
