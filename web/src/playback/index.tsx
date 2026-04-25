@@ -16,6 +16,8 @@ import { PlaybackEmptyState } from './EmptyState.tsx';
 import { SourcesPanel } from './SourcesPanel.tsx';
 import { StreamBuilderModal } from './StreamBuilderModal.tsx';
 import { StreamHeader } from './StreamHeader.tsx';
+import { TimelineStrip } from './TimelineStrip.tsx';
+import { ViewerGrid } from './ViewerGrid.tsx';
 import { PlaybackProvider, playbackEnabled, usePlayback } from './state.tsx';
 
 const { useEffect, useRef, useState } = React;
@@ -167,6 +169,63 @@ const PlaybackInner = ({ say }) => {
   const stream = state.streams.find((s) => s.stream_id === state.activeStreamId);
   const showWorkspace = stream != null;
 
+  // Play-head ticker. Steps `frame` by 1 every `1000 / (fps × speed)` ms.
+  // Wraps at the end of the stream. Stops when `playing` is false or no
+  // stream is active.
+  useEffect(() => {
+    if (!state.playing || !stream) return;
+    const intervalMs = Math.max(
+      8,
+      1000 / Math.max(1, (state.playbackFps || 30) * (state.playbackSpeed || 1))
+    );
+    const id = setInterval(() => {
+      dispatch({
+        type: 'frame/set',
+        payload: ((state.frame ?? 0) + 1) % Math.max(1, stream.total_frames),
+      });
+    }, intervalMs);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.playing, state.playbackFps, state.playbackSpeed, state.frame, stream?.total_frames]);
+
+  // Keyboard shortcuts inside Playback mode (Space, ←, →, [, ], L, +).
+  useEffect(() => {
+    if (!showWorkspace) return undefined;
+    const onKey = (e) => {
+      const tgt = e.target;
+      const typing =
+        tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.isContentEditable);
+      if (typing) return;
+      if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        dispatch({ type: 'play/toggle' });
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 1;
+        dispatch({
+          type: 'frame/set',
+          payload: Math.min((stream?.total_frames ?? 1) - 1, (state.frame ?? 0) + step),
+        });
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 1;
+        dispatch({
+          type: 'frame/set',
+          payload: Math.max(0, (state.frame ?? 0) - step),
+        });
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        dispatch({ type: 'frame/set', payload: 0 });
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        dispatch({ type: 'frame/set', payload: (stream?.total_frames ?? 1) - 1 });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showWorkspace, stream?.total_frames, state.frame]);
+
   const openBuilder = () => dispatch({ type: 'modal/open', payload: { kind: 'stream-builder' } });
   const closeModal = () => dispatch({ type: 'modal/close' });
 
@@ -265,23 +324,58 @@ const PlaybackInner = ({ say }) => {
             onChangeDarkStrategy={setDarkStrategy}
           />
           <div
+            data-region="workspace"
             style={{
               flex: 1,
               minWidth: 0,
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: t.textMuted,
-              fontSize: 12,
-              padding: 24,
-              textAlign: 'center',
+              flexDirection: 'column',
+              minHeight: 0,
             }}
-            data-region="workspace-placeholder"
           >
-            Stream loaded · {stream.total_frames} frames · {stream.recording_ids.length} file
-            {stream.recording_ids.length !== 1 ? 's' : ''}.
-            <br />
-            Viewer grid + timeline land at M7.
+            <ViewerGrid
+              views={state.views}
+              layout={state.layout}
+              selectedViewId={state.selectedViewId}
+              onSelect={(id) => dispatch({ type: 'view/select', payload: id })}
+              onAddView={() => {
+                const ch =
+                  (stream?.available_channels ?? []).find((c) => c === 'HG-G') ||
+                  (stream?.available_channels ?? [])[0] ||
+                  'HG-G';
+                dispatch({
+                  type: 'view/add',
+                  payload: { name: ch, channel: ch },
+                });
+              }}
+              onRemoveView={(id) => dispatch({ type: 'view/remove', payload: id })}
+              onDuplicateView={(id) => dispatch({ type: 'view/duplicate', payload: id })}
+              onToggleLock={(id) => {
+                const v = state.views.find((vv) => vv.view_id === id);
+                if (!v) return;
+                dispatch({
+                  type: 'view/lock',
+                  payload: { id, frame: v.locked_frame == null ? state.frame : null },
+                });
+              }}
+              onChangeLayout={(l) => dispatch({ type: 'layout/set', payload: l })}
+              frame={state.frame}
+              streamId={state.activeStreamId}
+            />
+            <TimelineStrip
+              stream={stream}
+              frame={state.frame}
+              onChangeFrame={(f) => dispatch({ type: 'frame/set', payload: f })}
+              playing={state.playing}
+              onTogglePlay={() => dispatch({ type: 'play/toggle' })}
+              range={state.range}
+              onChangeRange={(r) => dispatch({ type: 'range/set', payload: r })}
+              lockedFrames={state.views.map((v) => v.locked_frame).filter((f) => f != null)}
+              speed={state.playbackSpeed}
+              onChangeSpeed={(s) => dispatch({ type: 'speed/set', payload: s })}
+              fps={state.playbackFps}
+              onChangeFps={(f) => dispatch({ type: 'fps/set', payload: f })}
+            />
           </div>
         </div>
       )}

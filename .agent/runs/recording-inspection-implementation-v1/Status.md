@@ -62,8 +62,8 @@ Next concrete actions for M6:
 - [x] **M3** — Backend: multi-file stream + global frame mapping (commit `588e342`).
 - [x] **M4** — Backend: render pipeline + `/api/playback/*` preview (commit `3c75851`).
 - [x] **M5** — Frontend: rail tile + empty state + Sources skeleton (commit `cb612ce`); shared.tsx + app.tsx eviction kind-routing fixed (risk-skeptic P0-B).
-- [x] **M6** — Frontend: file loading, dark manager, Stream Builder modal (commit pending).
-- [ ] **M7** — Frontend: ViewerGrid + ViewerCard + TimelineStrip.
+- [x] **M6** — Frontend: file loading, dark manager, Stream Builder modal.
+- [x] **M7** — Frontend: ViewerGrid + ViewerCard + TimelineStrip + play-head ticker + keyboard map (commit pending).
 - [ ] **M8** — Frontend: 9-section Inspector (incl. CCM editor + presets).
 - [ ] **M9** — Overlay system end-to-end.
 - [ ] **M10** — Export system: image + video (parallelized ProcessPool).

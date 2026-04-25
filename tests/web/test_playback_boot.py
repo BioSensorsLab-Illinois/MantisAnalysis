@@ -219,8 +219,75 @@ def test_playback_stream_builder_opens_for_two_recordings(
                                 state="visible", timeout=8_000)
         # Apply the stream.
         page.get_by_role("button", name="Apply").first.click()
-        page.wait_for_selector('[data-region="workspace-placeholder"]',
+        page.wait_for_selector('[data-region="viewer-grid"]',
                                 state="visible", timeout=8_000)
+        browser.close()
+
+
+@pytest.mark.web_smoke
+def test_playback_workspace_layouts_and_views(web_server: str) -> None:
+    """M7: workspace renders ViewerGrid + TimelineStrip; user can switch
+    layout, add views, lock a view, scrub timeline."""
+    pytest.importorskip("playwright")
+    from playwright.sync_api import sync_playwright
+
+    if not _DIST_INDEX.is_file():
+        pytest.skip("web/dist not built")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        ctx = browser.new_context()
+        page = ctx.new_page()
+        page.add_init_script(
+            "try { localStorage.setItem('mantis/playback/enabled', '1'); } catch (e) {}"
+        )
+        page.goto(web_server, wait_until="networkidle", timeout=15_000)
+        page.locator('[data-mode-tile="play"]').first.click()
+        # Use the empty-state Load synthetic sample CTA so we have a stream.
+        page.evaluate(
+            """async () => {
+                const streams = await fetch('/api/playback/streams').then(r => r.json());
+                for (const s of streams || []) await fetch(`/api/playback/streams/${s.stream_id}`, { method: 'DELETE' });
+                const recs = await fetch('/api/playback/recordings').then(r => r.json());
+                for (const r of recs || []) await fetch(`/api/playback/recordings/${r.recording_id}`, { method: 'DELETE' });
+            }"""
+        )
+        page.evaluate("() => window.location.reload()")
+        page.wait_for_load_state("networkidle")
+        page.locator('[data-mode-tile="play"]').first.click()
+        page.get_by_role("button", name="Load synthetic sample").first.click()
+        # ViewerGrid + TimelineStrip render once the stream is active.
+        page.wait_for_selector('[data-region="viewer-grid"]', state="visible",
+                                timeout=8_000)
+        page.wait_for_selector('[data-region="timeline-strip"]', state="visible",
+                                timeout=4_000)
+        # Switch to 2x2 layout.
+        page.locator('button[data-layout="2x2"]').first.click()
+        # ViewerGrid shows the empty-cell hint until we add views.
+        page.wait_for_function(
+            """() => document.querySelector('button[data-layout=\"2x2\"]')?.getAttribute('aria-pressed') === 'true'""",
+            timeout=2_000,
+        )
+        # Add one view.
+        page.locator('[data-action="add-view"]').first.click()
+        page.wait_for_function(
+            """() => document.querySelectorAll('[data-view-id]').length >= 2""",
+            timeout=4_000,
+        )
+        # Hover the first view to surface the toolbar, then click Lock.
+        page.locator('[data-view-id]').first.hover()
+        page.locator('[data-view-id]').first.locator('[data-action="lock"]').click()
+        # The locked-pin appears on the timeline.
+        page.wait_for_selector('[data-region="locked-pin"]', state="visible",
+                                timeout=4_000)
+        # Scrub by clicking the timeline track at ~mid-point.
+        track = page.locator('[role="slider"][aria-label="Timeline scrubber"]')
+        box = track.bounding_box()
+        page.mouse.click(box["x"] + box["width"] * 0.5, box["y"] + box["height"] / 2)
+        page.wait_for_function(
+            """() => Number(document.querySelector('input[aria-label=\"Current frame number\"]')?.value) > 0""",
+            timeout=2_000,
+        )
         browser.close()
 
 

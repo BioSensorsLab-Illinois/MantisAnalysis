@@ -170,6 +170,12 @@ function reducer(state, action) {
       return { ...state, playing: !state.playing };
     case 'play/set':
       return { ...state, playing: !!action.payload };
+    case 'range/set':
+      return { ...state, range: action.payload };
+    case 'speed/set':
+      return { ...state, playbackSpeed: action.payload };
+    case 'fps/set':
+      return { ...state, playbackFps: action.payload };
     case 'view/add': {
       const v = DEFAULT_VIEW(action.payload || {});
       return {
