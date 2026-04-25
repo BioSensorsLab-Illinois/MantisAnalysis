@@ -42,7 +42,7 @@ import {
   exportCSV,
   apiFetch,
   channelPngUrl,
-  SourceCtx,
+  _SourceCtx,
   useSource,
   useFileFilter,
   ResizeHandle,
@@ -1553,6 +1553,12 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
     >
       <span
         role="button"
+        // B-0026: aria-label so axe-core has an accessible name. The icon
+        // alone has no text node; without a label screen readers read
+        // nothing. Mirrors the Tip's title prop.
+        aria-label={
+          profileFloating ? 'dock profile back into sidebar' : 'pop out profile to floating window'
+        }
         tabIndex={0}
         onMouseDown={(e) => e.stopPropagation()}
         onClick={togglePopOut}
@@ -1719,7 +1725,7 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
                     border: `1px solid ${t.border}`,
                     borderRadius: 3,
                     fontFamily: 'ui-monospace,Menlo,monospace',
-                    opacity: autoRange ? 0.5 : 1,
+                    opacity: autoRange ? 0.7 : 1,
                   }}
                 />
               </label>
@@ -1745,7 +1751,7 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
                     border: `1px solid ${t.border}`,
                     borderRadius: 3,
                     fontFamily: 'ui-monospace,Menlo,monospace',
-                    opacity: autoRange ? 0.5 : 1,
+                    opacity: autoRange ? 0.7 : 1,
                   }}
                 />
               </label>
@@ -1769,7 +1775,7 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
                     border: `1px solid ${t.border}`,
                     borderRadius: 3,
                     cursor: autoRange ? 'not-allowed' : 'pointer',
-                    opacity: autoRange ? 0.5 : 1,
+                    opacity: autoRange ? 0.7 : 1,
                     fontFamily: 'inherit',
                   }}
                 >
@@ -1792,7 +1798,7 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
                     border: `1px solid ${t.border}`,
                     borderRadius: 3,
                     cursor: autoRange ? 'not-allowed' : 'pointer',
-                    opacity: autoRange ? 0.5 : 1,
+                    opacity: autoRange ? 0.7 : 1,
                     fontFamily: 'inherit',
                   }}
                 >
@@ -1815,7 +1821,7 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
                     border: `1px solid ${t.border}`,
                     borderRadius: 3,
                     cursor: autoRange ? 'not-allowed' : 'pointer',
-                    opacity: autoRange ? 0.5 : 1,
+                    opacity: autoRange ? 0.7 : 1,
                     fontFamily: 'inherit',
                   }}
                 >
@@ -2103,7 +2109,7 @@ const USAFCanvas = ({
   onUndo,
   brightness,
   contrast,
-  gamma,
+  _gamma,
   threshold,
   passCount,
   colormap,
@@ -2725,7 +2731,7 @@ const ISPCard = ({
           />
         )}
       </div>
-      <div style={{ opacity: !enabled ? 0.45 : 1, pointerEvents: !enabled ? 'none' : 'auto' }}>
+      <div style={{ opacity: !enabled ? 0.95 : 1, pointerEvents: !enabled ? 'none' : 'auto' }}>
         <Row label="Method">
           <Tip title="Sharpening algorithm applied by the Python ISP pipeline.">
             <Select
@@ -2925,9 +2931,10 @@ const LinesTable = ({
             borderBottom: `1px solid ${t.border}`,
           }}
         >
-          <Tip title="Select / deselect all">
+          <Tip title="Select / deselect all rows">
             <input
               type="checkbox"
+              aria-label="Select / deselect all rows"
               checked={allSelected}
               onChange={(e) => (e.target.checked ? onSelectAll() : toggleSel(-1, {}))}
               style={{ margin: 0, cursor: 'pointer' }}
@@ -3108,7 +3115,7 @@ const michelson5pt = (profile, bars, gaps) => {
 
 const ProfilePreview = ({
   line,
-  method,
+  _method,
   multiCount,
   threshold,
   ispApplied,

@@ -18,7 +18,7 @@ import domtoimage from 'dom-to-image-more';
 import {
   useTheme,
   Icon,
-  Row,
+  _Row,
   Button,
   ChannelChip,
   Segmented,
@@ -418,7 +418,7 @@ const USAFAnalysisModal = ({ run, onClose, onToast }) => {
   const allChannels = response.channels || [];
   const allSpecs = response.specs || [];
   const measurements = response.measurements || {};
-  const thumbnails = response.channel_thumbnails || {};
+  const _thumbnails = response.channel_thumbnails || {};
   const perChLim = response.per_channel_detection_limit || {};
   const serverThreshold = Number(response.threshold ?? 0.3);
 
@@ -2045,7 +2045,7 @@ const HeatmapPanel = ({ channel, cells, cmap, threshold }) => {
 const Colorbar = ({ cmap, threshold, t }) => {
   // Vertical colorbar with threshold tick.
   const stops = COLOR_MAPS[cmap] || COLOR_MAPS.jet;
-  const grad = stops.map(([u, c]) => `${c} ${(1 - u) * 100}%`).join(', ');
+  const _grad = stops.map(([u, c]) => `${c} ${(1 - u) * 100}%`).join(', ');
   return (
     <div style={{ position: 'relative', minHeight: 200 }}>
       <div
@@ -2575,8 +2575,8 @@ const FPNAnalysisModal = ({ run, onClose, onToast }) => {
   const allChannels = response.channels || [];
   const allRois = response.rois || [];
   const measurements = response.measurements || {};
-  const thumbnails = response.channel_thumbnails || {};
-  const figures = response.figures || {};
+  const _thumbnails = response.channel_thumbnails || {};
+  const _figures = response.figures || {};
   const settings = response.settings || {};
 
   const [chans, setChans] = useStateA(allChannels);
@@ -3759,7 +3759,7 @@ const FPNHistChart = ({ channel, roiName, measurement, unit, fullDR }) => {
 // ---------------------------------------------------------------------------
 // FPN Row/Col mean profiles — per-(channel × ROI) SVG cards
 // ---------------------------------------------------------------------------
-const FPNProfilesTab = ({ channels, measurements, rois, visibleRoiIdx, roiLabel }) => {
+const FPNProfilesTab = ({ channels, measurements, _rois, visibleRoiIdx, roiLabel }) => {
   const t = useTheme();
   const cards = [];
   for (const i of visibleRoiIdx)
@@ -4401,7 +4401,7 @@ const HotColdList = ({ m }) => {
 // ---------------------------------------------------------------------------
 // FPN compare — grouped bar chart: metric × ROI, one group per channel
 // ---------------------------------------------------------------------------
-const FPNCompareTab = ({ channels, measurements, rois, visibleRoiIdx, roiLabel }) => {
+const FPNCompareTab = ({ channels, measurements, _rois, visibleRoiIdx, roiLabel }) => {
   const t = useTheme();
   if (!channels.length || !visibleRoiIdx.length) {
     return <div style={{ color: t.textFaint, textAlign: 'center', paddingTop: 40 }}>No data.</div>;
@@ -4594,11 +4594,11 @@ const DoFAnalysisModal = ({ run, onClose, onToast }) => {
   // the user flips the top-bar Metric control and refresh every tab with
   // the newly-computed data.
   const [response, setResponse] = useStateA(run.response || {});
-  const [reRunning, setReRunning] = useStateA(false);
+  const [_reRunning, setReRunning] = useStateA(false);
   const allChannels = response.channels || [];
   const results = response.results || {};
-  const thumbnails = response.channel_thumbnails || {};
-  const figures = response.figures || {};
+  const _thumbnails = response.channel_thumbnails || {};
+  const _figures = response.figures || {};
   const settings = response.settings || {};
 
   // A list of user-drawn line specs we echoed back in `run.lines`.
@@ -5313,7 +5313,7 @@ const DoFSummaryTab = ({
   results,
   visibleLineIdx,
   lineLabel,
-  pointLabel,
+  _pointLabel,
   unitPref = 'auto',
   tiltFactor = 1,
 }) => {
@@ -6833,7 +6833,7 @@ const DoFHeatmapTab = ({ channels, results, lineLabel, pointLabel }) => {
   );
 };
 
-const DoFHeatmapCard = ({ ch, r, cmap, lineLabel, pointLabel }) => {
+const DoFHeatmapCard = ({ ch, r, cmap, _lineLabel, _pointLabel }) => {
   const { style } = usePlotStyle();
   const grid = useMemoA(() => decodeFloat32Grid(r.heatmap_grid), [r.heatmap_grid]);
   if (!grid) return null;
@@ -6984,7 +6984,7 @@ const DoFHeatmapCard = ({ ch, r, cmap, lineLabel, pointLabel }) => {
 
 // Points + tilt diagnostic tab. Bar chart of focus per point, plus a native
 // SVG tilt-plane visualization using the server's `tilt_plane` coefficients.
-const DoFPointsTab = ({ channels, results, pointLabel, unitPref = 'auto', tiltFactor = 1 }) => {
+const DoFPointsTab = ({ channels, results, pointLabel, _unitPref = 'auto', _tiltFactor = 1 }) => {
   const t = useTheme();
   const { style } = usePlotStyle();
   const hasPoints = channels.some((ch) => (results[ch]?.points || []).length > 0);
@@ -7265,7 +7265,7 @@ const TiltPlaneSVG = ({ r, color }) => {
 // ===========================================================================
 // Legacy modal for modes that haven't been migrated (none left; here for safety)
 // ===========================================================================
-const LegacyPngModal = ({ run, onClose, onToast }) => {
+const LegacyPngModal = ({ run, onClose, _onToast }) => {
   const t = useTheme();
   const { mode, response = {} } = run;
   const tabs = useMemoA(() => {

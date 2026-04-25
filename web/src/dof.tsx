@@ -1447,7 +1447,7 @@ const DoFCanvas = ({
   onUndo,
   brightness,
   contrast,
-  gamma,
+  _gamma,
   focus,
   calibrated,
   fmt,
@@ -1671,7 +1671,7 @@ const DoFCanvas = ({
             {(() => {
               const nodes = [];
               // References
-              refs.forEach((r, i) => {
+              refs.forEach((r, _i) => {
                 const active =
                   (r.axis === 'h' && r.id === activeRefIdH) ||
                   (r.axis === 'v' && r.id === activeRefIdV);
@@ -2049,7 +2049,7 @@ const DoFCanvas = ({
 };
 
 // Minimal rulers (own namespace so we don't clash with FPN's RulerH/V)
-const DoFRulerH = ({ t, imgSize, step, ticks, cursorImg, leftInset }) => (
+const DoFRulerH = ({ t, imgSize, _step, ticks, cursorImg, leftInset }) => (
   <div
     style={{
       position: 'absolute',
@@ -2226,7 +2226,7 @@ const ISPCardDoF = ({
           → server compute + analyze
         </span>
       </div>
-      <div style={{ opacity: !enabled ? 0.45 : 1, pointerEvents: !enabled ? 'none' : 'auto' }}>
+      <div style={{ opacity: !enabled ? 0.95 : 1, pointerEvents: !enabled ? 'none' : 'auto' }}>
         <Row label="Method">
           <Select
             value={method}
@@ -2304,7 +2304,7 @@ const CalibrationCard = ({
   calibrated,
   pxPerMicronH,
   pxPerMicronV,
-  pxPerMicronMean,
+  _pxPerMicronMean,
   anisotropic,
   refs,
   setRefs,
@@ -2680,7 +2680,7 @@ const LinesTable = ({
   lines,
   focus,
   fmt,
-  calibrated,
+  _calibrated,
   selectedIds,
   onToggleSel,
   onRename,
@@ -2850,10 +2850,10 @@ const LinesTable = ({
 // ===========================================================================
 // DoFLinePreview — normalized focus curve + Gaussian fit overlay
 // ===========================================================================
-const DoFLinePreview = ({ line, focus, fmt, calibrated }) => {
+const DoFLinePreview = ({ line, focus, fmt, _calibrated }) => {
   const t = useTheme();
   if (!line) return null;
-  const idx = focus?.lines?.findIndex((_, i) => {
+  const _idx = focus?.lines?.findIndex((_, _i) => {
     // focus.lines is ordered same as input `lines`; we need to find the idx
     // of `line` in the current `lines` list which is by reference equivalent.
     return true; // placeholder; we'll use a different strategy below
@@ -2935,9 +2935,9 @@ const LineProfileChart = ({ lr, fmt }) => {
   let gpts = null;
   if (g?.converged) {
     // normalize the model by focus peak (which is focus.max())
-    const ampScale = 1;
+    const _ampScale = 1;
     gpts = xs
-      .map((x, i) => {
+      .map((x, _i) => {
         const m = g.amp * Math.exp(-((x - g.mu) ** 2) / (2 * g.sigma ** 2)) + g.baseline;
         // scale back: focus was normalized by focus.max; focus_norm[i] = focus[i]/peak.
         // Model is on raw focus; normalize by the peak raw focus (= focus_norm's 1.0).

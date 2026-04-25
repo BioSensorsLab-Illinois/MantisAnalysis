@@ -38,7 +38,7 @@ import {
   Segmented,
   Checkbox,
   StatBlock,
-  HUD,
+  _HUD,
   CanvasToolbar,
   CanvasBtn,
   parseChannel,
@@ -1637,7 +1637,7 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
                     border: `1px solid ${t.border}`,
                     borderRadius: 3,
                     fontFamily: 'ui-monospace,Menlo,monospace',
-                    opacity: autoRange ? 0.5 : 1,
+                    opacity: autoRange ? 0.7 : 1,
                   }}
                 />
               </label>
@@ -1661,7 +1661,7 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
                     border: `1px solid ${t.border}`,
                     borderRadius: 3,
                     fontFamily: 'ui-monospace,Menlo,monospace',
-                    opacity: autoRange ? 0.5 : 1,
+                    opacity: autoRange ? 0.7 : 1,
                   }}
                 />
               </label>
@@ -1684,7 +1684,7 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
                     border: `1px solid ${t.border}`,
                     borderRadius: 3,
                     cursor: autoRange ? 'not-allowed' : 'pointer',
-                    opacity: autoRange ? 0.5 : 1,
+                    opacity: autoRange ? 0.7 : 1,
                     fontFamily: 'inherit',
                   }}
                 >
@@ -1706,7 +1706,7 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
                     border: `1px solid ${t.border}`,
                     borderRadius: 3,
                     cursor: autoRange ? 'not-allowed' : 'pointer',
-                    opacity: autoRange ? 0.5 : 1,
+                    opacity: autoRange ? 0.7 : 1,
                     fontFamily: 'inherit',
                   }}
                 >
@@ -1728,7 +1728,7 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
                     border: `1px solid ${t.border}`,
                     borderRadius: 3,
                     cursor: autoRange ? 'not-allowed' : 'pointer',
-                    opacity: autoRange ? 0.5 : 1,
+                    opacity: autoRange ? 0.7 : 1,
                     fontFamily: 'inherit',
                   }}
                 >
@@ -1872,7 +1872,7 @@ const FPNCanvas = ({
   onUndo,
   brightness,
   contrast,
-  gamma,
+  _gamma,
   colormap,
   vmin,
   vmax,
@@ -2317,7 +2317,7 @@ const FPNCanvas = ({
 // is small enough that we don't bother sharing — keeping each mode file's
 // ruler self-contained also keeps tweaks local).
 // ---------------------------------------------------------------------------
-const RulerH = ({ t, imgSize, step, ticks, zoom, panPx, cursorImg, leftInset }) => {
+const RulerH = ({ t, imgSize, _step, ticks, _zoom, _panPx, cursorImg, leftInset }) => {
   // Width in screen px of the ruler strip is the container width minus
   // the top-left corner padding; we use 100% width and rely on the parent
   // letterbox math (mirror of object-fit: contain) to place ticks.
@@ -2376,7 +2376,7 @@ const RulerH = ({ t, imgSize, step, ticks, zoom, panPx, cursorImg, leftInset }) 
   );
 };
 
-const RulerV = ({ t, imgSize, step, ticks, zoom, panPx, cursorImg, topInset }) => {
+const RulerV = ({ t, imgSize, _step, ticks, _zoom, _panPx, cursorImg, topInset }) => {
   return (
     <div
       style={{
@@ -2486,6 +2486,7 @@ const ROIsTable = ({
           <Tip title="Select / deselect all">
             <input
               type="checkbox"
+              aria-label="Select / deselect all rows"
               checked={allSelected}
               onChange={(e) => (e.target.checked ? onSelectAll() : onClearAll())}
               style={{ margin: 0, cursor: 'pointer' }}
@@ -2512,7 +2513,7 @@ const ROIsTable = ({
           ))}
         </div>
         <div style={{ maxHeight: 220, overflowY: 'auto', background: t.panel }}>
-          {rois.map((r, idx) => {
+          {rois.map((r, _idx) => {
             const sel = selectedIds.has(r.id);
             const prnu = r.m?.prnu_pct;
             const color = !r.m
@@ -2677,7 +2678,7 @@ const ROIsTable = ({
 // ===========================================================================
 // FPNLiveStats — rich stats for the selected ROI
 // ===========================================================================
-const FPNLiveStats = ({ roi, full, multiCount }) => {
+const FPNLiveStats = ({ roi, _full, multiCount }) => {
   const t = useTheme();
   if (!roi) {
     return (

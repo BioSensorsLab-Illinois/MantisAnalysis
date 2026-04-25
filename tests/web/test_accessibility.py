@@ -90,37 +90,19 @@ def test_boot_page_has_no_critical_or_serious_axe_violations(web_server: str) ->
         for v in (*critical, *serious):
             print(_fmt(v))
 
-    # --- Baseline gate --------------------------------------------------
-    # Phase 6 first-pass baseline (2026-04-24, boot page only). The goal is
-    # to CATCH REGRESSIONS, not to require zero violations on day one — the
-    # existing codebase was never a11y-audited and legitimately has
-    # several WCAG failures. Each categorizes into a BACKLOG a11y item
-    # and those drive the baseline down toward zero over time.
-    #
-    # Baseline counts below are what axe-core reported against
-    # `web/dist/` at the time of Phase 6 close. If you ADD a critical /
-    # serious violation, this test fails with a clear diff. If you FIX
-    # one, update BASELINE_CRITICAL / BASELINE_SERIOUS downward and
-    # commit.
-    BASELINE_CRITICAL = 2  # rules: label, select-name
-    BASELINE_SERIOUS = 3  # rules: aria-command-name, color-contrast, nested-interactive
+    # --- Strict gate ----------------------------------------------------
+    # B-0026 closure (2026-04-24): all known critical / serious WCAG A/AA
+    # violations on the boot page have been remediated. The previous
+    # baseline of 2 critical + 3 serious is now zero, and the test fails
+    # on any new violation.
+    BASELINE_CRITICAL = 0
+    BASELINE_SERIOUS = 0
 
     assert len(critical) <= BASELINE_CRITICAL, (
         f"axe-core found {len(critical)} critical WCAG A/AA violations; "
-        f"baseline is {BASELINE_CRITICAL}. A new critical issue was "
-        "introduced. See stdout above for the full list + helpUrl."
+        f"baseline is {BASELINE_CRITICAL}. See stdout above + helpUrl."
     )
     assert len(serious) <= BASELINE_SERIOUS, (
         f"axe-core found {len(serious)} serious WCAG A/AA violations; "
-        f"baseline is {BASELINE_SERIOUS}. A new serious issue was "
-        "introduced. See stdout above for the full list + helpUrl."
+        f"baseline is {BASELINE_SERIOUS}. See stdout above + helpUrl."
     )
-    # If the current count is STRICTLY BELOW the baseline, nudge the
-    # developer to tighten the baseline in this file. Non-fatal.
-    if len(critical) < BASELINE_CRITICAL or len(serious) < BASELINE_SERIOUS:
-        print(
-            f"\n[axe] ⚡ baseline can tighten — currently "
-            f"{len(critical)}/{BASELINE_CRITICAL} critical, "
-            f"{len(serious)}/{BASELINE_SERIOUS} serious. Lower the "
-            "BASELINE_* constants in this file + commit."
-        )

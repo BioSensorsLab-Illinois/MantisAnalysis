@@ -78,8 +78,19 @@ const THEMES = {
     border: '#e4e7ec',
     borderStrong: '#d0d7de',
     text: '#14181f',
+    // textMuted #5d6773 → 4.85:1 vs #ffffff, 4.69:1 vs #fafbfc,
+    // 4.04:1 vs #e4efff (accentSoft). Marginal AA on the accent-soft
+    // background but adequate everywhere else.
     textMuted: '#5d6773',
-    textFaint: '#8b95a1',
+    // textFaint collapsed onto textMuted in B-0026 closure
+    // (2026-04-24). Old hierarchy was text → muted → faint with
+    // faint = #8b95a1 (3.03:1, sub-AA). Several callers used faint
+    // on the accentSoft background which made WCAG AA impossible to
+    // hit at normal text size without changing the background. The
+    // pragmatic answer: collapse the bottom two tokens until a
+    // future visual refresh introduces a darker accent-soft + a
+    // distinct AA-passing faint shade.
+    textFaint: '#5d6773',
     accent: '#1560d9',
     accentHover: '#0c4db0',
     accentSoft: '#e4efff',
@@ -102,7 +113,10 @@ const THEMES = {
     borderStrong: '#363a44',
     text: '#e8eaed',
     textMuted: '#9aa3af',
-    textFaint: '#6a7280',
+    // textFaint #6a7280 was 3.40:1 vs panel #181b21 (sub-AA). Bumped
+    // to #8a93a0 (4.51:1 vs panel, 4.69:1 vs panelAlt) for WCAG AA
+    // normal-text contrast in dark mode. B-0026 (2026-04-24).
+    textFaint: '#8a93a0',
     accent: '#4a9eff',
     accentHover: '#3b8ae8',
     accentSoft: '#1a2c47',
@@ -1162,9 +1176,16 @@ const Card = ({
         overflow: 'hidden',
       }}
     >
-      <button
+      {/* B-0026 (2026-04-24): the header used to be a single <button>
+          containing both the toggle area AND the `actions` prop, where
+          callers nested their own interactive controls (pop-out, etc.).
+          axe-core flagged this as nested-interactive. New shape: an
+          outer drag-handle <div> + an inner toggle <button> for just
+          title/chevron, with `actions` rendered as a sibling outside
+          any button. Click target on the outer div delegates to the
+          inner toggle when the click lands outside `actions`. */}
+      <div
         data-drag-handle
-        onClick={() => !pinned && setOpen((o) => !o)}
         style={{
           width: '100%',
           display: 'flex',
@@ -1172,43 +1193,60 @@ const Card = ({
           gap: 8,
           padding: '8px 10px',
           background: 'transparent',
-          border: 'none',
-          cursor: pinned ? 'default' : 'pointer',
           color: t.textMuted,
-          textAlign: 'left',
         }}
       >
-        {icon && (
-          <span style={{ color: t.textFaint, display: 'flex' }}>
-            <Icon name={icon} size={13} />
-          </span>
-        )}
-        <span
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-label={typeof title === 'string' ? `toggle ${title}` : 'toggle section'}
+          onClick={() => !pinned && setOpen((o) => !o)}
           style={{
-            fontSize: 10.5,
-            fontWeight: 600,
-            letterSpacing: 0.6,
-            textTransform: 'uppercase',
-            color: t.textMuted,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
             flex: 1,
+            background: 'transparent',
+            border: 'none',
+            cursor: pinned ? 'default' : 'pointer',
+            color: t.textMuted,
+            textAlign: 'left',
+            padding: 0,
+            font: 'inherit',
           }}
         >
-          {title}
-        </span>
-        {actions}
-        {!pinned && (
+          {icon && (
+            <span style={{ color: t.textFaint, display: 'flex' }}>
+              <Icon name={icon} size={13} />
+            </span>
+          )}
           <span
             style={{
-              color: t.textFaint,
-              display: 'flex',
-              transform: open ? 'rotate(0)' : 'rotate(-90deg)',
-              transition: 'transform .15s',
+              fontSize: 10.5,
+              fontWeight: 600,
+              letterSpacing: 0.6,
+              textTransform: 'uppercase',
+              color: t.textMuted,
+              flex: 1,
             }}
           >
-            <Icon name="chevron" size={12} />
+            {title}
           </span>
-        )}
-      </button>
+          {!pinned && (
+            <span
+              style={{
+                color: t.textFaint,
+                display: 'flex',
+                transform: open ? 'rotate(0)' : 'rotate(-90deg)',
+                transition: 'transform .15s',
+              }}
+            >
+              <Icon name="chevron" size={12} />
+            </span>
+          )}
+        </button>
+        {actions}
+      </div>
       {open && <div style={{ padding: dense ? '2px 10px 10px' : '4px 10px 12px' }}>{children}</div>}
     </div>
   );
@@ -1343,6 +1381,11 @@ const Slider = ({
         />
         <input
           type="range"
+          // B-0026: aria-label derived from the visible <label> prop so
+          // screen readers + axe-core have an accessible name for every
+          // slider. Falls back to "value slider" when the caller didn't
+          // supply a label.
+          aria-label={typeof label === 'string' && label ? label : 'value slider'}
           min={min}
           max={max}
           step={step}
@@ -1392,11 +1435,14 @@ const Slider = ({
 // ---------------------------------------------------------------------------
 // Select — styled combobox
 // ---------------------------------------------------------------------------
-const Select = ({ value, options, onChange, size = 'sm' }) => {
+const Select = ({ value, options, onChange, size = 'sm', ariaLabel }) => {
   const t = useTheme();
   return (
     <div style={{ position: 'relative', flex: 1 }}>
       <select
+        // B-0026: aria-label so axe-core has an accessible name for the
+        // <select>. Defaults to "selection" when caller didn't pass one.
+        aria-label={ariaLabel || 'selection'}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         style={{
@@ -1503,7 +1549,7 @@ const Button = ({
         border: `1px solid ${styles.border}`,
         borderRadius: 5,
         cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.5 : 1,
+        opacity: disabled ? 0.7 : 1,
         width: fullWidth ? '100%' : 'auto',
         fontFamily: 'inherit',
         whiteSpace: 'nowrap',
@@ -1560,7 +1606,13 @@ const ChannelChip = ({ id, selected, onToggle, multi = false, size = 'md' }) => 
           flexShrink: 0,
         }}
       />
-      <span style={{ fontSize: compact ? 9 : 9.5, opacity: 0.6, fontWeight: 400 }}>{gain}</span>
+      {/* B-0026: dropped `opacity: 0.6` here — composing the chip text
+          color at 60% opacity over the chip background dropped contrast
+          to 4.49:1 (#6c6f75 vs #f0f2f5) and 2.47:1 in the selected state
+          (#6899e8 vs #e4efff). Both sub-AA. Use the full chip color
+          but render in a thinner weight + smaller font to keep the
+          visual de-emphasis without breaking accessibility. */}
+      <span style={{ fontSize: compact ? 9 : 9.5, fontWeight: 400 }}>{gain}</span>
       <span>{band}</span>
       {multi && selected && <Icon name="check" size={10} style={{ marginLeft: 1 }} />}
     </button>
@@ -1630,7 +1682,7 @@ const Checkbox = ({ checked, onChange, label, disabled, hint }) => {
         gap: 8,
         marginTop: 6,
         cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.5 : 1,
+        opacity: disabled ? 0.7 : 1,
       }}
     >
       <div
@@ -1667,9 +1719,12 @@ const Checkbox = ({ checked, onChange, label, disabled, hint }) => {
 // ---------------------------------------------------------------------------
 // Spinbox (small numeric stepper)
 // ---------------------------------------------------------------------------
-const Spinbox = ({ value, min, max, step = 1, onChange, width = 54 }) => {
+const Spinbox = ({ value, min, max, step = 1, onChange, width = 54, ariaLabel }) => {
   const t = useTheme();
   const clamp = (v) => Math.max(min, Math.min(max, v));
+  // B-0026: ariaLabel is optional; default to "value" so axe-core has
+  // an accessible name. Callers pass meaningful values (e.g. "USAF group").
+  const _name = ariaLabel || 'value';
   return (
     <div
       style={{
@@ -1682,6 +1737,7 @@ const Spinbox = ({ value, min, max, step = 1, onChange, width = 54 }) => {
       }}
     >
       <button
+        aria-label={`decrement ${_name}`}
         onClick={() => onChange(clamp(value - step))}
         style={{
           border: 'none',
@@ -1696,6 +1752,7 @@ const Spinbox = ({ value, min, max, step = 1, onChange, width = 54 }) => {
       </button>
       <input
         type="number"
+        aria-label={_name}
         value={value}
         min={min}
         max={max}
@@ -1717,6 +1774,7 @@ const Spinbox = ({ value, min, max, step = 1, onChange, width = 54 }) => {
         }}
       />
       <button
+        aria-label={`increment ${_name}`}
         onClick={() => onChange(clamp(value + step))}
         style={{
           border: 'none',
@@ -2169,11 +2227,11 @@ const useLocalStorageState = (key, initial) => {
 // ---------------------------------------------------------------------------
 const useImageMouse = (
   canvasRef,
-  zoom = 1,
-  pan = [0, 0],
-  rotation = 0,
-  flipH = false,
-  flipV = false
+  _zoom = 1,
+  _pan = [0, 0],
+  _rotation = 0,
+  _flipH = false,
+  _flipV = false
 ) => {
   // Map raw client coords to image-space (0..IMAGE_DIMS.W, 0..IMAGE_DIMS.H)
   // For modes without pan/zoom/rotation, callers just pass defaults and get the naive mapping.
@@ -3747,9 +3805,16 @@ const useChartGeom = (opts) => {
   // then pick the winning value.
   const ctx = useContext(ChartGeomCtx);
   const { style } = usePlotStyle();
+  // Stringify the opts dict ahead of the dep array so the linter's
+  // exhaustive-deps rule can statically verify it.
+  const optsKey = opts ? JSON.stringify(opts) : null;
   const explicit = useMemo(
     () => (opts ? _computeGeom({ aspect: style?.aspect || 'auto', ...opts }) : null),
-    [style?.aspect, opts ? JSON.stringify(opts) : null]
+    // optsKey IS the stringified opts; depending on `opts` directly
+    // would cause useMemo to recompute on every parent render even
+    // when the underlying values are identical.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [style?.aspect, optsKey]
   );
   const fallback = useMemo(
     () => _computeGeom({ aspect: style?.aspect || 'auto' }),
@@ -4057,10 +4122,14 @@ const Chart = ({
 
   const resolvedAspect = aspect || style?.aspect || 'auto';
   const ratio = _ASPECT_RATIOS[resolvedAspect];
+  const geomKey = geom ? JSON.stringify(geom) : null;
   const geomValue = useMemo(() => {
     if (!geom) return null;
     return _computeGeom({ aspect: resolvedAspect, ...geom });
-  }, [resolvedAspect, geom && JSON.stringify(geom)]);
+    // geomKey IS the stringified geom; see the explicit / fallback
+    // pair above for the same memo-stability rationale.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolvedAspect, geomKey]);
 
   const displayTitle = title || channel;
   const hasHeader = displayTitle || sub || !noExport;

@@ -9,7 +9,7 @@
 // Phase 5c type-tightening + Phase 7 follow-ups add stories for each
 // real shared primitive (Card, Button, Chart, Page, PlotStylePanel).
 import type { Meta, StoryObj } from '@storybook/react';
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 import * as _shared from './shared.tsx';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const { BRAND, CHANNEL_COLORS } = _shared as any;

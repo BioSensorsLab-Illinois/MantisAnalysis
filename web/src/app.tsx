@@ -29,7 +29,7 @@ import {
   apiUpload,
   SourceCtx,
   FileFilterCtx,
-  tokens,
+  _tokens,
 } from './shared.tsx';
 import { USAFMode } from './usaf.tsx';
 import { FPNMode } from './fpn.tsx';

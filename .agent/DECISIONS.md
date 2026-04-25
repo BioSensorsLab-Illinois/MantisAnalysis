@@ -478,7 +478,7 @@ change because no gate would stop it.
   design" to "installed hook".
 - When the bundler decision (B-0014) fires, update skill frontmatter
   (B-0027) to reflect the new toolchain.
-- When H5 recording-inspection feature begins, verify the new
+- When the next large feature initiative begins, verify the new
   harness supports it end-to-end: open an initiative, run the full
   reviewer loop, observe whether the gaps in R-0014 re-surface.
 
