@@ -60,10 +60,12 @@ from .dark_frame import (
 from .playback_pipeline import (
     BlendMode,
     BurnInContext,
+    CCM_TARGETS,
     ViewState,
     ViewType,
     WBMode,
     render_frame_to_png,
+    solve_ccm_from_patches,
 )
 from .playback_session import (
     PLAYBACK_STORE,
@@ -223,6 +225,49 @@ class LookupOut(BaseModel):
     ts_s: float
     exposure: Optional[float]
     boundary_index: int
+
+
+class CCMSolveRequest(BaseModel):
+    observed_rgb: List[List[float]]
+    target_rgb: List[List[float]]
+    regularize: float = 1e-3
+
+
+class CCMSolveResponse(BaseModel):
+    matrix: List[List[float]]
+    determinant: float
+    stable: bool
+    residual_rms: float
+
+
+class CCMTargetOut(BaseModel):
+    id: str
+    name: str
+    white_rgb: List[float]
+
+
+class PresetIn(BaseModel):
+    kind: str                      # 'view' | 'dark' | 'ccm'
+    name: str
+    payload: Dict[str, Any]
+
+
+class PresetOut(BaseModel):
+    preset_id: str
+    kind: str
+    name: str
+    payload: Dict[str, Any]
+    created_at: float
+
+
+class FrameLruIn(BaseModel):
+    bytes: int
+
+
+class FrameLruOut(BaseModel):
+    cap_bytes: int
+    current_bytes: int
+    n_frames: int
 
 
 # ---------------------------------------------------------------------------
@@ -758,6 +803,84 @@ def mount_playback_api(app: FastAPI,
             raise HTTPException(422, f"channel error: {e}") from e
         return Response(content=png, media_type="image/png",
                         headers={"Cache-Control": "no-store"})
+
+    # --- CCM + presets + frame-LRU controls (M8) -------------------------
+
+    @app.get("/api/playback/ccm/targets", response_model=List[CCMTargetOut])
+    def ccm_targets() -> List[Dict[str, Any]]:
+        return [
+            {"id": k, "name": v["name"], "white_rgb": list(v["white_rgb"])}
+            for k, v in CCM_TARGETS.items()
+        ]
+
+    @app.post("/api/playback/ccm/from-patch", response_model=CCMSolveResponse)
+    def ccm_from_patch(req: CCMSolveRequest) -> Dict[str, Any]:
+        try:
+            matrix, det, stable, rms = solve_ccm_from_patches(
+                np.asarray(req.observed_rgb, dtype=np.float64),
+                np.asarray(req.target_rgb, dtype=np.float64),
+                regularize=req.regularize,
+            )
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+        return {
+            "matrix": matrix.tolist(),
+            "determinant": det,
+            "stable": stable,
+            "residual_rms": rms,
+        }
+
+    @app.get("/api/playback/presets", response_model=List[PresetOut])
+    def list_presets(kind: str = Query(..., pattern="^(view|dark|ccm)$")
+                      ) -> List[Dict[str, Any]]:
+        try:
+            return [
+                {
+                    "preset_id": p.preset_id,
+                    "kind": p.kind,
+                    "name": p.name,
+                    "payload": p.payload,
+                    "created_at": p.created_at,
+                }
+                for p in store.list_presets(kind)
+            ]
+        except KeyError as e:
+            raise HTTPException(422, str(e)) from e
+
+    @app.post("/api/playback/presets", response_model=PresetOut)
+    def save_preset(req: PresetIn) -> Dict[str, Any]:
+        try:
+            p = store.save_preset(req.kind, req.name, req.payload)
+        except KeyError as e:
+            raise HTTPException(422, str(e)) from e
+        return {
+            "preset_id": p.preset_id,
+            "kind": p.kind,
+            "name": p.name,
+            "payload": p.payload,
+            "created_at": p.created_at,
+        }
+
+    @app.delete("/api/playback/presets/{preset_id}")
+    def delete_preset(preset_id: str,
+                       kind: str = Query(..., pattern="^(view|dark|ccm)$")
+                       ) -> Dict[str, Any]:
+        try:
+            store.delete_preset(kind, preset_id)
+        except KeyError:
+            raise HTTPException(404, f"unknown preset id: {preset_id}")
+        return {"ok": True}
+
+    @app.get("/api/playback/frame-lru", response_model=FrameLruOut)
+    def frame_lru_get() -> Dict[str, Any]:
+        cur, cap, n = store.frame_lru_bytes()
+        return {"cap_bytes": cap, "current_bytes": cur, "n_frames": n}
+
+    @app.put("/api/playback/frame-lru", response_model=FrameLruOut)
+    def frame_lru_set(req: FrameLruIn) -> Dict[str, Any]:
+        store.set_frame_lru_bytes(req.bytes)
+        cur, cap, n = store.frame_lru_bytes()
+        return {"cap_bytes": cap, "current_bytes": cur, "n_frames": n}
 
     # Test-only synthetic endpoints (gated)
     if test_mode:

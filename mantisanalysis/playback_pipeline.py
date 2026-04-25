@@ -63,7 +63,47 @@ CCM_TARGETS: Dict[str, Dict[str, Any]] = {
         "name": "D50 white (warm)",
         "white_rgb": (255.0 / 255.0, 247.0 / 255.0, 232.0 / 255.0),
     },
+    "d75_white": {
+        "name": "D75 white (cool)",
+        "white_rgb": (236.0 / 255.0, 240.0 / 255.0, 255.0 / 255.0),
+    },
 }
+
+
+def solve_ccm_from_patches(observed: np.ndarray, target: np.ndarray,
+                            *, regularize: float = 1e-3
+                            ) -> Tuple[np.ndarray, float, bool, float]:
+    """Least-squares solve a 3×3 CCM that maps observed → target patches.
+
+    Returns ``(matrix, determinant, stable, residual_rms)``. ``stable`` is
+    True when ``|determinant| ≥ 1e-3``. n=2 is underdetermined; n=3 is
+    exactly determined; n>=4 is overdetermined least-squares.
+
+    Both ``observed`` and ``target`` are ``(n, 3)`` arrays of float
+    patches in [0, 1]. Per risk-skeptic P2-R the solver explicitly
+    handles n=2 (returns identity + stable=False), n=3 (exact fit), and
+    n=4+ (np.linalg.lstsq).
+    """
+    o = np.asarray(observed, dtype=np.float64)
+    t = np.asarray(target, dtype=np.float64)
+    if o.ndim != 2 or o.shape[1] != 3 or t.shape != o.shape:
+        raise ValueError(f"shape mismatch: observed {o.shape} target {t.shape}")
+    n = o.shape[0]
+    if n < 3:
+        # Underdetermined; refuse with identity so the UI can warn.
+        return np.eye(3, dtype=np.float64), 1.0, False, float("nan")
+    # Solve `t = o @ M.T` → M.T = lstsq(o, t).
+    sol, residuals, _rank, _s = np.linalg.lstsq(o, t, rcond=None)
+    matrix = sol.T
+    det = float(np.linalg.det(matrix))
+    stable = abs(det) >= float(regularize)
+    if residuals.size:
+        rms = float(np.sqrt(np.mean(residuals)))
+    else:
+        # exact fit (n=3) or rank deficient — compute residual manually
+        pred = o @ matrix.T
+        rms = float(np.sqrt(np.mean(np.square(pred - t))))
+    return matrix.astype(np.float64), det, stable, rms
 
 
 # ---------------------------------------------------------------------------
@@ -552,4 +592,5 @@ __all__ = [
     "subtract_dark",
     "render_frame",
     "render_frame_to_png",
+    "solve_ccm_from_patches",
 ]

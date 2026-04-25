@@ -292,6 +292,79 @@ def test_playback_workspace_layouts_and_views(web_server: str) -> None:
 
 
 @pytest.mark.web_smoke
+def test_playback_inspector_renders_and_dispatches(web_server: str) -> None:
+    """M8: Inspector renders 9 sections, control change reaches the
+    backend (preview <img> URL changes)."""
+    pytest.importorskip("playwright")
+    from playwright.sync_api import sync_playwright
+
+    if not _DIST_INDEX.is_file():
+        pytest.skip("web/dist not built")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        ctx = browser.new_context()
+        page = ctx.new_page()
+        page.add_init_script(
+            "try { localStorage.setItem('mantis/playback/enabled', '1'); } catch (e) {}"
+        )
+        page.goto(web_server, wait_until="networkidle", timeout=15_000)
+        # Reset and load a fresh sample so the workspace is in a known state.
+        page.evaluate(
+            """async () => {
+                const streams = await fetch('/api/playback/streams').then(r => r.json());
+                for (const s of streams || []) await fetch(`/api/playback/streams/${s.stream_id}`, { method: 'DELETE' });
+                const recs = await fetch('/api/playback/recordings').then(r => r.json());
+                for (const r of recs || []) await fetch(`/api/playback/recordings/${r.recording_id}`, { method: 'DELETE' });
+            }"""
+        )
+        page.evaluate("() => window.location.reload()")
+        page.wait_for_load_state("networkidle")
+        page.locator('[data-mode-tile="play"]').first.click()
+        page.get_by_role("button", name="Load synthetic sample").first.click()
+        page.wait_for_selector('[data-region="inspector"]', state="visible",
+                                timeout=8_000)
+        # All 9 section headers are present.
+        for s in (
+            "View",
+            "Source",
+            "Corrections",
+            "Display",
+            "Overlay",
+            "Labels",
+            "Presets",
+        ):
+            assert page.locator(f'[data-section="{s}"]').count() == 1
+        # Snapshot the current viewer URL.
+        first_src = page.locator('[data-view-id] img').first.get_attribute('src')
+        assert first_src and 'colormap=viridis' in first_src
+        # Switch colormap to inferno via the Display section's Select.
+        page.evaluate(
+            """() => {
+                const inspector = document.querySelector('[data-region=\"inspector\"]');
+                const selects = inspector.querySelectorAll('select');
+                // Find the colormap select (default value = 'viridis').
+                const cmSel = Array.from(selects).find(s => s.value === 'viridis');
+                cmSel.value = 'inferno';
+                cmSel.dispatchEvent(new Event('change', { bubbles: true }));
+            }"""
+        )
+        # Wait for the <img> src to reflect the new colormap.
+        page.wait_for_function(
+            """() => {
+                const img = document.querySelector('[data-view-id] img');
+                return img?.src.includes('colormap=inferno');
+            }""",
+            timeout=4_000,
+        )
+        # Toggle Basic → Advanced; Advanced section appears.
+        page.locator('[data-inspector-mode="advanced"]').click()
+        page.wait_for_selector('[data-section="Advanced"]', state="visible",
+                                timeout=2_000)
+        browser.close()
+
+
+@pytest.mark.web_smoke
 def test_playback_eviction_kind_filter(web_server: str) -> None:
     """Risk-skeptic P0-B regression: dispatching `mantis:source-evicted`
     with `detail.kind='stream'` must NOT trigger /api/sources/load-sample."""

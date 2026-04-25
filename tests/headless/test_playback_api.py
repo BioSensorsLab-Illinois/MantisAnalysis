@@ -292,3 +292,103 @@ def test_health_ffmpeg_gate_does_not_crash(client: TestClient) -> None:
     # Either present or absent, but the field is always there.
     assert "ffmpeg_available" in body
     assert isinstance(body["ffmpeg_available"], bool)
+
+
+# ---------------------------------------------------------------------------
+# CCM + presets + frame-LRU (M8)
+# ---------------------------------------------------------------------------
+
+
+def test_ccm_targets_endpoint(client: TestClient) -> None:
+    r = client.get("/api/playback/ccm/targets")
+    assert r.status_code == 200
+    body = r.json()
+    ids = [t["id"] for t in body]
+    assert "d65_white" in ids
+    assert all("white_rgb" in t and len(t["white_rgb"]) == 3 for t in body)
+
+
+def test_ccm_solve_n3_exact_fit(client: TestClient) -> None:
+    """Exactly-determined system → residual ≈ 0, stable=True."""
+    obs = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    tgt = [[0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]
+    r = client.post("/api/playback/ccm/from-patch",
+                     json={"observed_rgb": obs, "target_rgb": tgt})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["stable"] is True
+    assert body["residual_rms"] < 1e-9
+
+
+def test_ccm_solve_n2_underdetermined_warns(client: TestClient) -> None:
+    obs = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
+    tgt = [[0.0, 1.0, 0.0], [1.0, 0.0, 0.0]]
+    r = client.post("/api/playback/ccm/from-patch",
+                     json={"observed_rgb": obs, "target_rgb": tgt})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["stable"] is False  # refused
+
+
+def test_ccm_solve_n4_overdetermined_residual(client: TestClient) -> None:
+    import numpy as np
+    rng = np.random.default_rng(42)
+    obs = rng.random((4, 3)).tolist()
+    tgt = rng.random((4, 3)).tolist()
+    r = client.post("/api/playback/ccm/from-patch",
+                     json={"observed_rgb": obs, "target_rgb": tgt})
+    assert r.status_code == 200
+    body = r.json()
+    # Random patches → finite residual.
+    assert body["residual_rms"] > 0.0
+
+
+def test_ccm_solve_shape_mismatch_returns_422(client: TestClient) -> None:
+    r = client.post("/api/playback/ccm/from-patch", json={
+        "observed_rgb": [[1.0, 0.0, 0.0]],
+        "target_rgb": [[0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+    })
+    assert r.status_code == 422
+
+
+def test_preset_save_list_delete_round_trip(client: TestClient) -> None:
+    # Save
+    r = client.post("/api/playback/presets", json={
+        "kind": "view",
+        "name": "NIR diagnostic",
+        "payload": {"channel": "HG-NIR", "low": 100},
+    })
+    assert r.status_code == 200
+    pid = r.json()["preset_id"]
+    # List
+    r = client.get("/api/playback/presets?kind=view")
+    assert r.status_code == 200
+    assert any(p["preset_id"] == pid for p in r.json())
+    # Delete
+    r = client.delete(f"/api/playback/presets/{pid}?kind=view")
+    assert r.status_code == 200
+    r = client.get("/api/playback/presets?kind=view")
+    assert all(p["preset_id"] != pid for p in r.json())
+
+
+def test_preset_unknown_kind_rejects(client: TestClient) -> None:
+    r = client.get("/api/playback/presets?kind=bogus")
+    assert r.status_code == 422
+
+
+def test_frame_lru_get_set(client: TestClient) -> None:
+    r = client.get("/api/playback/frame-lru")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["cap_bytes"] > 0
+
+    # Bumping the cap returns the clamped value.
+    r = client.put("/api/playback/frame-lru", json={"bytes": 4 * 1024 * 1024 * 1024})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["cap_bytes"] == 4 * 1024 * 1024 * 1024
+
+    # Tiny request is clamped up to the MIN.
+    r = client.put("/api/playback/frame-lru", json={"bytes": 1})
+    assert r.status_code == 200
+    assert r.json()["cap_bytes"] == 256 * 1024 * 1024

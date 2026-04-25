@@ -60,6 +60,37 @@ export const playbackApi = {
   getStream: (sid) => apiFetch(`/api/playback/streams/${sid}`),
   deleteStream: (sid) => apiFetch(`/api/playback/streams/${sid}`, { method: 'DELETE' }),
   lookupFrame: (sid, frame) => apiFetch(`/api/playback/streams/${sid}/lookup?frame=${frame}`),
+
+  // CCM
+  ccmTargets: () => apiFetch('/api/playback/ccm/targets'),
+  ccmFromPatch: (observed, target, regularize = 1e-3) =>
+    apiFetch('/api/playback/ccm/from-patch', {
+      method: 'POST',
+      body: JSON.stringify({ observed_rgb: observed, target_rgb: target, regularize }),
+      headers: { 'Content-Type': 'application/json' },
+    }),
+
+  // Presets
+  listPresets: (kind) => apiFetch(`/api/playback/presets?kind=${encodeURIComponent(kind)}`),
+  savePreset: (kind, name, payload) =>
+    apiFetch('/api/playback/presets', {
+      method: 'POST',
+      body: JSON.stringify({ kind, name, payload }),
+      headers: { 'Content-Type': 'application/json' },
+    }),
+  deletePreset: (kind, presetId) =>
+    apiFetch(`/api/playback/presets/${presetId}?kind=${encodeURIComponent(kind)}`, {
+      method: 'DELETE',
+    }),
+
+  // Frame LRU
+  getFrameLru: () => apiFetch('/api/playback/frame-lru'),
+  setFrameLru: (bytes) =>
+    apiFetch('/api/playback/frame-lru', {
+      method: 'PUT',
+      body: JSON.stringify({ bytes }),
+      headers: { 'Content-Type': 'application/json' },
+    }),
 };
 
 // URL builder for the preview <img>. Returns the same URL that

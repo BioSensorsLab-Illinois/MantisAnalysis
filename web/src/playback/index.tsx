@@ -12,6 +12,7 @@
 import React from 'react';
 import { useLocalStorageState, useTheme } from '../shared.tsx';
 import { playbackApi } from './api.ts';
+import { Inspector } from './Inspector.tsx';
 import { PlaybackEmptyState } from './EmptyState.tsx';
 import { SourcesPanel } from './SourcesPanel.tsx';
 import { StreamBuilderModal } from './StreamBuilderModal.tsx';
@@ -377,6 +378,7 @@ const PlaybackInner = ({ say }) => {
               onChangeFps={(f) => dispatch({ type: 'fps/set', payload: f })}
             />
           </div>
+          <Inspector />
         </div>
       )}
 
