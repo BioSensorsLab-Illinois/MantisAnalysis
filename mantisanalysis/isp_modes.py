@@ -52,6 +52,14 @@ class ISPMode:
     default_sub_step: Tuple[int, int]
     default_outer_stride: Tuple[int, int]
     supports_rgb_composite: bool = False
+    # How to derive HG / LG halves from a raw mosaic. ``"horizontal"``
+    # (default) splits ``frame[:, :W//2] | frame[:, W//2:]`` — the
+    # modern MantisCam layout. ``"row_interleaved_period_4"`` walks
+    # alternating rows mod 4 (LG on rows {0, 2}, HG on rows {1, 3}) —
+    # the legacy gsbsi-prefix layout. Same channel locs (R/G/B/NIR
+    # within a 2x2 sub-tile) apply to both halves; only the HG/LG
+    # separation algorithm differs. ``None`` for non-dual-gain modes.
+    split_kind: Optional[str] = "horizontal"
 
     def slot_default_names(self) -> Tuple[str, ...]:
         return tuple(c.default_name for c in self.channels)
@@ -148,6 +156,38 @@ RGB_NIR = ISPMode(
     supports_rgb_composite=True,
 )
 
+LEGACY_GSBSI_RGB_NIR = ISPMode(
+    id="legacy_gsbsi_rgb_nir",
+    display_name="RGB-NIR (legacy gsbsi)",
+    description=(
+        "Legacy gsbsi-prefix GSense BSI dual-gain RGB-NIR. The mosaic is "
+        "row-interleaved (HG and LG alternate every 2 rows mod 4) instead "
+        "of the modern horizontal HG-left | LG-right split. The four "
+        "R/G/B/NIR slots use the SAME (origin / sub_step / outer_stride / "
+        "loc) coordinates for both gain halves — the row-interleaved split "
+        "(``split_kind='row_interleaved_period_4'``) walks the mosaic to "
+        "produce the HG / LG halves before per-slot extraction. ISP "
+        "settings dialog therefore exposes 4 shared coordinate rows, not 8."
+    ),
+    dual_gain=True,
+    channels=(
+        # Same R/G/B/NIR sub-pixel layout as modern RGB_NIR — applies to
+        # both HG and LG halves. The row-interleaved split is what
+        # makes this layout legacy-shaped; the per-slot coordinates stay
+        # identical across HG and LG.
+        ChannelSpec(slot_id="b",   default_name="B",   loc=(0, 0), color_hint=_C_B),
+        ChannelSpec(slot_id="r",   default_name="R",   loc=(0, 1), color_hint=_C_R),
+        ChannelSpec(slot_id="g",   default_name="G",   loc=(1, 0), color_hint=_C_G),
+        ChannelSpec(slot_id="nir", default_name="NIR", loc=(1, 1),
+                    renameable=True, color_hint=_C_NIR),
+    ),
+    default_origin=(0, 0),
+    default_sub_step=(1, 1),
+    default_outer_stride=(2, 2),
+    supports_rgb_composite=True,
+    split_kind="row_interleaved_period_4",
+)
+
 RGB_IMAGE = ISPMode(
     id="rgb_image",
     display_name="RGB image",
@@ -229,6 +269,7 @@ ALL_MODES: Dict[str, ISPMode] = {
         BARE_SINGLE,
         BARE_DUALGAIN,
         RGB_NIR,
+        LEGACY_GSBSI_RGB_NIR,
         RGB_IMAGE,
         GRAYSCALE_IMAGE,
         POLARIZATION_SINGLE,

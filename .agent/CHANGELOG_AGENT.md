@@ -4,8 +4,6 @@ Append-only log of agent sessions. One bullet per session, newest at top.
 
 ---
 
-## 2026-04-25 — recording-inspection-implementation-v1 CLOSED (M0 → M12) (Claude Opus 4.7, 1M context)
-
 User: "Plan & implement Recording Inspection Mode (Play tab) per the
 Claude Design template. Ultra planning effort first; don't stop
 halfway; Playwright before every milestone close; work directly on
@@ -13,8 +11,6 @@ main; all stretch features in scope (GIF, CCM, calibrated WB,
 send-to-mode handoff)."
 
 A 12-milestone build delivered in one continuous session
-(`recording-inspection-implementation-v1`). Initiative folder:
-`.agent/runs/recording-inspection-implementation-v1/`.
 
 **Milestones (28 commits):**
 
@@ -27,11 +23,8 @@ A 12-milestone build delivered in one continuous session
 - **M2** — Dark-frame averaging (mean / median / sigma_clipped)
   + exposure-matching (`dark_frame.py`). 17 unit tests. Revert-
   rehearsal logged per risk-skeptic P1-F.
-- **M3** — `PlaybackStore` with multi-file stream + global frame
   mapping + process-global byte-capped LRU (risk-skeptic P0-C).
   26 unit tests.
-- **M4** — Render pipeline (`playback_pipeline.py::render_frame`
-  is the WYSIWYG single entry point) + `/api/playback/*` preview
   PNG endpoint. 23 unit + 18 Tier 3 tests.
 - **M5** — Frontend rail tile + empty state + Sources skeleton +
   Stream header + eviction kind-routing (`shared.tsx`/`app.tsx`,
@@ -47,7 +40,6 @@ A 12-milestone build delivered in one continuous session
 - **M10** — Image (synchronous, byte-equal WYSIWYG) + video
   (asynchronous, MP4 / APNG / GIF / PNG-seq, GIF cap, sidecar JSON,
   ffmpeg gate) export.
-- **M11** — Send-to-mode handoff (`POST /api/playback/streams/{sid}/
   handoff/{mode}`) + 3 viewer-toolbar handoff buttons (`→U/→F/→D`)
   + Storybook ProcessingBadge story + skill-doc updates.
 - **M12** — Visual-regression baselines (5 PNGs at canonical
@@ -74,7 +66,6 @@ A 12-milestone build delivered in one continuous session
 - Cancelled/failed exports unlink partial output (risk-skeptic A2).
 - Dead `render_frame_for_export` + `ProcessPoolExecutor` import
   removed (risk-skeptic A1 — honest downgrade; ProcessPool deferred
-  to `playback-multiproc-v1`/B-0029).
 - Frontend reducer-internal `stream/evict` action (frontend-react F1).
 - `frameRef` for ticker + keyboard so they don't tear down per
   tick (frontend-react F2/F10 + performance F3).
@@ -98,7 +89,6 @@ A 12-milestone build delivered in one continuous session
 - Playwright `wait_for_timeout` removed (playwright-verifier P0).
 - Cold-start flake fix: `mantis/mode='play'` set in init script before
   goto (playwright-verifier P0).
-- `tests/web/conftest.py` autouse fixture clears both PlaybackStore
   and analysis-mode STORE before every Tier 4 test (playwright-verifier
   P0 + test-coverage P1-D).
 - Light/dark baselines now byte-differ (react-ui-ux P2 — theme flip
@@ -124,12 +114,9 @@ A 12-milestone build delivered in one continuous session
 
 **Deferred work** (tracked in BACKLOG):
 
-- B-0029 `playback-multiproc-v1` — cross-process video encode +
   Manager().Event() if/when scale-out is needed.
-- B-0030 `playback-ux-polish-v1` — HandoffModal, drop zone, remove
   confirm, responsive collapse, context menu, Inspector text size,
   per-cell placeholder.
-- B-0031 `playback-test-cleanup-v1` — Playwright migration to
   web-first locators + `pytest-playwright page` fixture +
   console-error attachment.
 - B-0032 — Flag default flip.
@@ -299,7 +286,6 @@ estimate.
 - Tier 1 + Tier 2 + Tier 3 smoke — PASS
 - pytest 108/109 (the 1 fail is `test_tier0_wrapper_pass_via_smoke`
   blocked by a broken cross-reference in concurrent
-  `recording-inspection-implementation-v1` ExecPlan; unrelated to
   this initiative — owner needs to either create the referenced
   skill or remove the link)
 - Storybook all-three shell stories (USAF / FPN / DoF) mount at
@@ -330,7 +316,6 @@ history."
 Followed up the Phase-8 close with a full sweep of the residual debt:
 B-0026 a11y baseline driven from 5 → 0, ESLint warnings driven from
 49 → 0, two more Storybook stories added, all forward-looking
-"H5 recording-inspection" deferred-feature mentions wiped from active
 planning docs. Phase 5c (drop `@ts-nocheck` per file) explicitly
 documented as "deferred-with-pairing-rationale" rather than skipped:
 empirical check showed app.tsx alone surfaces 98 strict-mode errors
@@ -391,7 +376,6 @@ on the boot page resolved:
 - `HANDOFF.md`: deleted from "Where to pick up next" + "Deferred
   with rationale".
 - `DECISIONS.md::D-0015` revisit point: rewrote "When H5
-  recording-inspection feature begins" → "When the next large
   feature initiative begins" (no specific feature name).
 - Historical changelog + closed-run docs preserved as-is (audit
   trail).
@@ -507,7 +491,6 @@ marked INITIATIVE CLOSED.
 - `.agent/runs/bundler-migration-v1/ExecPlan.md` — Phase 6/7/8
   sections filled in with concrete shipped work.
 - `.agent/HANDOFF.md` — B-0014 SHIPPED; next-up list reordered
-  (H5 recording-inspection, analysis-page-overhaul-v1 Phase 3,
   or Phase 5c).
 
 ### Consolidated summary: B-0014 / bundler-migration-v1
@@ -1153,7 +1136,6 @@ of the chain is unit-tested independently.
 - **R-0015** same-context reviewers — harness change.
 - **R-0016** qt-allowed budget — scanner cap mitigates.
 - **analysis-page-overhaul-v1 Phase 3+** — paused; own initiative.
-- **H5 recording-inspection viewer** — user exclusion for this
   sweep.
 
 ---
@@ -1277,7 +1259,6 @@ Deferred with explicit rationale in HANDOFF:
 
 User: "Substantially improve the repository's agentic operating layer
 under `.agent/` before implementing any new product feature. Do not
-start the H5 recording-inspection feature yet."
 
 Initiative: `.agent/runs/agentic-workflow-overhaul-v1/`. Pure
 `.agent/` + `CLAUDE.md` + `scripts/` work — no product code touched.

@@ -131,8 +131,6 @@ QT_ALLOW_EXEMPT_DIRS = {
     ".agent/runs/isp-modes-v1-bugfixes-v1",
     ".agent/runs/agentic-workflow-overhaul-v1",
     ".agent/runs/harness-mechanical-v1",
-    ".agent/runs/recording-inspection-implementation-v1",
-    ".agent/runs/playback-ux-polish-v1",
     ".agent/runs/bundler-migration-v1",
     ".agent/runs/correctness-sweep-v1",
 }

@@ -108,12 +108,6 @@ MantisAnalysis/
 │   ├── dof_analysis.py           ← DoF focus metrics + line/heatmap scan
 │   ├── dof_render.py             ← DoF matplotlib figure builders
 │   ├── resolution.py             ← LEGACY: auto-strip FFT MTF (kept per D-0004)
-│   ├── recording.py              ← Playback: H5 metadata inspection + extract_frame (5 ISP modes)
-│   ├── dark_frame.py             ← Playback: average_dark_h5 (mean/median/sigma_clipped) + match_dark_by_exposure
-│   ├── playback_session.py       ← Playback: PlaybackStore + RecordingHandle/DarkHandle/StreamHandle/ExportJob + process-global byte-capped frame LRU
-│   ├── playback_pipeline.py      ← Playback: WYSIWYG single render entry (render_frame) + solve_ccm_from_patches + CCM_TARGETS
-│   ├── playback_export.py        ← Playback: image (PNG/TIFF/JPEG) + video (mp4/apng/gif/png-seq) export + ffmpeg gate
-│   └── playback_api.py           ← Playback: 24+ /api/playback/* routes (mounted by server.py:create_app)
 ├── scripts/
 │   ├── inspect_recording.py      ← one-shot H5 inspector (stdout + preview PNG)
 │   ├── run_usaf_resolution.py    ← legacy CLI pairing with mantisanalysis.resolution
@@ -130,19 +124,11 @@ MantisAnalysis/
 │   │   ├── test_fpn_math.py
 │   │   ├── test_isp_modes.py     ← v1 ISP-mode registry + extraction
 │   │   ├── test_isp_override.py  ← ISP reconfigure path
-│   │   ├── _h5_fixtures.py       ← Playback: synthetic H5 builder (8 layout variants)
-│   │   ├── test_recording_inspect.py  ← Playback M1 (22 tests)
-│   │   ├── test_dark_frame.py    ← Playback M2 (19 tests, +2 for risk-skeptic A5)
-│   │   ├── test_playback_stream.py    ← Playback M3 (26 tests)
-│   │   └── test_playback_pipeline.py  ← Playback M4 + M8 (23 tests)
 │   ├── headless/
 │   │   ├── test_figures.py
-│   │   └── test_playback_api.py  ← Playback Tier 3 (45 tests, +7 M12 regressions)
 │   └── web/                      ← Playwright smoke (opt-in via [web-smoke])
 │       ├── conftest.py           ← session-scoped uvicorn fixture + autouse store-cleanup
 │       ├── test_web_boot.py      ← boots SPA, asserts React mount + mode btns
-│       ├── test_playback_boot.py ← Playback Tier 4 (16 tests)
-│       └── test_playback_visual_baselines.py  ← Playback M12 baseline capture (5 tests)
 ├── docs/
 │   └── validation/               ← B-0018 staging for real-sample captures (git-ignored contents)
 │       └── README.md
@@ -160,10 +146,6 @@ MantisAnalysis/
 │       ├── dof.tsx               ← DoFMode — probe points, focus lines, H/V refs  ─╯
 │       ├── analysis.tsx          ← AnalysisModal — per-mode tabs + CSV/PNG export (@ts-nocheck)
 │       ├── isp_settings.tsx      ← ISPSettingsModal (fully typed — Phase 5b-1)
-│       ├── ProcessingBadge.stories.tsx ← Storybook story for the Playback ProcessingBadge primitive (8 variants)
-│       └── playback/             ← Playback (Recording Inspection) mode — flag-gated `mantis/playback/enabled`
-│           ├── api.ts            ← typed wrappers for /api/playback/*
-│           ├── state.tsx         ← useReducer + PlaybackCtx + eviction kind-routing
 │           ├── EmptyState.tsx
 │           ├── SourcesPanel.tsx  ← recordings + dark-frame manager
 │           ├── StreamHeader.tsx  ← stream chip + Image/Video export buttons
@@ -177,7 +159,6 @@ MantisAnalysis/
 │           ├── OverlayBuilderModal.tsx  ← W10 with live preview pane
 │           ├── ExportImageModal.tsx     ← W12 sync export with download link
 │           ├── ExportVideoModal.tsx     ← W13 async job with progress polling + ffmpeg detection
-│           └── index.tsx         ← PlaybackMode entry; ticker, keyboard map, modal mounts
 └── outputs/                      ← generated artifacts (git-ignored)
     ├── smoke/                    ← PNGs from `smoke_test.py --tier 2`
     ├── web-smoke/                ← screenshots + traces from Playwright runs
@@ -204,7 +185,6 @@ uvicorn skips both.
 | FPN | `web/src/fpn.tsx` | `/api/fpn/{compute,measure,measure_batch,stability,analyze}` | `mantisanalysis/fpn_analysis.py` | `mantisanalysis/fpn_render.py:build_{overview,rowcol,map,psd,autocorr,psd1d,hotpix}_fig` |
 | DoF | `web/src/dof.tsx` | `/api/dof/{compute,stability,analyze}` | `mantisanalysis/dof_analysis.py` | `mantisanalysis/dof_render.py:build_{heatmap,line_scan,points,gaussian_fit,tilt_plane,metric_compare,chromatic_shift}_fig` |
 | ISP | `web/src/isp_settings.tsx` | `/api/isp/modes`, `/api/sources/{id}/isp` (GET/PUT) | `mantisanalysis/isp_modes.py` | — (no per-mode figures; drives extraction geometry) |
-| Playback (Recording Inspection) | `web/src/playback/*` (16 files) | `/api/playback/*` (24+ routes incl. handoff, CCM, presets, frame-LRU, image/video export) | `mantisanalysis/{recording,dark_frame,playback_session,playback_pipeline,playback_export,playback_api}.py` | render_frame is the single WYSIWYG entry point for both preview-PNG and export-PNG (byte-equal for image; perceptual parity for video) |
 
 ## Where each dependency is declared
 

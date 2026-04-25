@@ -928,6 +928,60 @@ const Icon = ({ name, size = 14, style }) => {
         <path d="M5 3l8 5-8 5V3z" fill="currentColor" />
       </g>
     ),
+    pause: (
+      <g>
+        <rect x="4" y="3" width="3" height="10" fill="currentColor" stroke="none" />
+        <rect x="9" y="3" width="3" height="10" fill="currentColor" stroke="none" />
+      </g>
+    ),
+    skipPrev: (
+      <g>
+        <path d="M11 3l-6 5 6 5V3z" fill="currentColor" stroke="none" />
+        <rect x="3" y="3" width="1.6" height="10" fill="currentColor" stroke="none" />
+      </g>
+    ),
+    skipNext: (
+      <g>
+        <path d="M5 3l6 5-6 5V3z" fill="currentColor" stroke="none" />
+        <rect x="11.4" y="3" width="1.6" height="10" fill="currentColor" stroke="none" />
+      </g>
+    ),
+    stepPrev: (
+      <g>
+        <path d="M10 3l-5 5 5 5V3z" fill="currentColor" stroke="none" />
+      </g>
+    ),
+    stepNext: (
+      <g>
+        <path d="M6 3l5 5-5 5V3z" fill="currentColor" stroke="none" />
+      </g>
+    ),
+    film: (
+      <g>
+        <rect x="2" y="2" width="12" height="12" rx="1.5" />
+        <path d="M2 5h12M2 11h12M5 2v12M11 2v12" />
+      </g>
+    ),
+    loop: (
+      <g>
+        <path d="M3 5h8a2 2 0 0 1 2 2v1" />
+        <path d="M11 3l2 2-2 2" />
+        <path d="M13 11H5a2 2 0 0 1-2-2V8" />
+        <path d="M5 13l-2-2 2-2" />
+      </g>
+    ),
+    locked: (
+      <g>
+        <rect x="3.5" y="7" width="9" height="6" rx="1" />
+        <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
+      </g>
+    ),
+    warning: (
+      <g>
+        <path d="M8 2l6.5 11h-13L8 2z" />
+        <path d="M8 6.5v3.5M8 12v.1" />
+      </g>
+    ),
     sun: (
       <g>
         <circle cx="8" cy="8" r="3" />
@@ -1269,7 +1323,28 @@ const Row = ({ label, children, align = 'center' }) => {
       }}
     >
       {label && (
-        <div style={{ flex: '0 0 78px', fontSize: 11.5, color: t.textMuted, lineHeight: '24px' }}>
+        <div
+          style={{
+            // Grow the label column up to 130 px so two-word labels
+            // ("Show clipped pixels", "Histogram on frame", "Sharpen
+            // amount", "Hot pixel σ") fit on a single line at the
+            // 420 px Inspector width. Old 78 px column was too narrow
+            // and forced 2-line wrapping. Keep `flex-shrink: 0` so the
+            // column doesn't squeeze even on narrow popovers.
+            flex: '0 0 auto',
+            minWidth: 96,
+            maxWidth: 144,
+            fontSize: 11.5,
+            color: t.textMuted,
+            lineHeight: 1.3,
+            // Hyphenate / wrap only when a label genuinely exceeds the
+            // column. Short 1-2 word labels stay on one line. The
+            // `title` tooltip below ensures the full text is reachable
+            // on hover even if it does wrap.
+            overflowWrap: 'break-word',
+          }}
+          title={typeof label === 'string' ? label : undefined}
+        >
           {label}
         </div>
       )}
@@ -1677,12 +1752,16 @@ const Checkbox = ({ checked, onChange, label, disabled, hint }) => {
   return (
     <label
       style={{
-        display: 'flex',
-        alignItems: 'flex-start',
+        // `center` so the box vertically aligns with the label baseline
+        // even when the label wraps onto two lines. Old `flex-start`
+        // pinned the box to the first line which read as a separate
+        // visual unit when the label wrapped.
+        display: 'inline-flex',
+        alignItems: 'center',
         gap: 8,
-        marginTop: 6,
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.7 : 1,
+        userSelect: 'none',
       }}
     >
       <div
@@ -1696,7 +1775,6 @@ const Checkbox = ({ checked, onChange, label, disabled, hint }) => {
           alignItems: 'center',
           justifyContent: 'center',
           flexShrink: 0,
-          marginTop: 1,
           color: '#fff',
         }}
       >
@@ -1719,7 +1797,7 @@ const Checkbox = ({ checked, onChange, label, disabled, hint }) => {
 // ---------------------------------------------------------------------------
 // Spinbox (small numeric stepper)
 // ---------------------------------------------------------------------------
-const Spinbox = ({ value, min, max, step = 1, onChange, width = 54, ariaLabel }) => {
+const Spinbox = ({ value, min, max, step = 1, onChange, width = 54, ariaLabel, disabled }) => {
   const t = useTheme();
   const clamp = (v) => Math.max(min, Math.min(max, v));
   // B-0026: ariaLabel is optional; default to "value" so axe-core has
@@ -1734,17 +1812,19 @@ const Spinbox = ({ value, min, max, step = 1, onChange, width = 54, ariaLabel })
         borderRadius: 4,
         overflow: 'hidden',
         background: t.inputBg,
+        opacity: disabled ? 0.55 : 1,
       }}
     >
       <button
         aria-label={`decrement ${_name}`}
         onClick={() => onChange(clamp(value - step))}
+        disabled={disabled}
         style={{
           border: 'none',
           background: 'transparent',
           color: t.textMuted,
           padding: '2px 6px',
-          cursor: 'pointer',
+          cursor: disabled ? 'not-allowed' : 'pointer',
           fontSize: 11,
         }}
       >
@@ -1757,6 +1837,8 @@ const Spinbox = ({ value, min, max, step = 1, onChange, width = 54, ariaLabel })
         min={min}
         max={max}
         step={step}
+        disabled={disabled}
+        readOnly={disabled}
         onChange={(e) => {
           const v = parseFloat(e.target.value);
           if (!isNaN(v)) onChange(clamp(v));
@@ -1771,17 +1853,19 @@ const Spinbox = ({ value, min, max, step = 1, onChange, width = 54, ariaLabel })
           padding: '3px 0',
           fontFamily: 'ui-monospace,SF Mono,Menlo,monospace',
           outline: 'none',
+          cursor: disabled ? 'not-allowed' : 'text',
         }}
       />
       <button
         aria-label={`increment ${_name}`}
         onClick={() => onChange(clamp(value + step))}
+        disabled={disabled}
         style={{
           border: 'none',
           background: 'transparent',
           color: t.textMuted,
           padding: '2px 6px',
-          cursor: 'pointer',
+          cursor: disabled ? 'not-allowed' : 'pointer',
           fontSize: 11,
         }}
       >
@@ -2421,10 +2505,24 @@ const API_BASE = (() => {
     const override = u.searchParams.get('api');
     if (override) return override.replace(/\/$/, '');
   } catch {}
-  // When the page is opened as file:// the origin is 'null'; fall back to
-  // the uvicorn default so you can `python -m mantisanalysis` in one
-  // terminal and open the HTML directly for hot tweaks.
+  // file:// has 'null' origin — fall back to uvicorn default.
   if (window.location.protocol === 'file:') return 'http://127.0.0.1:8765';
+  // The bundle is sometimes loaded under Storybook (port 6006) for
+  // component review. Storybook doesn't proxy /api/* and would 500 on
+  // every fetch. When we detect Storybook (port 6006 OR an iframe.html
+  // path), re-route API calls to the FastAPI backend on its known ports.
+  // Order: ?api= override > Storybook detection > location.origin.
+  try {
+    const port = window.location.port;
+    const isStorybook = port === '6006' || /\/iframe\.html(\?|$)/.test(window.location.pathname);
+    if (isStorybook) {
+      // Try 8773 first (the launch.json default), then 8765 (legacy
+      // uvicorn default). Both are sync-resolved at first apiFetch via
+      // a short-circuiting fetch — return 8773 here; if the user has a
+      // different port, they can pass ?api=http://127.0.0.1:N.
+      return 'http://127.0.0.1:8773';
+    }
+  } catch {}
   return window.location.origin;
 })();
 
@@ -2507,6 +2605,59 @@ const apiUpload = async (path, file) => {
   const fd = new FormData();
   fd.append('file', file);
   return apiFetch(path, { method: 'POST', body: fd });
+};
+
+// XHR-based upload that exposes per-file progress (the Fetch API doesn't
+// emit upload-progress events). Returns the parsed JSON response on
+// success; throws an Error with `.status` on HTTP failure or `.detail`
+// on a server-supplied JSON error body. ``onProgress(0..1)`` is invoked
+// each time the browser fires an upload progress event.
+const apiUploadProgress = (path, file, onProgress) => {
+  return new Promise((resolve, reject) => {
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const xhr = new XMLHttpRequest();
+      const url = `${API_BASE}${path}`;
+      xhr.open('POST', url);
+      xhr.responseType = 'text';
+      xhr.upload.onprogress = (e) => {
+        if (typeof onProgress !== 'function') return;
+        if (e.lengthComputable && e.total > 0) {
+          onProgress(Math.max(0, Math.min(1, e.loaded / e.total)));
+        }
+      };
+      xhr.upload.onload = () => onProgress?.(1);
+      xhr.onerror = () => {
+        const err = new Error('Network error');
+        err.status = 0;
+        reject(err);
+      };
+      xhr.onload = () => {
+        const ok = xhr.status >= 200 && xhr.status < 300;
+        let parsed = null;
+        try {
+          parsed = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+        } catch {
+          parsed = null;
+        }
+        if (!ok) {
+          const err = new Error(`HTTP ${xhr.status}`);
+          err.status = xhr.status;
+          err.detail =
+            (parsed && (parsed.detail || parsed.message)) ||
+            xhr.responseText?.slice(0, 400) ||
+            null;
+          reject(err);
+          return;
+        }
+        resolve(parsed);
+      };
+      xhr.send(fd);
+    } catch (err) {
+      reject(err);
+    }
+  });
 };
 
 const channelPngUrl = (
@@ -4377,6 +4528,7 @@ export {
   API_BASE,
   apiFetch,
   apiUpload,
+  apiUploadProgress,
   channelPngUrl,
   formatApiDetail,
   colormapStripUrl,

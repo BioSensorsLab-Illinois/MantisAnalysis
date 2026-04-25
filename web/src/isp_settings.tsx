@@ -75,6 +75,8 @@ interface SourceLite {
   source_id: string;
   isp_mode_id?: string;
   isp_config?: IspConfig;
+  channels?: string[];
+  shape?: number[];
 }
 
 // Say-toast signature, shared with the app's <Toast> plumbing. `kind` is
@@ -252,6 +254,22 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }: ISPSettingsWindowProps) 
         },
       })) as SourceLite;
       onApplied?.(updated);
+      // Notify any mode that owns its own per-source state (Play, today)
+      // so it can refresh the recording's metadata + purge the per-URL
+      // blob cache. Without this, Play's `recordings[i].isp_config` stays
+      // stale and the blob cache returns the pre-reconfigure image even
+      // though the server is now serving fresh bytes.
+      window.dispatchEvent(
+        new CustomEvent('mantis:source-reconfigured', {
+          detail: {
+            source_id: source.source_id,
+            isp_mode_id: updated?.isp_mode_id,
+            isp_config: updated?.isp_config,
+            channels: updated?.channels,
+            shape: updated?.shape,
+          },
+        })
+      );
       say?.(`ISP mode → ${activeMode?.display_name || stagedModeId}`, 'success');
       onClose?.();
     } catch (err) {

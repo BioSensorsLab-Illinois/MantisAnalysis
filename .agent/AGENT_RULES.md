@@ -93,6 +93,32 @@ pain on this project or adjacent ones.
     action) into `Status.md` AND mention them in the chat. See
     [`skills/context-handoff/SKILL.md`](skills/context-handoff/SKILL.md).
 
+## When the user is angry / cursing — STOP and audit
+
+If the user is cursing, swearing, or emphatically frustrated ("wtf",
+"fucking", repeated exclamation marks, "you are making things worse",
+"you broke X", "this is shit", capitals-screaming), it is a strong
+signal that the most recent change made things **worse than before**,
+not better. Standard response:
+
+1. **Stop adding new code.** Do not pile fix-on-fix. Acknowledge the
+   regression in one sentence.
+2. **Re-read the user's literal request.** If they pointed at a
+   specific surface ("source panel", "header bar", "the dropdown"),
+   that surface IS where they want the control — not a "consistent"
+   alternative you preferred.
+3. **Audit the specific change cited.** Open the file you most
+   recently edited. Re-read the diff. Identify what the user pushed
+   back on. Strip the regression first; only then propose a forward fix.
+4. **Cast the redesign wide enough.** If the user says "do a whole
+   audit", touch every related surface in one pass — don't leave half
+   the regression in place.
+5. **Keep verifying live until they agree.** "Looks fine in tests"
+   doesn't matter when the screenshot in their hand says otherwise.
+
+Curse words AND repeated exclamation are the trigger. A single "!"
+or a calm correction is just normal feedback — no escalation needed.
+
 ## Soft rules (prefer)
 
 - Prefer targeted edits over rewrites.

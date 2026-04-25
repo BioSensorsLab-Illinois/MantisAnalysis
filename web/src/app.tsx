@@ -34,7 +34,7 @@ import {
 import { USAFMode } from './usaf.tsx';
 import { FPNMode } from './fpn.tsx';
 import { DoFMode } from './dof.tsx';
-import { PlaybackMode, playbackEnabled } from './playback';
+import { PlaybackMode } from './playback.tsx';
 import { AnalysisShell } from './analysis/shell';
 import { ISPSettingsWindow } from './isp_settings.tsx';
 const {
@@ -99,6 +99,14 @@ const App = () => {
   const [themeName, setThemeName] = useLocalStorageState('theme', 'light');
   const [accent, setAccent] = useLocalStorageState('accent', 'blue');
   const [mode, setMode] = useLocalStorageState('mode', 'usaf');
+  // play-tab-recording-inspection-rescue-v1 M2: 'play' is now a real
+  // mode again. The previous migration (which forced 'play' → 'usaf'
+  // because the deleted prototype had broken state) is gone. Sanity
+  // clamp any unexpected mode value to 'usaf' as the safe default.
+  useEffectApp(() => {
+    const valid = ['usaf', 'fpn', 'dof', 'play'];
+    if (!valid.includes(mode)) setMode('usaf');
+  }, [mode, setMode]);
   const [analysis, setAnalysis] = useStateApp(null);
   const [status, setStatus] = useStateApp({ msg: 'Ready', count: 0 });
   const [showHelp, setShowHelp] = useStateApp(false);
@@ -158,10 +166,6 @@ const App = () => {
   // shared.jsx::apiFetch when the server returns 410 for an evicted id.
   useEffectApp(() => {
     const onEvicted = async (ev) => {
-      // recording-inspection-implementation-v1 risk-skeptic P0-B + P3-W:
-      // single canonical event with `detail.kind`. USAF/FPN/DoF only
-      // recover from `source` evictions; Playback (`stream`/`recording`/
-      // `dark`/`job` kinds) is handled by the Playback reducer.
       const kind = ev.detail?.kind ?? 'source';
       if (kind !== 'source') return;
       const sid = ev.detail?.source_id;
@@ -178,6 +182,35 @@ const App = () => {
     window.addEventListener('mantis:source-evicted', onEvicted);
     return () => window.removeEventListener('mantis:source-evicted', onEvicted);
   }, [source, say]);
+
+  // M30 — Play-mode right-click handoff: when a ViewerCard sends a frame
+  // to USAF / FPN / DoF, the backend creates a transient image source and
+  // the ViewerCard dispatches `mantis:switch-source` with the new source_id
+  // and target mode. Resolve the source via /api/sources, then flip mode +
+  // selected source so the analytic mode opens on the spun-off frame.
+  useEffectApp(() => {
+    const onSwitch = async (ev) => {
+      const detail = ev?.detail || {};
+      const newSid = detail.source_id;
+      const targetMode = detail.mode;
+      if (!newSid || !targetMode) return;
+      try {
+        const list = await apiFetch('/api/sources', { method: 'GET' });
+        const found = (list || []).find((s) => s.source_id === newSid);
+        if (!found) {
+          say(`Handoff source ${newSid} not found.`, 'warning');
+          return;
+        }
+        setSource(found);
+        setMode(targetMode);
+        say(`Sent frame to ${String(targetMode).toUpperCase()}.`, 'success');
+      } catch (err) {
+        say(`Handoff failed: ${err.message || err}`, 'danger');
+      }
+    };
+    window.addEventListener('mantis:switch-source', onSwitch);
+    return () => window.removeEventListener('mantis:switch-source', onSwitch);
+  }, [say, setMode]);
 
   // R-0010: invalidate the cached analysis run whenever the source's
   // ISP mode or config changes — the channel set + extraction geometry
@@ -227,7 +260,7 @@ const App = () => {
       } else if (e.key === '1') setMode('usaf');
       else if (e.key === '2') setMode('fpn');
       else if (e.key === '3') setMode('dof');
-      else if (e.key === '4' && playbackEnabled()) setMode('play');
+      else if (e.key === '4') setMode('play');
       // ISP settings window — uppercase `I` (shift+i) avoids clashing with
       // common text-insert patterns elsewhere in the app.
       else if (e.key === 'I') {
@@ -288,6 +321,13 @@ const App = () => {
         kbd: '3',
         icon: 'dof',
         run: () => setMode('dof'),
+      },
+      {
+        id: 'mode.play',
+        label: 'Switch to Play (Recording Inspection)',
+        kbd: '4',
+        icon: 'film',
+        run: () => setMode('play'),
       },
       {
         id: 'isp.settings',
@@ -409,8 +449,17 @@ const App = () => {
                     onOpenFile={() => fileInputRef.current?.click()}
                   />
                 )}
-                {playbackEnabled() && mode === 'play' && (
-                  <PlaybackMode say={say} onOpenFile={() => fileInputRef.current?.click()} />
+                {/* Play mode: NOT gated by `source` — owns its own multi-source
+                    state (recordings: Source[]). NOT keyed by source.source_id —
+                    must NOT remount on the global source switch (that would
+                    drop the user's loaded recordings). */}
+                {mode === 'play' && (
+                  <PlaybackMode
+                    onStatusChange={onStatusChange}
+                    say={say}
+                    fileFilter={fileFilter}
+                    onSwitchSource={setSource}
+                  />
                 )}
               </div>
             </div>
@@ -531,9 +580,7 @@ const ModeRail = ({ mode, setMode }) => {
     { id: 'usaf', label: 'USAF', title: 'USAF Resolution (1)', icon: 'usaf' },
     { id: 'fpn', label: 'FPN', title: 'FPN Analysis (2)', icon: 'fpn' },
     { id: 'dof', label: 'DoF', title: 'Depth of Field (3)', icon: 'dof' },
-    ...(playbackEnabled()
-      ? [{ id: 'play', label: 'Play', title: 'Playback / Recording Inspection (4)', icon: 'play' }]
-      : []),
+    { id: 'play', label: 'PLAY', title: 'Play · Recording Inspection (4)', icon: 'film' },
   ];
   return (
     <div
@@ -676,7 +723,12 @@ const TopBar = ({
   setFileFilter,
 }) => {
   const t = useTheme();
-  const modeTitle = { usaf: 'USAF Resolution', fpn: 'FPN Analysis', dof: 'Depth of Field' }[mode];
+  const modeTitle = {
+    usaf: 'USAF Resolution',
+    fpn: 'FPN Analysis',
+    dof: 'Depth of Field',
+    play: 'Play · Recording Inspection',
+  }[mode];
   return (
     <div
       style={{
@@ -749,7 +801,13 @@ const TopBar = ({
       </button>
       <div style={{ width: 1, height: 22, background: t.border, flexShrink: 0 }} />
       <div style={{ fontSize: 13, color: t.text, fontWeight: 500, flexShrink: 0 }}>{modeTitle}</div>
-      {source && (
+      {/* M22 hotfix — Play mode owns its own multi-source state
+          (recordings[]) and renders its own Stream Header chip in the
+          mode body. The global `source` chip here would falsely
+          announce a file from another mode (the last one USAF/FPN/DoF
+          loaded) while Play has no recordings yet — confusing. Hide
+          the chip entirely when mode === 'play'. */}
+      {source && mode !== 'play' && (
         <div
           style={{
             display: 'flex',
@@ -958,7 +1016,7 @@ const HelpOverlay = ({ mode, onClose }) => {
       ['⌘K', 'Command palette'],
       ['⌘O', 'Open image / H5'],
       ['?', 'Toggle this overlay'],
-      ['1 / 2 / 3', 'Switch mode'],
+      ['1 / 2 / 3 / 4', 'Switch mode'],
     ],
     usaf: [
       ['Drag', 'Draw a line through a USAF group/element'],
@@ -972,6 +1030,12 @@ const HelpOverlay = ({ mode, onClose }) => {
       ['Click', 'Drop probe point'],
       ['Drag', 'Draw focus line'],
       ['Right-click', 'Delete nearest'],
+    ],
+    play: [
+      ['Space', 'Play / pause'],
+      ['← / →', 'Step ±1 frame'],
+      ['Shift+← / →', 'Step ±10 frames'],
+      ['Home / End', 'First / last frame'],
     ],
   };
   return (

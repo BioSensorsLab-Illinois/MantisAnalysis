@@ -137,7 +137,31 @@ def extract_with_mode(raw_frame: np.ndarray,
     when the raw half dims aren't clean multiples of the stride.
     """
     if mode.dual_gain:
-        hg_half, lg_half = split_dual_gain(raw_frame)
+        # Most modes split HG (left half) | LG (right half). The legacy
+        # gsbsi RGB-NIR layout interleaves HG / LG by row (period 4)
+        # instead — so flagged via the mode's ``split_kind``. Same R/G/B/NIR
+        # locs apply to both halves; the split happens before extraction.
+        split_kind = getattr(mode, "split_kind", "horizontal") or "horizontal"
+        if split_kind == "row_interleaved_period_4":
+            arr = raw_frame
+            if arr.ndim == 3 and arr.shape[-1] == 1:
+                arr = arr[..., 0]
+            # Rows 0,2 mod 4 = LG; rows 1,3 mod 4 = HG. Stack the two
+            # surviving rows of each half so the 2x2 sub-tile pattern
+            # (B@(0,0), R@(0,1), G@(1,0), NIR@(1,1)) lands at the same
+            # (loc[0]*2, loc[1]) positions used by the modern mode.
+            lg_half = np.empty(
+                (arr.shape[0] // 2, arr.shape[1]), dtype=arr.dtype
+            )
+            lg_half[0::2] = arr[0::4]
+            lg_half[1::2] = arr[2::4]
+            hg_half = np.empty(
+                (arr.shape[0] // 2, arr.shape[1]), dtype=arr.dtype
+            )
+            hg_half[0::2] = arr[1::4]
+            hg_half[1::2] = arr[3::4]
+        else:
+            hg_half, lg_half = split_dual_gain(raw_frame)
         hg = _apply_mode_to_half(hg_half, mode, config)
         lg = _apply_mode_to_half(lg_half, mode, config)
         out: Dict[str, np.ndarray] = {}
@@ -193,6 +217,9 @@ def load_h5_channels(path: Path, frame_index: int = 0,
         lg = {"R": channels["LG-R"], "G": channels["LG-G"], "B": channels["LG-B"]}
         channels["HG-Y"] = luminance_from_rgb(hg)
         channels["LG-Y"] = luminance_from_rgb(lg)
+        # M25 — synthesize HDR-{R,G,B,NIR,Y} via saturation-aware fusion.
+        from .hdr_fusion import add_hdr_channels
+        add_hdr_channels(channels)
     return channels, dict(rec.attrs), frame, mode.id, cfg
 
 

@@ -40,6 +40,10 @@ dependencies = [
     "uvicorn[standard]>=0.27",
     "python-multipart>=0.0.9",
     "pydantic>=2.5",
+    # play-tab-recording-inspection-rescue-v1 M10: MP4 + GIF video export
+    # for the Play / Recording Inspection mode. imageio[ffmpeg] bundles
+    # imageio-ffmpeg which downloads a static ffmpeg on first use.
+    "imageio[ffmpeg]>=2.30",
 ]
 
 [project.optional-dependencies]
@@ -76,7 +80,7 @@ packages = ["mantisanalysis"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-mantisanalysis = ["py.typed"]
+mantisanalysis = ["py.typed", "static/fonts/*.ttf", "static/fonts/*.txt"]
 
 [tool.ruff]
 line-length = 100

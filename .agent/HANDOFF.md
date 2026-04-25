@@ -1,113 +1,117 @@
 # HANDOFF — current live state pointer
 
-Last updated: **2026-04-25**, end of `playback-rebuild-v2` **M0–M6 — INITIATIVE CLOSED**. 7 commits ahead of origin/main beyond M0; push pending user consent.
+Last updated: **2026-04-27**, mid-flight on **play-tab-recording-inspection-rescue-v1
+Phase 2**. **Groups P + R + H all COMPLETE; Group A in flight (M28 + M29 ✓; M30 next)**. M12
+through M29 all shipped on top of the closed Phase 1 rescue. **M29 included a P0 hotfix
+sweep for legacy gsbsi-prefix H5 files: ~1 fps playback fixed via `/dset` in-memory slurp;
+raw resolution + bit depth now displayed on FilePill and ViewerCard footer.** Two hotfix
+sweeps along the way addressed user-reported issues (thresholds restored on
+every mode, HG vs LG normalization fixed by switching default to `'none'`,
+all Play checkboxes correctly reflect state, Display section is now
+RGB-aware, brightness/contrast/gamma duplicates removed from Corrections,
+TopBar suppresses cross-mode source chip in Play, dark-correction checkbox
+honors `has_dark`). Play mode was rebuilt against the Anthropic-hosted
+design template and verified live on real GSense data.
 
-## Active initiative
+## Current state of the working tree
 
-**None** — `playback-rebuild-v2` closed at M6 today.
+- Branch: `main`.
+- Active initiative: **play-tab-recording-inspection-rescue-v1** (Group A in flight; M28 + M29 + M30 ✓ + ISP-refresh / source-mode restructure hotfix sweep; M31 next).
+- Active modes: **USAF, FPN, DoF, Play** (4 modes; Play is the new 4th mode).
+- Initiative folder: [.agent/runs/play-tab-recording-inspection-rescue-v1/](runs/play-tab-recording-inspection-rescue-v1/).
+- Phase 2 progress: **Group P (M12-M19) ✓; Group R (M20-M24) ✓; Group H (M25-M27) ✓; Group A (M28-M32): M28 + M29 ✓**. M28 shipped the server-side presets store. M29 ships the 4-step Overlay Builder wizard + a P0 hotfix sweep for legacy gsbsi-prefix H5 files (the un-chunked `/dset` is now slurped into RAM at first open so playback hits 50+ fps headroom instead of ~1 fps; FilePill + ViewerCard footer now display raw resolution / bit depth / per-channel resolution). M30 (right-click frame → Send to USAF/FPN/DoF) is next.
 
-- Folder: [`.agent/runs/playback-rebuild-v2/`](runs/playback-rebuild-v2/)
-- ExecPlan: [`runs/playback-rebuild-v2/ExecPlan.md`](runs/playback-rebuild-v2/ExecPlan.md)
-- Status: [`runs/playback-rebuild-v2/Status.md`](runs/playback-rebuild-v2/Status.md)
-- Design template archive: [`runs/playback-rebuild-v2/design/`](runs/playback-rebuild-v2/design/)
-  (spec.md / wireframes.md / flows.md / playback.jsx prototype + 2 reference screenshots)
-- M0 verification screenshot: [`runs/playback-rebuild-v2/screenshots/M0_play_tile_scaffold.png`](runs/playback-rebuild-v2/screenshots/M0_play_tile_scaffold.png)
+## What just shipped (play-tab-recording-inspection-rescue-v1)
 
-## What just landed in M0
+12 milestones (M0–M11) in one session. Highlights:
 
-- **Deleted** the entire v1 Playback module per user 2026-04-25
-  ("delete all old module immediately to make sure no confusion and
-  chaos"): 6 backend files + 19 frontend files + 5 test files + 1
-  script (~14,000 LOC removed). Also deleted `recording.py` +
-  `dark_frame.py` (built only for Playback v1) and the
-  `recording-inspection` skill that taught agents to extend that
-  module.
-- **Deleted** the accessibility surface per user 2026-04-25 ("delete
-  all accessibility workflow and skills"): the `accessibility-check`
-  skill, the `accessibility-reviewer` agent brief, the
-  `tests/web/test_accessibility.py` axe-core gate, the
-  `axe-playwright-python` Python dep, and the `@storybook/addon-a11y`
-  npm dep + Storybook config wiring. Active agent docs scrubbed
-  (`WORKFLOWS`, `QUALITY_GATES`, `REFERENCES`, `UI_VERIFICATION`,
-  `templates/ExecPlan`, `agents/README`, `agents/test-coverage-reviewer`,
-  `skills/README`, `skills/quality-gates`, `skills/react-browser-ui-change`,
-  `skills/independent-review-loop`).
-- **Scaffolded** the new module at `mantisanalysis/playback/{__init__,
-  h5io, library, workspace, events, render, export, api}.py` —
-  module skeletons matching the v2 data model (Recording / DarkFrame
-  in Library; Stream / Tab / View in Workspace; cascade rules in one
-  place; SSE event bus; single render entry).
-- **Scaffolded** the new frontend at `web/src/playback/{tokens.ts,
-  api.ts, index.tsx}` plus empty `components/`, `inspector/`,
-  `modals/` dirs. `tokens.ts` is the source of truth for per-channel
-  color, icon set, typography (13/15 px body, was 10/11), and
-  layout proportions, anchored on the design spec's §11.
-- **Restored** the Play tile on the rail; clicking it shows a
-  centered M0 scaffold placeholder with no console errors.
-- **Wrote 8 failing reproduction tests** (10 with the workflow file
-  expansions): `tests/headless/test_playback_v2_backend.py` (6
-  backend reproductions including a real-H5 perf budget + sensitive-
-  attr scrub) + `tests/web/test_playback_v2_workflow.py` (4 frontend
-  workflow reproductions). They fail by design at M0 and gate every
-  later milestone.
-- **Archived design template** to `runs/playback-rebuild-v2/design/`
-  for permanent reference: spec.md (873 lines), wireframes.md
-  (530 lines), flows.md (283 lines), the four `playback*.jsx`
-  prototype files, and 2 reference screenshots from the design.
+- **Backend** ([mantisanalysis/session.py](../mantisanalysis/session.py),
+  [mantisanalysis/server.py](../mantisanalysis/server.py)) — `LoadedSource.extract_frame`
+  per-frame extraction with lazy `FrameReader` (h5py handle held open per source);
+  64 MB LRU frame cache bounded at 16 entries; per-source `RLock` for thread-safe
+  cache mutation under FastAPI threadpool. New routes: `/api/sources/{sid}/frames`,
+  `/frame/{i}/channel/{ch}/thumbnail.png`, `/frame/{i}/rgb.png`,
+  `/frame/{i}/overlay.png`, `/export/video?format=mp4|gif|zip`. Dark-frame loader
+  averages all frames in the dark H5 before extraction.
+- **Frontend** ([web/src/playback.tsx](../web/src/playback.tsx)) — full 7-region
+  template layout: StreamHeader, SourcesPanel (recordings + dark frames),
+  ViewerGrid (Single / Side-by-side / Stack / 2×2), ViewerCard with title-bar
+  source-mode dropdown + ProcessingBadges + footer, Inspector with 8 sections
+  (View / Source / Corrections / Display / RGB grading / Overlay / Labels /
+  Advanced), TimelineStrip with mini-map + slider + play/pause + FPS + Loop,
+  Stream Builder modal, Export Video modal, Warning Center modal.
+- **Source-mode dropdown** — for GSense H5 enumerates 9 options (RGB · HG/LG,
+  NIR · HG/LG, Gray · HG-Y/LG-Y, RGB+NIR overlay · HG/LG, Raw channel…) all
+  derived from `source.channels[]`. Default = `RGB · HG`. **Kills the prior
+  "manual R/G/B picker" failure.**
+- **Loop = ON by default** (resolved decision #3) wraps cleanly; loop OFF hard-stops.
+- **Image + video export** — browser download via `Content-Disposition`. Filename
+  pattern `{stream}_f{NNNN}-{NNNN}_{render}.{ext}`. MP4 / GIF / PNG-zip all working
+  on real data.
 
-## Smoke status, last verified 2026-04-25 (post-M0)
+Reviewer findings (frontend-react-engineer + fastapi-backend-reviewer) summarized
+in [.agent/runs/play-tab-recording-inspection-rescue-v1/reviews/](runs/play-tab-recording-inspection-rescue-v1/reviews/).
+P0s + critical P1s applied. Remaining P1/P2 deferred with rationale.
 
-- ✅ Tier 0 — agent-doc consistency PASS (5 scanners green;
-  `check_agent_docs.py` updated to skip closed-initiative folders for
-  cross-ref + path-existence checks).
-- ✅ Tier 1 — 15 modules imported.
-- ✅ Tier 2 — figures rendered (Agg).
-- ✅ Tier 3 — FastAPI endpoints exercised end-to-end.
-- ✅ `pytest tests/headless/test_playback_v2_backend.py tests/web/test_playback_v2_workflow.py` — **10 fails by design, for the right reason** (NotImplementedError / pytest.fail with message tied to the milestone that resolves it).
-- ✅ `npm run build` — 519 kB main + 4.8 MB plotly (unchanged).
-- ✅ `npm run format` — clean.
-- ✅ Browser preview at Play tab — scaffold renders cleanly, no console errors. Screenshot at `runs/playback-rebuild-v2/screenshots/M0_play_tile_scaffold.png`.
+## Smoke status, last verified 2026-04-27 (after M30 + ISP-refresh + source-mode restructure)
+
+- Tier 0 — agent-doc + lint + typecheck PASS
+- `pytest -q` — **258 / 258 passing**
+- `npm run build` — Vite production build clean
+- Live browser verification — 11 (Phase 1) + 19 (M12 through M30) milestones +
+  12 hotfix sweeps (the latest: now-playing indicator on the FilePill
+  — green left-edge stripe + green ▶ glyph + tooltip when the global
+  timeline playhead is inside that recording's frame range)
+  logged in
+  [VERIFICATION_LOG.md](runs/play-tab-recording-inspection-rescue-v1/VERIFICATION_LOG.md).
 
 ## Where to pick up next
 
-**M1 — Backend library + workspace + cascade + h5io.**
+**M30 — Right-click frame → Send to USAF/FPN/DoF** (Group A · Advanced).
+Per plan §M30: NEW `STORE.create_transient_from_frame(parent_sid, idx)`
+returns a new image-kind source whose channels are the parent's
+`extract_frame(idx)` output (auto-evicted after 30 min idle). NEW
+`POST /api/playback/handoff` accepting `{source_id, frame_index,
+target_mode}` returns the new transient `source_id`. Frontend
+`ViewerCard` `onContextMenu` opens a popover with USAF/FPN/DoF; click
+posts the handoff and dispatches `mantis:switch-source`. `app.tsx`
+listens for the event and switches mode + selected source. Gate: scrub
+to frame 5 → right-click → Send to USAF → app switches modes with the
+synthetic source loaded; original Play recording stays intact.
 
-Per `runs/playback-rebuild-v2/ExecPlan.md` §5:
+**M29 follow-up notes**: The 4-step Overlay Builder is reachable via
+`Open Overlay Builder…` at the top of the Inspector Overlay section
+when the active source-mode is overlay-kind. The modal mirrors the
+inline OverlayConfigurator field-for-field but only commits on Apply.
+The legacy-gsbsi P0 fix slurps `/dset` into `LegacyFrameReader._mem` on
+first open (≈60 ms, 537 MB) — RAM cost is the dataset size, which is
+within reasonable budget for "load everything into memory" semantics.
+If a user loads multiple legacy files at once and hits RAM pressure,
+the existing `SessionStore.max_entries` LRU + `close_frame_reader`
+hook cleanly drops `_mem` on eviction. New `LoadedSource.raw_shape /
+raw_dtype / raw_bit_depth` fields are surfaced through the
+`SourceSummary` Pydantic and rendered on the FilePill (raw mosaic
+resolution + bit-depth chip when ≠ 16) and ViewerCard footer
+(per-channel rendered resolution).
 
-1. Implement `mantisanalysis/playback/h5io.py::inspect()` against the
-   real H5s at `/Users/zz4/Desktop/day5_breast_subject_1/`
-   (10-frame, 2048×4096 raw mosaic). Strip `network-info`, `os-info`,
-   `hardware-info`, `python-info` from camera_attrs.
-2. Implement `Library.register_recording`, `delete_recording`
-   (cascade), `register_dark`, `delete_dark` (cascade).
-3. Implement `Workspace.build_stream`, `delete_stream`, `open_tab`,
-   `close_tab` with cascade rules from ExecPlan §3 ("delete-recording
-   shrinks or removes streams, closes tabs").
-4. Wire `EventBus.emit` calls so each cascade emits one
-   `library.recording.deleted` / `library.dark.deleted` event with the
-   shrunk_streams + closed_tabs payload.
-5. Verify: all 6 backend reproduction tests turn green; pytest stays
-   clean; Tier 1+2+3 stay green.
+Earlier deferred items in
+[BUG_REGRESSION_CHECKLIST.md](runs/play-tab-recording-inspection-rescue-v1/BUG_REGRESSION_CHECKLIST.md)
+remain valid follow-ups (stale-`views`-closure cleanups, stream-follow
+rebind name-preservation).
 
-## Outstanding deferred work (B-* IDs, mostly v1 follow-ups now obsolete)
+Other modes (USAF / FPN / DoF) are unchanged and regression-clean.
 
-- B-0010 — push initial commit to remote (still pending consent).
-- B-0018 — real-sample validation sweep — partially unblocked by the
-  `/Users/zz4/Desktop/day5_breast_subject_1/` dataset; rolled into M1
-  acceptance test.
-- B-0029..B-0038 — playback v1 follow-ups; **all OBSOLETE** because
-  v1 is deleted. Not formally closed in BACKLOG.md (left as
-  archaeology); the new initiative supersedes them.
+## Outstanding deferred work
+
+- B-0010 — push initial commit + remote tracking (pending consent).
+- B-0018 — real-sample validation sweep (now partially satisfied for Play; USAF/FPN/DoF still pending).
+- Phase 5c — drop `@ts-nocheck` per file (multi-session, paired with feature work).
+- Play-mode P1/P2 polish from M11 reviewer pass (see CHECKLIST).
 
 ## Residual risks / open questions
 
-- The dataset path `/Users/zz4/Desktop/day5_breast_subject_1/` is
-  user-local; CI without it will skip M1's real-H5 tests via
-  `pytest.skip`. Synthetic fixtures for the same shape will be added
-  in M1 to keep CI honest.
-- The accessibility surface deletion is intentional per user request.
-  `aria-label` attributes on existing controls are preserved
-  (functionality), but axe-core / WCAG numeric scores no longer gate
-  anything. UI verification is **live render screenshots only** —
-  recorded as a feedback memory at
-  `~/.claude/projects/.../memory/feedback_visual_design.md`.
+- New backend dep `imageio[ffmpeg]>=2.30` added to `pyproject.toml` for video
+  export. Existing virtualenvs need `pip install -e .` to pick it up. The route
+  surfaces HTTP 503 with a fallback hint when the codec is unavailable.
+- `_load_dark_channels` reads all frames into memory; for typical lab darks
+  (≤200 MB) this is fine. Documented in CHECKLIST P2.
