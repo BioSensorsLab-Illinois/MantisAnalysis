@@ -15,8 +15,10 @@
 // analysis-page-overhaul-v1 Phase 4.5: Plotly is dynamic-imported to
 // chunk it out of the initial bundle (~3.5 MB). Load happens lazily
 // inside `PlotlyChart`'s effect; Vite emits a separate chunk.
+// Phase 5: dom-to-image-more is no longer imported here — exports route
+// through `renderChartToPng` in shared.tsx, which keeps domtoimage
+// internal as a last-resort HTML fallback.
 import React from 'react';
-import domtoimage from 'dom-to-image-more';
 import {
   useTheme,
   Icon,
@@ -42,6 +44,7 @@ import {
   channelColor,
   paletteColor,
   Chart,
+  renderChartToPng,
 } from './shared.tsx';
 
 const {
@@ -535,8 +538,9 @@ const USAFAnalysisModal = ({ run, onClose, onToast }) => {
     onToast?.('Exported analysis JSON', 'success');
   }, [visibleChannels, keptIdx, measurements, allSpecs, threshold, perChLim, onToast]);
 
-  // USAF tab export — delegates to the shared mantisExport so per-card
-  // PNG buttons and the top-bar PNG button behave identically.
+  // USAF tab export — Phase 5: routed through renderChartToPng (was
+  // local mantisExport). Per-card PNG buttons inside `<Chart>` already
+  // use the same primitive, so behavior is consistent.
   const tabBodyRef = useRefA(null);
   const exportPNG = useCallbackA(async () => {
     const node = tabBodyRef.current;
@@ -546,13 +550,14 @@ const USAFAnalysisModal = ({ run, onClose, onToast }) => {
     }
     try {
       onToast?.('Rendering…');
-      const res = await mantisExport(
-        node,
-        `mantis-${tab}-${Date.now()}`,
-        plotStyleState.style,
-        effectiveBg
-      );
-      onToast?.(`Exported ${tab} as ${res.format.toUpperCase()} (${res.scale}×)`, 'success');
+      const res = await renderChartToPng(node, {
+        filename: `mantis-${tab}-${Date.now()}`,
+        style: plotStyleState.style,
+        themeFallbackBg: effectiveBg,
+      });
+      const fmt = (res?.format ?? 'png').toString().toUpperCase();
+      const scale = plotStyleState.style.exportScale ?? 2;
+      onToast?.(`Exported ${tab} as ${fmt} (${scale}×)`, 'success');
     } catch (err) {
       onToast?.(`Export failed: ${err.message || err}`, 'danger');
     }
@@ -2643,13 +2648,14 @@ const FPNAnalysisModal = ({ run, onClose, onToast }) => {
     }
     try {
       onToast?.('Rendering…');
-      const res = await mantisExport(
-        node,
-        `mantis-fpn-${tab}-${Date.now()}`,
-        plotStyleState.style,
-        effectiveBg
-      );
-      onToast?.(`Exported ${tab} as ${res.format.toUpperCase()} (${res.scale}×)`, 'success');
+      const res = await renderChartToPng(node, {
+        filename: `mantis-fpn-${tab}-${Date.now()}`,
+        style: plotStyleState.style,
+        themeFallbackBg: effectiveBg,
+      });
+      const fmt = (res?.format ?? 'png').toString().toUpperCase();
+      const scale = plotStyleState.style.exportScale ?? 2;
+      onToast?.(`Exported ${tab} as ${fmt} (${scale}×)`, 'success');
     } catch (err) {
       onToast?.(`Export failed: ${err.message || err}`, 'danger');
     }
@@ -4678,13 +4684,14 @@ const DoFAnalysisModal = ({ run, onClose, onToast }) => {
     }
     try {
       onToast?.('Rendering…');
-      const res = await mantisExport(
-        node,
-        `mantis-dof-${tab}-${Date.now()}`,
-        plotStyleState.style,
-        effectiveBg
-      );
-      onToast?.(`Exported ${tab} as ${res.format.toUpperCase()} (${res.scale}×)`, 'success');
+      const res = await renderChartToPng(node, {
+        filename: `mantis-dof-${tab}-${Date.now()}`,
+        style: plotStyleState.style,
+        themeFallbackBg: effectiveBg,
+      });
+      const fmt = (res?.format ?? 'png').toString().toUpperCase();
+      const scale = plotStyleState.style.exportScale ?? 2;
+      onToast?.(`Exported ${tab} as ${fmt} (${scale}×)`, 'success');
     } catch (err) {
       onToast?.(`Export failed: ${err.message}`, 'danger');
     }
@@ -6077,114 +6084,13 @@ const ChromaticShiftChart = ({
 // grid, markers, card chrome, and palette.
 // ===========================================================================
 
-// Shared card chrome + title for all DoF/FPN native tab cards.
-// Single export path — used by per-card PNG buttons and the modal's
-// top-bar PNG button. dom-to-image-more supports a native `scale`
-// option, so we drop the old transform-scale hack that was shifting
-// SVG <text> on export. Honors plotStyle.exportScale / exportFormat /
-// exportBackground. `copyDefaultStyles: false` avoids the deep
-// getComputedStyle walk that trips over the Google-Fonts cross-origin
-// stylesheet and can stall the export forever.
-const mantisExport = async (node, filename, plotStyle, themeFallbackBg) => {
-  if (!node) throw new Error('no node to export');
-  const dti = domtoimage;
-  if (!dti) throw new Error('dom-to-image not loaded');
-  const ps = plotStyle || {};
-  const scale = Number.isFinite(ps.exportScale) ? ps.exportScale : 2;
-  const format = ps.exportFormat === 'svg' ? 'svg' : 'png';
-  const bg =
-    ps.exportBackground === 'transparent'
-      ? 'transparent'
-      : ps.exportBackground === 'white'
-        ? '#ffffff'
-        : themeFallbackBg || '#ffffff';
-  // Hide any `data-no-export` bits (per-card download buttons, tab
-  // toolbars) so they don't appear in the exported image.
-  const hidden = [...node.querySelectorAll('[data-no-export]')];
-  const prevDisp = hidden.map((n) => n.style.display);
-  hidden.forEach((n) => {
-    n.style.display = 'none';
-  });
-  // Freeze inner <svg> pixel sizes before serialization. Charts render with
-  // `width="100%"` at browse time, but dom-to-image rasterizes via a data-
-  // URL SVG image where percentage widths collapse to the default 300×150,
-  // shifting polyline / circle / text into different pixel positions
-  // depending on which child measures first. Lock all child SVGs to their
-  // on-screen pixel size so polyline + dots + axes stay aligned.
-  const svgs = [...node.querySelectorAll('svg')];
-  const origSvgAttrs = svgs.map((s) => {
-    const r = s.getBoundingClientRect();
-    const prev = {
-      w: s.getAttribute('width'),
-      h: s.getAttribute('height'),
-      pa: s.getAttribute('preserveAspectRatio'),
-    };
-    if (r.width && r.height) {
-      s.setAttribute('width', String(Math.round(r.width)));
-      s.setAttribute('height', String(Math.round(r.height)));
-      // Force exact viewBox→canvas mapping so there's no letterbox drift.
-      s.setAttribute('preserveAspectRatio', 'none');
-    }
-    return { svg: s, prev };
-  });
-  void node.offsetHeight;
-  const opts = {
-    scale,
-    width: node.scrollWidth,
-    height: node.scrollHeight,
-    copyDefaultStyles: false,
-    cacheBust: true,
-  };
-  if (bg !== 'transparent') opts.bgcolor = bg;
-  // 15-second watchdog so a hung stylesheet walk can't freeze the UI.
-  const withTimeout = (promise, ms) =>
-    Promise.race([
-      promise,
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error(`export timed out after ${ms / 1000}s`)), ms)
-      ),
-    ]);
-  let blob;
-  try {
-    if (format === 'svg') {
-      const dataUrl = await withTimeout(dti.toSvg(node, opts), 15000);
-      const svgText = decodeURIComponent(
-        dataUrl.replace(/^data:image\/svg\+xml;charset=utf-8,/, '')
-      );
-      blob = new Blob([svgText], { type: 'image/svg+xml' });
-    } else {
-      blob = await withTimeout(dti.toBlob(node, opts), 15000);
-    }
-  } finally {
-    hidden.forEach((n, i) => {
-      n.style.display = prevDisp[i] || '';
-    });
-    // Restore original SVG attributes so on-screen layout snaps back.
-    origSvgAttrs.forEach(({ svg, prev }) => {
-      if (prev.w == null) svg.removeAttribute('width');
-      else svg.setAttribute('width', prev.w);
-      if (prev.h == null) svg.removeAttribute('height');
-      else svg.setAttribute('height', prev.h);
-      if (prev.pa == null) svg.removeAttribute('preserveAspectRatio');
-      else svg.setAttribute('preserveAspectRatio', prev.pa);
-    });
-  }
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${filename}.${format}`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1200);
-  return { format, scale, bytes: blob.size };
-};
-
-// analysis-page-overhaul-v1 Phase 4 Wave A (this commit) — `ChartCard` is
-// gone. All 8 callers ported to `<Chart>` (shared.tsx). Per-card PNG now
-// flows through `renderChartToPng` instead of the local `mantisExport`,
-// which partially advances Phase 5; `mantisExport` retires when the modal-
-// level (USAF/FPN/DoF) Export PNG buttons follow in Phase 5.
+// analysis-page-overhaul-v1 Phase 5 (this commit) — `mantisExport` is
+// gone. Both per-card PNG buttons (via `<Chart>`) AND modal-level
+// "Export tab" buttons (USAF/FPN/DoF) flow through `renderChartToPng`
+// (shared.tsx). Single export pipeline; SVG-direct path replaces
+// dom-to-image's transform-scale hack and width-freeze pass for the
+// SVG-only majority case. dom-to-image is still used as the HTML-only
+// fallback inside `renderNodeToPng` (e.g., the Summary table tab).
 
 // Native SVG Gaussian fit chart. For each (channel × line) we have the raw
 // focus samples (`ln.focus_norm`), the fit parameters (`ln.gaussian`), and
