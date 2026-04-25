@@ -3,7 +3,57 @@
 Opened: 2026-04-25
 Last updated: 2026-04-25 (M0 in-flight)
 
-## Active milestone: M3 — Visual tokens + Storybook reviews (next)
+## Active milestone: M4 — TabBar + Workspace + AddFilesDialog + ViewerCard + cascade UI (next)
+
+### M3 — Visual tokens + primitives + Storybook reviews — DONE 2026-04-25
+
+- New `web/src/playback/theme.ts` is the single import surface for
+  every component: re-exports `tokens.ts` (CHANNEL_COLOR, FONT, ICONS,
+  BADGE_TONE, etc.) plus a concrete `PALETTE` (panel / row-hover /
+  text / accent / danger / warn / success), `RADIUS` scale,
+  `cardOutline`, `focusRing`. No more inline hex in components.
+- Visual primitives under `components/`:
+  - `ChannelChip.tsx` — colored swatch + mono channel code on
+    neutral chip. Per-channel color from tokens.CHANNEL_COLOR. Two
+    sizes (sm / md). Color paired with text per design spec §11.
+  - `ProcessingBadge.tsx` — 3-letter mono chip. Tone derived from
+    BADGE_TONE in tokens (RAW neutral, DRK/NRM/LUT/RGB accent, OVL/
+    LCK warn, EXP success). on / off state by opacity + fill.
+  - `ExposurePill.tsx` — auto-unit format (`5 µs` / `25 ms` /
+    `1.00 s`). `warn` variant for exposure-mismatch banding.
+    Exports `formatExposure()` helper.
+  - `IconButton.tsx` — small action chip used in dense rows. Tones
+    {accent, danger, warn, neutral} × variants {ghost, solid}.
+    aria-label always set; tooltip = label.
+- `LibraryRail.tsx` now renders entirely through PALETTE +
+  primitives. SampleViewHeader uses a per-view colored swatch
+  (view 0 → R, 1 → G, 2 → B, 3 → NIR) so the rail reads at a
+  glance; rows use `<ExposurePill>` + `<IconButton>` for play/
+  remove. Hover state stays.
+- Storybook stories at
+  `web/src/playback/components/__stories__/PlaybackPrimitives.stories.tsx`.
+  Four screenshots committed to
+  `.agent/runs/playback-rebuild-v2/screenshots/`:
+  - `M3_storybook_channel_chips.png` — 10 channels × 2 sizes;
+    HG/LG hue pairing visible.
+  - `M3_storybook_processing_badges.png` — 8 codes × on/off.
+  - `M3_storybook_exposure_pills.png` — 9 sample values × neutral
+    + warn rows; format reference line at bottom.
+  - `M3_storybook_icon_buttons.png` — 6 button variants.
+- Optional preload-on-boot path added to `playback/api.py::mount`,
+  triggered by `MANTIS_PLAYBACK_DATASET=<dir>` env var. Works from
+  a terminal-launched server but blocked by macOS TCC when the
+  preview wrapper spawns Python (Desktop folder requires Full Disk
+  Access). Populated-rail screenshot via the preview tool is
+  therefore deferred to **M4**, where Playwright will drive the
+  workflow on a real headless Chromium that has explicit dataset
+  access.
+
+**Verification**: 4 storybook screenshots present + reviewable;
+LibraryRail renders cleanly when polling against a populated
+backend (proven in M2). pytest + smoke green.
+
+### M2 — Frontend useWorkspace + LibraryRail + bulk-folder API — DONE 2026-04-25
 
 ### M2 — Frontend useWorkspace + LibraryRail + bulk-folder API — DONE 2026-04-25
 

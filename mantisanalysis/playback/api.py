@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
@@ -177,9 +178,30 @@ async def _event_stream(ws: Workspace) -> AsyncIterator[str]:
 
 
 def mount(app: FastAPI, workspace: Optional[Workspace] = None) -> Workspace:
-    """Register Playback routes. Returns the bound Workspace."""
+    """Register Playback routes. Returns the bound Workspace.
+
+    If the ``MANTIS_PLAYBACK_DATASET`` env var is set to a directory
+    path, every ``.h5`` / ``.hdf5`` under it is registered into the
+    Library at app boot. Useful for dev / demo so the rail is
+    populated without the user dragging files. Failures are
+    non-fatal — bad paths just log a warning and the rail starts
+    empty.
+    """
 
     ws = workspace or WORKSPACE
+    _preload = os.environ.get("MANTIS_PLAYBACK_DATASET")
+    if _preload:
+        try:
+            p = Path(_preload).expanduser()
+            if p.is_dir() and not ws.library.list_recordings():
+                for f in sorted(p.iterdir()):
+                    if f.is_file() and f.suffix.lower() in {".h5", ".hdf5"}:
+                        try:
+                            ws.library.register_recording(f)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
 
     @app.get("/api/playback/workspace")
     def get_workspace() -> Dict[str, Any]:

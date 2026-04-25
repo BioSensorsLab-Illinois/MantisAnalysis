@@ -1,13 +1,16 @@
 // LibraryRail — left column of the Playback workspace.
 //
 // Renders Recordings grouped by sample → view → exposure when the
-// filename convention is followed; ungrouped under "Other recordings"
-// when not. Renders Darks grouped by exposure.
+// filename convention is followed; ungrouped under "Other" when not.
+// Renders Darks grouped by exposure. Token-driven; no inline hex.
 
 import React from 'react';
 
-import { CHANNEL_COLOR, FONT, LAYOUT, SPACE } from '../tokens';
 import { RecordingDTO, DarkDTO, deleteRecording, buildStream, openTab } from '../api';
+import { CHANNEL_COLOR, FONT, LAYOUT, PALETTE, RADIUS, SPACE } from '../theme';
+
+import { ExposurePill } from './ExposurePill';
+import { IconButton } from './IconButton';
 
 const { useMemo, useState } = React;
 
@@ -18,32 +21,14 @@ interface Props {
   onError: (msg: string) => void;
 }
 
-const PANEL_BG = '#0f1115';
-const PANEL_BORDER = '#1f2330';
-const TEXT = '#e5e7eb';
-const TEXT_MUTED = '#9ca3af';
-const TEXT_FAINT = '#6b7280';
-const ACCENT = '#3b82f6';
-const ACCENT_SOFT = 'rgba(59, 130, 246, 0.15)';
-
 const _sectionLabel: React.CSSProperties = {
   font: FONT.label,
   letterSpacing: 0.6,
-  color: TEXT_FAINT,
+  color: PALETTE.textFaint,
   textTransform: 'uppercase',
   marginTop: SPACE.md,
   marginBottom: SPACE.xs,
   paddingLeft: SPACE.sm,
-};
-
-const _row: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: SPACE.sm,
-  padding: `${SPACE.xs}px ${SPACE.sm}px`,
-  borderRadius: 4,
-  font: FONT.small,
-  color: TEXT,
 };
 
 interface SampleViewGroup {
@@ -52,7 +37,10 @@ interface SampleViewGroup {
   recordings: RecordingDTO[];
 }
 
-function _group(recs: RecordingDTO[]): { groups: SampleViewGroup[]; ungrouped: RecordingDTO[] } {
+function _group(recs: RecordingDTO[]): {
+  groups: SampleViewGroup[];
+  ungrouped: RecordingDTO[];
+} {
   const groups: Map<string, SampleViewGroup> = new Map();
   const ungrouped: RecordingDTO[] = [];
   for (const r of recs) {
@@ -72,11 +60,19 @@ function _group(recs: RecordingDTO[]): { groups: SampleViewGroup[]; ungrouped: R
   return { groups: out, ungrouped };
 }
 
-function _exposureLabel(exposure_s: number | null): string {
-  if (exposure_s == null) return '—';
-  if (exposure_s >= 1) return `${exposure_s.toFixed(2)} s`;
-  if (exposure_s >= 0.001) return `${(exposure_s * 1000).toFixed(0)} ms`;
-  return `${(exposure_s * 1_000_000).toFixed(0)} µs`;
+// View → channel hue mapping. Each view (camera angle) gets a stable
+// color so the rail reads at-a-glance: view 0 → R, view 1 → G,
+// view 2 → B, view 3 → NIR.
+const VIEW_TO_CHANNEL: Record<number, keyof typeof CHANNEL_COLOR> = {
+  0: 'HG-R',
+  1: 'HG-G',
+  2: 'HG-B',
+  3: 'HG-NIR',
+};
+
+function _viewSwatch(view: number): string {
+  const ch = VIEW_TO_CHANNEL[view] ?? 'HG-Y';
+  return CHANNEL_COLOR[ch];
 }
 
 const RecordingRow: React.FC<{
@@ -85,30 +81,24 @@ const RecordingRow: React.FC<{
   onDelete: () => void;
 }> = ({ rec, onPlay, onDelete }) => {
   const [hover, setHover] = useState(false);
+  const shortName = rec.name.replace(/^sample_\d+_view_\d+_exp_[\d.]+_?/, '').replace(/\.h5$/, '');
   return (
     <div
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={{
-        ..._row,
-        background: hover ? '#1a1f2c' : 'transparent',
+        display: 'flex',
+        alignItems: 'center',
+        gap: SPACE.sm,
+        padding: `${SPACE.xs}px ${SPACE.sm}px`,
+        borderRadius: RADIUS.md,
+        font: FONT.small,
+        color: PALETTE.text,
+        background: hover ? PALETTE.rowHover : 'transparent',
         cursor: 'default',
       }}
     >
-      <span
-        title={`Exposure ${_exposureLabel(rec.exposure_s)}`}
-        style={{
-          font: FONT.monoSmall,
-          color: TEXT_MUTED,
-          background: '#1f2937',
-          padding: '1px 6px',
-          borderRadius: 3,
-          minWidth: 48,
-          textAlign: 'center',
-        }}
-      >
-        {_exposureLabel(rec.exposure_s)}
-      </span>
+      <ExposurePill exposure_s={rec.exposure_s} />
       <span
         style={{
           flex: 1,
@@ -117,45 +107,66 @@ const RecordingRow: React.FC<{
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
           font: FONT.mono,
-          color: TEXT,
+          color: PALETTE.text,
         }}
         title={rec.name}
       >
-        {rec.name.replace(/^sample_\d+_view_\d+_exp_[\d.]+_?/, '').replace(/\.h5$/, '') || rec.name}
+        {shortName || rec.name}
       </span>
-      <span style={{ font: FONT.monoSmall, color: TEXT_FAINT }}>{rec.n_frames}f</span>
-      <button
-        title="Open in workspace"
+      <span style={{ font: FONT.monoSmall, color: PALETTE.textFaint, flexShrink: 0 }}>
+        {rec.n_frames}f
+      </span>
+      <IconButton
+        glyph={'▶'}
+        label={`Open ${rec.name} in workspace`}
         onClick={onPlay}
-        style={{
-          opacity: hover ? 1 : 0.5,
-          background: ACCENT_SOFT,
-          color: ACCENT,
-          border: 'none',
-          borderRadius: 3,
-          padding: '2px 8px',
-          font: FONT.small,
-          cursor: 'pointer',
-        }}
-      >
-        ▶
-      </button>
-      <button
-        title="Remove recording"
+        tone="accent"
+        hover={hover}
+      />
+      <IconButton
+        glyph={'✕'}
+        label={`Remove ${rec.name}`}
         onClick={onDelete}
+        tone="danger"
+        hover={hover}
+      />
+    </div>
+  );
+};
+
+const SampleViewHeader: React.FC<{ group: SampleViewGroup }> = ({ group }) => {
+  return (
+    <div
+      style={{
+        font: FONT.small,
+        color: PALETTE.textMuted,
+        padding: `${SPACE.xs}px ${SPACE.sm}px`,
+        display: 'flex',
+        alignItems: 'center',
+        gap: SPACE.sm,
+        background: PALETTE.panelAlt,
+        borderRadius: RADIUS.md,
+        marginBottom: 2,
+      }}
+    >
+      <span
+        aria-hidden
         style={{
-          opacity: hover ? 1 : 0.4,
-          background: 'transparent',
-          color: '#ef4444',
-          border: 'none',
+          width: 10,
+          height: 10,
           borderRadius: 3,
-          padding: '2px 6px',
-          font: FONT.small,
-          cursor: 'pointer',
+          background: _viewSwatch(group.view),
+          display: 'inline-block',
+          flexShrink: 0,
+          boxShadow: `0 0 0 1px ${PALETTE.border}`,
         }}
-      >
-        ✕
-      </button>
+      />
+      <span style={{ flex: 1, fontWeight: 600 }}>
+        Sample {group.sample} <span style={{ color: PALETTE.textFaint }}>·</span> View {group.view}
+      </span>
+      <span style={{ font: FONT.monoSmall, color: PALETTE.textFaint }}>
+        {group.recordings.length} file{group.recordings.length !== 1 ? 's' : ''}
+      </span>
     </div>
   );
 };
@@ -188,33 +199,36 @@ export const LibraryRail: React.FC<Props> = ({ recordings, darks, onOpenFile, on
         width: LAYOUT.sourcesPanelW.default,
         minWidth: LAYOUT.sourcesPanelW.min,
         maxWidth: LAYOUT.sourcesPanelW.max,
-        background: PANEL_BG,
-        borderRight: `1px solid ${PANEL_BORDER}`,
+        background: PALETTE.panel,
+        borderRight: `1px solid ${PALETTE.border}`,
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
         font: FONT.ui,
-        color: TEXT,
+        color: PALETTE.text,
       }}
     >
       <header
         style={{
           padding: `${SPACE.md}px ${SPACE.md}px ${SPACE.sm}px`,
-          borderBottom: `1px solid ${PANEL_BORDER}`,
+          borderBottom: `1px solid ${PALETTE.border}`,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
         }}
       >
-        <span style={{ font: FONT.label, color: TEXT_MUTED, letterSpacing: 0.6 }}>LIBRARY</span>
+        <span style={{ font: FONT.label, color: PALETTE.textMuted, letterSpacing: 0.6 }}>
+          LIBRARY
+        </span>
         <button
           onClick={onOpenFile}
           title="Open recording (.h5)"
+          aria-label="Open recording"
           style={{
-            background: ACCENT_SOFT,
-            color: ACCENT,
+            background: PALETTE.accentSoft,
+            color: PALETTE.accent,
             border: 'none',
-            borderRadius: 4,
+            borderRadius: RADIUS.md,
             padding: `${SPACE.xs}px ${SPACE.sm}px`,
             font: FONT.small,
             cursor: 'pointer',
@@ -224,13 +238,19 @@ export const LibraryRail: React.FC<Props> = ({ recordings, darks, onOpenFile, on
         </button>
       </header>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: `0 ${SPACE.xs}px ${SPACE.lg}px` }}>
+      <div
+        style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: `0 ${SPACE.xs}px ${SPACE.lg}px`,
+        }}
+      >
         {isEmpty && (
           <div
             style={{
               padding: SPACE.xl,
               textAlign: 'center',
-              color: TEXT_FAINT,
+              color: PALETTE.textFaint,
               font: FONT.small,
               lineHeight: 1.5,
             }}
@@ -240,10 +260,10 @@ export const LibraryRail: React.FC<Props> = ({ recordings, darks, onOpenFile, on
               <button
                 onClick={onOpenFile}
                 style={{
-                  background: ACCENT,
+                  background: PALETTE.accent,
                   color: 'white',
                   border: 'none',
-                  borderRadius: 4,
+                  borderRadius: RADIUS.md,
                   padding: `${SPACE.sm}px ${SPACE.lg}px`,
                   font: FONT.uiBold,
                   cursor: 'pointer',
@@ -258,36 +278,7 @@ export const LibraryRail: React.FC<Props> = ({ recordings, darks, onOpenFile, on
         <div style={_sectionLabel}>RECORDINGS · {recordings.length}</div>
         {groups.map((g) => (
           <div key={`${g.sample}-${g.view}`} style={{ marginBottom: SPACE.sm }}>
-            <div
-              style={{
-                font: FONT.small,
-                color: TEXT_MUTED,
-                padding: `${SPACE.xs}px ${SPACE.sm}px`,
-                display: 'flex',
-                alignItems: 'center',
-                gap: SPACE.sm,
-                background: '#161a24',
-                borderRadius: 4,
-                marginBottom: 2,
-              }}
-            >
-              <span
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 2,
-                  background: CHANNEL_COLOR['HG-G'],
-                  display: 'inline-block',
-                }}
-                aria-hidden
-              />
-              <span style={{ flex: 1 }}>
-                Sample {g.sample} · View {g.view}
-              </span>
-              <span style={{ font: FONT.monoSmall, color: TEXT_FAINT }}>
-                {g.recordings.length} file{g.recordings.length !== 1 ? 's' : ''}
-              </span>
-            </div>
+            <SampleViewHeader group={g} />
             {g.recordings.map((r) => (
               <RecordingRow
                 key={r.rec_id}
@@ -300,7 +291,7 @@ export const LibraryRail: React.FC<Props> = ({ recordings, darks, onOpenFile, on
         ))}
         {ungrouped.length > 0 && (
           <>
-            <div style={_sectionLabel}>OTHER RECORDINGS · {ungrouped.length}</div>
+            <div style={_sectionLabel}>OTHER · {ungrouped.length}</div>
             {ungrouped.map((r) => (
               <RecordingRow
                 key={r.rec_id}
@@ -317,7 +308,7 @@ export const LibraryRail: React.FC<Props> = ({ recordings, darks, onOpenFile, on
           <div
             style={{
               font: FONT.small,
-              color: TEXT_FAINT,
+              color: PALETTE.textFaint,
               padding: `${SPACE.xs}px ${SPACE.sm}px`,
             }}
           >
@@ -325,10 +316,17 @@ export const LibraryRail: React.FC<Props> = ({ recordings, darks, onOpenFile, on
           </div>
         ) : (
           darks.map((d) => (
-            <div key={d.dark_id} style={_row}>
-              <span style={{ font: FONT.monoSmall, color: TEXT_MUTED, minWidth: 48 }}>
-                {_exposureLabel(d.exposure_s)}
-              </span>
+            <div
+              key={d.dark_id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: SPACE.sm,
+                padding: `${SPACE.xs}px ${SPACE.sm}px`,
+                font: FONT.small,
+              }}
+            >
+              <ExposurePill exposure_s={d.exposure_s} />
               <span
                 style={{
                   flex: 1,
@@ -336,11 +334,14 @@ export const LibraryRail: React.FC<Props> = ({ recordings, darks, onOpenFile, on
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
+                  color: PALETTE.text,
                 }}
               >
                 {d.name}
               </span>
-              <span style={{ font: FONT.monoSmall, color: TEXT_FAINT }}>×{d.n_source_frames}</span>
+              <span style={{ font: FONT.monoSmall, color: PALETTE.textFaint, flexShrink: 0 }}>
+                ×{d.n_source_frames}
+              </span>
             </div>
           ))
         )}
