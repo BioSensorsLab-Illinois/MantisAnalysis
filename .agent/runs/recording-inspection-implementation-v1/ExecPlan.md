@@ -690,10 +690,12 @@ M4 imports `recording` + `dark_frame`, M9 imports
 | M4 | `playback_pipeline.py` | M9 (overlay), M10 (export), M11 (handoff) |
 | M5–M11 | frontend incremental | self-contained per file |
 
-A Tier 0 "smoke after revert" rehearsal runs at **M2 close**:
-`git revert HEAD; python scripts/smoke_test.py --tier 1; git
-revert <revert>` — confirms the revert path works for the
-single-leaf case before relying on it for higher-stake mistakes.
+A Tier 0 "smoke after revert" rehearsal runs at **M2 close**.
+The procedure: revert HEAD with `git revert HEAD`, then run the
+Tier 1 smoke (`scripts/smoke_test.py --tier 1`), then revert the
+revert (`git revert HEAD`) to restore. This confirms the
+revert path works for the single-leaf case before relying on it
+for higher-stake mistakes.
 
 ## 15. Decisions
 
