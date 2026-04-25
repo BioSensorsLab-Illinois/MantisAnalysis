@@ -1,7 +1,6 @@
 """Verify the three Michelson contrast estimators behave sensibly."""
-from __future__ import annotations
 
-import math
+from __future__ import annotations
 
 import numpy as np
 import pytest
@@ -12,8 +11,9 @@ from mantisanalysis.usaf_groups import (
 )
 
 
-def _square_bars(n: int = 60, n_cycles: float = 2.5,
-                 mean: float = 100.0, amp: float = 50.0) -> np.ndarray:
+def _square_bars(
+    n: int = 60, n_cycles: float = 2.5, mean: float = 100.0, amp: float = 50.0
+) -> np.ndarray:
     xs = np.arange(n, dtype=np.float64)
     return mean + amp * np.sign(np.sin(2 * np.pi * n_cycles * xs / n))
 

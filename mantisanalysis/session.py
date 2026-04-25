@@ -6,6 +6,7 @@ them without re-uploading. One process, one user — this is a local-only
 tool, not multi-tenant. A dict keyed by session id with LRU eviction is
 plenty.
 """
+
 from __future__ import annotations
 
 import io
@@ -25,30 +26,31 @@ from .image_io import extract_with_mode, load_any_detail, luminance_from_rgb
 @dataclass
 class LoadedSource:
     """One loaded file with its extracted channel dict."""
+
     source_id: str
     name: str
-    source_kind: str                    # "h5" or "image"
-    channels: Dict[str, np.ndarray]
-    attrs: Dict[str, str]
-    shape_hw: Tuple[int, int]           # per-channel pixel dims (H, W)
+    source_kind: str  # "h5" or "image"
+    channels: dict[str, np.ndarray]
+    attrs: dict[str, str]
+    shape_hw: tuple[int, int]  # per-channel pixel dims (H, W)
     loaded_at: float = field(default_factory=time.time)
-    path: Optional[str] = None          # absolute disk path when known
-                                        # (None for browser uploads — the
-                                        # tempfile path is gone after load)
+    path: str | None = None  # absolute disk path when known
+    # (None for browser uploads — the
+    # tempfile path is gone after load)
     # Optional per-pixel dark frame attached to this source. Stored as a
     # parallel channel dict (same keys + shapes as `channels`), validated
     # at attach time. When set, server-side analysis subtracts this from
     # every channel before ISP / thumbnail / measurement.
-    dark_channels: Optional[Dict[str, np.ndarray]] = None
-    dark_name: Optional[str] = None
-    dark_path: Optional[str] = None
+    dark_channels: dict[str, np.ndarray] | None = None
+    dark_name: str | None = None
+    dark_path: str | None = None
     # ISP-modes-v1: cache the raw frame + active mode so the user can
     # reconfigure extraction geometry / channel renames without re-reading
     # from disk. ``raw_frame`` is the array *before* dual-gain split and
     # Bayer extraction — exactly what load_any_detail returned.
-    raw_frame: Optional[np.ndarray] = None
+    raw_frame: np.ndarray | None = None
     isp_mode_id: str = "rgb_nir"
-    isp_config: Dict[str, object] = field(default_factory=dict)
+    isp_config: dict[str, object] = field(default_factory=dict)
 
     @property
     def channel_keys(self) -> list[str]:
@@ -64,7 +66,7 @@ class SessionStore:
 
     def __init__(self, max_entries: int = 12, evicted_memory: int = 64):
         self._lock = threading.RLock()
-        self._items: Dict[str, LoadedSource] = {}
+        self._items: dict[str, LoadedSource] = {}
         self._max = max_entries
         # Remember recently-evicted source IDs (FIFO) so we can surface
         # 410 Gone instead of 404 when the frontend holds a stale
@@ -86,7 +88,7 @@ class SessionStore:
         if len(self._evicted) > self._evicted_max:
             self._evicted = self._evicted[-self._evicted_max:]
 
-    def load_from_path(self, path: str | Path, name: Optional[str] = None) -> LoadedSource:
+    def load_from_path(self, path: str | Path, name: str | None = None) -> LoadedSource:
         """Load a file from local disk and register it under a new source id."""
         channels, attrs, raw, mode_id, cfg, kind = load_any_detail(path)
         any_ch = next(iter(channels.values()))
@@ -140,12 +142,15 @@ class SessionStore:
     def list(self) -> list[dict]:
         """Serializable summary of every loaded source."""
         with self._lock:
-            return [_summary_dict(s) for s in
-                    sorted(self._items.values(), key=lambda s: s.loaded_at, reverse=True)]
+            return [
+                _summary_dict(s)
+                for s in sorted(self._items.values(), key=lambda s: s.loaded_at, reverse=True)
+            ]
 
     # ---- Dark-frame attachment ------------------------------------------
-    def attach_dark_from_path(self, source_id: str, path: str | Path,
-                              name: Optional[str] = None) -> "LoadedSource":
+    def attach_dark_from_path(
+        self, source_id: str, path: str | Path, name: str | None = None
+    ) -> LoadedSource:
         """Load a dark frame from disk and attach it to `source_id`.
 
         Loads the dark under the source's *currently active* ISP mode +
@@ -167,11 +172,11 @@ class SessionStore:
             src.dark_path = str(Path(path).expanduser().resolve())
         return src
 
-    def attach_dark_from_bytes(self, source_id: str, data: bytes, name: str
-                               ) -> "LoadedSource":
+    def attach_dark_from_bytes(self, source_id: str, data: bytes, name: str) -> LoadedSource:
         """Persist uploaded dark bytes to a temp file and attach under the
         source's currently active ISP mode + config."""
         import tempfile
+
         suffix = Path(name).suffix
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
             f.write(data)
@@ -190,10 +195,12 @@ class SessionStore:
                 src.dark_path = None  # uploads have no original path
             return src
         finally:
-            try: tmp_path.unlink()
-            except OSError: pass
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
 
-    def clear_dark(self, source_id: str) -> "LoadedSource":
+    def clear_dark(self, source_id: str) -> LoadedSource:
         src = self.get(source_id)
         with self._lock:
             src.dark_channels = None
@@ -206,9 +213,9 @@ class SessionStore:
             self._items.clear()
 
     # ---- ISP reconfigure -----------------------------------------------
-    def reconfigure_isp(self, source_id: str, mode_id: str,
-                        overrides: Optional[Dict[str, object]] = None
-                        ) -> LoadedSource:
+    def reconfigure_isp(
+        self, source_id: str, mode_id: str, overrides: dict[str, object] | None = None
+    ) -> LoadedSource:
         """Swap the ISP mode + overrides on an already-loaded source.
 
         Re-runs channel extraction from the cached raw frame. The dark
@@ -239,11 +246,13 @@ class SessionStore:
         # endpoints get the wrong shape). Mirror load_image_channels's
         # behaviour verbatim so reconfigure round-trips cleanly.
         # See bugfix bug_001.
-        if (src.source_kind == "image"
-                and mode.id == _isp.RGB_IMAGE.id
-                and src.raw_frame is not None
-                and src.raw_frame.ndim == 3
-                and src.raw_frame.shape[-1] in (3, 4)):
+        if (
+            src.source_kind == "image"
+            and mode.id == _isp.RGB_IMAGE.id
+            and src.raw_frame is not None
+            and src.raw_frame.ndim == 3
+            and src.raw_frame.shape[-1] in (3, 4)
+        ):
             arr = src.raw_frame
             if arr.shape[-1] == 4:
                 arr = arr[..., :3]
@@ -316,8 +325,8 @@ STORE = SessionStore()
 # Dark-frame helpers (validation + subtraction math)
 # ---------------------------------------------------------------------------
 
-def _validate_dark_shapes(src: LoadedSource,
-                          dark_channels: Dict[str, np.ndarray]) -> None:
+
+def _validate_dark_shapes(src: LoadedSource, dark_channels: dict[str, np.ndarray]) -> None:
     """Raise ValueError if the dark dict isn't compatible with the source.
 
     Requires:
@@ -342,12 +351,10 @@ def _validate_dark_shapes(src: LoadedSource,
         if ds != ss:
             mismatched.append(f"  · {k}: source shape {ss} ≠ dark shape {ds}")
     if mismatched:
-        raise ValueError(
-            "dark frame is incompatible with source:\n" + "\n".join(mismatched)
-        )
+        raise ValueError("dark frame is incompatible with source:\n" + "\n".join(mismatched))
 
 
-def subtract_dark(image: np.ndarray, dark: Optional[np.ndarray]) -> np.ndarray:
+def subtract_dark(image: np.ndarray, dark: np.ndarray | None) -> np.ndarray:
     """Per-pixel dark subtraction with hard guards.
 
     All math runs in float64 so there's no risk of integer wrap-around or
@@ -381,8 +388,7 @@ def _summary_dict(s: LoadedSource) -> dict:
     # rename-eligible slots resolved to (e.g. "nir" → "UV-650").
     names = dict((s.isp_config or {}).get("channel_name_overrides") or {})
     isp_channel_map = {
-        spec.slot_id: _isp.resolved_channel_name(mode, spec, names)
-        for spec in mode.channels
+        spec.slot_id: _isp.resolved_channel_name(mode, spec, names) for spec in mode.channels
     }
     # Serialize any per-slot loc overrides as plain [r, c] lists so the
     # JSON payload stays strict-JSON (tuples from normalize_config would
@@ -404,12 +410,9 @@ def _summary_dict(s: LoadedSource) -> dict:
         # settings window and RGB-composite toggle.
         "isp_mode_id": mode.id,
         "isp_config": {
-            "origin": list(s.isp_config.get("origin",
-                                             mode.default_origin)),
-            "sub_step": list(s.isp_config.get("sub_step",
-                                               mode.default_sub_step)),
-            "outer_stride": list(s.isp_config.get("outer_stride",
-                                                    mode.default_outer_stride)),
+            "origin": list(s.isp_config.get("origin", mode.default_origin)),
+            "sub_step": list(s.isp_config.get("sub_step", mode.default_sub_step)),
+            "outer_stride": list(s.isp_config.get("outer_stride", mode.default_outer_stride)),
             "channel_name_overrides": names,
             "channel_loc_overrides": loc_overrides,
         },
@@ -422,6 +425,7 @@ def _summary_dict(s: LoadedSource) -> dict:
 # Helpers used by both server and test harness
 # ---------------------------------------------------------------------------
 
+
 def channel_to_png_bytes(
     image: np.ndarray,
     *,
@@ -429,8 +433,8 @@ def channel_to_png_bytes(
     clip_hi_pct: float = 99.5,
     max_dim: int = 1600,
     colormap: str = "gray",
-    vmin: Optional[float] = None,
-    vmax: Optional[float] = None,
+    vmin: float | None = None,
+    vmax: float | None = None,
 ) -> bytes:
     """Downscale a 2-D channel to a display-ready PNG.
 
@@ -463,8 +467,10 @@ def channel_to_png_bytes(
         im = Image.fromarray(n8, mode="L")
     else:
         import matplotlib
+
         matplotlib.use("Agg")
         from matplotlib import colormaps
+
         try:
             cmap = colormaps[cmap_name]
         except KeyError:
