@@ -14,6 +14,7 @@ Design notes:
   * Prompt caches the "system + project layout" prefix so repeated runs
     across many failures stay cheap.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -100,6 +101,7 @@ TOOLS: list[dict[str, Any]] = [
 
 
 # --- Tool implementations ----------------------------------------------------
+
 
 def _safe_path(rel: str) -> Path:
     p = (REPO / rel).resolve()
@@ -219,13 +221,18 @@ it, call `finish` with `fixed=false` and explain why.
 
 # --- Main loop ---------------------------------------------------------------
 
+
 def run(log_path: Path, workflow: str, branch: str, commit: str) -> int:
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         print("ANTHROPIC_API_KEY not set; skipping Claude fix.")
         return 0
 
-    log_tail = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else "(no log available)"
+    log_tail = (
+        log_path.read_text(encoding="utf-8", errors="replace")
+        if log_path.exists()
+        else "(no log available)"
+    )
     client = anthropic.Anthropic(api_key=api_key)
 
     messages: list[dict[str, Any]] = [
@@ -261,20 +268,24 @@ def run(log_path: Path, workflow: str, branch: str, commit: str) -> int:
                 fixed = bool(args.get("fixed"))
                 print(f"[claude] finish(fixed={fixed}): {summary}")
                 finished = True
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": "acknowledged",
-                })
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": "acknowledged",
+                    }
+                )
             else:
                 result = dispatch(name, args)
                 preview = result if len(result) < 2000 else result[:2000] + "\n…[truncated]"
                 print(f"[claude] {name}({json.dumps(args)[:200]}) → {len(result)} chars")
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": preview,
-                })
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": preview,
+                    }
+                )
 
         messages.append({"role": "user", "content": tool_results})
         if finished:

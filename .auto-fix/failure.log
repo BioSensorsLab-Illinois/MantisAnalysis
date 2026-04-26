@@ -1,0 +1,1148 @@
+build / macos-arm64	UNKNOWN STEP	﻿2026-04-25T03:03:50.7987360Z Current runner version: '2.333.1'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8000060Z ##[group]Runner Image Provisioner
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8000500Z Hosted Compute Agent
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8000820Z Version: 20260415.520
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8001180Z Commit: af089020f5f67b61ccc91db6c07980876c02bf7b
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8001590Z Build Date: 2026-04-15T18:07:08Z
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8001980Z Worker ID: {2dc1970d-08a8-42ff-8e26-070e588123d3}
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8002390Z Azure Region: westus
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8002710Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8003600Z ##[group]Operating System
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8003930Z macOS
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8004190Z 14.8.5
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8004440Z 23J423
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8004710Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8004990Z ##[group]Runner Image
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8005310Z Image: macos-14-arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8005620Z Version: 20260420.0004.1
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8006390Z Included Software: https://github.com/actions/runner-images/blob/macos-14-arm64/20260420.0004/images/macos/macos-14-arm64-Readme.md
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8007470Z Image Release: https://github.com/actions/runner-images/releases/tag/macos-14-arm64%2F20260420.0004
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8008060Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8008670Z ##[group]GITHUB_TOKEN Permissions
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8009600Z Contents: write
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8009900Z Metadata: read
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8010200Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8011590Z Secret source: Actions
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8012010Z Prepare workflow directory
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8235730Z Prepare all required actions
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:50.8328870Z Getting action download info
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:51.1207760Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:51.4054870Z Download action repository 'actions/setup-python@v5' (SHA:a26af69be951a213d495a4c3e4e4022e16d87065)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:51.5217830Z Download action repository 'actions/setup-node@v4' (SHA:49933ea5288caeca8642d1e84afbd3f7d6820020)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:51.5977420Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:51.7534700Z Complete job name: build / macos-arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:51.7894180Z ##[group]Run actions/checkout@v4
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:51.7894630Z with:
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:51.7894940Z   repository: BioSensorsLab-Illinois/MantisAnalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:51.7895420Z   token: ***
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:51.7895690Z   ssh-strict: true
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:51.7895950Z   ssh-user: git
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:51.7896230Z   persist-credentials: true
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:51.7896550Z   clean: true
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:51.7896840Z   sparse-checkout-cone-mode: true
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:51.7897180Z   fetch-depth: 1
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:51.7897440Z   fetch-tags: false
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:51.7897710Z   show-progress: true
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:51.7897970Z   lfs: false
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:51.7898220Z   submodules: false
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:51.7898490Z   set-safe-directory: true
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:51.7898870Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.0715120Z Syncing repository: BioSensorsLab-Illinois/MantisAnalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.0716780Z ##[group]Getting Git version info
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.0717510Z Working directory is '/Users/runner/work/MantisAnalysis/MantisAnalysis'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.0718700Z [command]/opt/homebrew/bin/git version
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.0959990Z git version 2.53.0
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.0986640Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.0993510Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/d1498bf6-1329-41a8-b20d-98ed87226d4f/.gitconfig'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1000530Z Temporarily overriding HOME='/Users/runner/work/_temp/d1498bf6-1329-41a8-b20d-98ed87226d4f' before making global git config changes
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1001560Z Adding repository directory to the temporary git global config as a safe directory
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1005270Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/MantisAnalysis/MantisAnalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1088160Z Deleting the contents of '/Users/runner/work/MantisAnalysis/MantisAnalysis'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1091080Z ##[group]Initializing the repository
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1097800Z [command]/opt/homebrew/bin/git init /Users/runner/work/MantisAnalysis/MantisAnalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1277000Z hint: Using 'master' as the name for the initial branch. This default branch name
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1278320Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1279360Z hint: to use in all of your new repositories, which will suppress this warning,
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1279970Z hint: call:
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1280310Z hint:
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1280720Z hint: 	git config --global init.defaultBranch <name>
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1281180Z hint:
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1281640Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1282330Z hint: 'development'. The just-created branch can be renamed via this command:
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1282900Z hint:
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1283230Z hint: 	git branch -m <name>
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1283590Z hint:
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1284140Z hint: Disable this message with "git config set advice.defaultBranchName false"
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1285080Z Initialized empty Git repository in /Users/runner/work/MantisAnalysis/MantisAnalysis/.git/
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1286680Z [command]/opt/homebrew/bin/git remote add origin https://github.com/BioSensorsLab-Illinois/MantisAnalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1346120Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1346780Z ##[group]Disabling automatic garbage collection
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1347450Z [command]/opt/homebrew/bin/git config --local gc.auto 0
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1389450Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1390040Z ##[group]Setting up auth
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1394430Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.1472690Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.2103120Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.2449180Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.2972770Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.3019720Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.3598550Z [command]/opt/homebrew/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.3648580Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.3649260Z ##[group]Fetching the repository
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:52.3654140Z [command]/opt/homebrew/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +07736f37c8a5cb76f118c27897bff33982828b5f:refs/remotes/origin/main
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.3354100Z From https://github.com/BioSensorsLab-Illinois/MantisAnalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.3394690Z  * [new ref]         07736f37c8a5cb76f118c27897bff33982828b5f -> origin/main
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.3416250Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.3416960Z ##[group]Determining the checkout info
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.3417640Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.3420030Z [command]/opt/homebrew/bin/git sparse-checkout disable
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.3480360Z [command]/opt/homebrew/bin/git config --local --unset-all extensions.worktreeConfig
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.3532100Z ##[group]Checking out the ref
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.3533670Z [command]/opt/homebrew/bin/git checkout --progress --force -B main refs/remotes/origin/main
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.3828700Z Switched to a new branch 'main'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.3841380Z branch 'main' set up to track 'origin/main'.
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.3844220Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.3898500Z [command]/opt/homebrew/bin/git log -1 --format=%H
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.3944040Z 07736f37c8a5cb76f118c27897bff33982828b5f
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.4179910Z ##[group]Run actions/setup-python@v5
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.4180610Z with:
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.4181030Z   python-version: 3.12
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.4181520Z   cache: pip
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.4181980Z   check-latest: false
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.4182660Z   token: ***
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.4183120Z   update-environment: true
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.4183700Z   allow-prereleases: false
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.4184260Z   freethreaded: false
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.4184760Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.5503650Z ##[group]Installed versions
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.5713720Z Successfully set up CPython (3.12.10)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.5715010Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:53.6110400Z [command]/Users/runner/hostedtoolcache/Python/3.12.10/arm64/bin/pip cache dir
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:54.1529480Z /Users/runner/Library/Caches/pip
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:54.2385990Z Cache hit for: setup-python-macOS-arm64-python-3.12.10-pip-fc2cd90f6918a9f609e454f2b59513c4a9d9d4a90d09588d004612f7167b70db
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:55.2792550Z Received 159383552 of 531241728 (30.0%), 152.0 MBs/sec
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:56.2796970Z Received 327155712 of 531241728 (61.6%), 155.8 MBs/sec
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:57.2801480Z Received 465567744 of 531241728 (87.6%), 147.9 MBs/sec
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:57.5514220Z Received 531241728 of 531241728 (100.0%), 154.7 MBs/sec
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:57.5549960Z Cache Size: ~507 MB (531241728 B)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:57.5641480Z [command]/opt/homebrew/bin/gtar -xf /Users/runner/work/_temp/44d70eb3-0106-4966-b8b0-3f84756c5dd7/cache.tzst -P -C /Users/runner/work/MantisAnalysis/MantisAnalysis --delay-directory-restore --use-compress-program unzstd
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:58.5629880Z Cache restored successfully
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:58.5723020Z Cache restored from key: setup-python-macOS-arm64-python-3.12.10-pip-fc2cd90f6918a9f609e454f2b59513c4a9d9d4a90d09588d004612f7167b70db
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:58.6029950Z ##[group]Run actions/setup-node@v4
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:58.6030350Z with:
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:58.6030540Z   node-version: 20
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:58.6030780Z   cache: npm
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:58.6030950Z   always-auth: false
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:58.6031160Z   check-latest: false
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:58.6031440Z   token: ***
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:58.6031610Z env:
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:58.6031870Z   pythonLocation: /Users/runner/hostedtoolcache/Python/3.12.10/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:58.6032410Z   PKG_CONFIG_PATH: /Users/runner/hostedtoolcache/Python/3.12.10/arm64/lib/pkgconfig
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:58.6032830Z   Python_ROOT_DIR: /Users/runner/hostedtoolcache/Python/3.12.10/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:58.6033230Z   Python2_ROOT_DIR: /Users/runner/hostedtoolcache/Python/3.12.10/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:58.6033640Z   Python3_ROOT_DIR: /Users/runner/hostedtoolcache/Python/3.12.10/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:58.6033970Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:58.7658170Z Found in cache @ /Users/runner/hostedtoolcache/node/20.20.2/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:58.7662460Z ##[group]Environment details
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:59.1427760Z node: v20.20.2
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:59.1428200Z npm: 10.8.2
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:59.1428690Z yarn: 1.22.22
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:59.1429430Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:59.1447280Z [command]/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/npm config get cache
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:59.2598000Z /Users/runner/.npm
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:59.3274480Z npm cache is not found
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:59.3355410Z ##[group]Run python -m pip install --upgrade pip wheel setuptools
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:59.3355870Z [36;1mpython -m pip install --upgrade pip wheel setuptools[0m
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:59.3356230Z [36;1mpython -m pip install -e .[build][0m
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:59.3439900Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:59.3440250Z env:
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:59.3440490Z   pythonLocation: /Users/runner/hostedtoolcache/Python/3.12.10/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:59.3440880Z   PKG_CONFIG_PATH: /Users/runner/hostedtoolcache/Python/3.12.10/arm64/lib/pkgconfig
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:59.3441330Z   Python_ROOT_DIR: /Users/runner/hostedtoolcache/Python/3.12.10/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:59.3445670Z   Python2_ROOT_DIR: /Users/runner/hostedtoolcache/Python/3.12.10/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:59.3460160Z   Python3_ROOT_DIR: /Users/runner/hostedtoolcache/Python/3.12.10/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:59.3460430Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:03:59.9967040Z Requirement already satisfied: pip in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (26.0.1)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:00.1008890Z Collecting wheel
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:00.1022140Z   Using cached wheel-0.47.0-py3-none-any.whl.metadata (2.3 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:00.1635760Z Collecting setuptools
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:00.1647400Z   Using cached setuptools-82.0.1-py3-none-any.whl.metadata (6.5 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:00.1880880Z Collecting packaging>=24.0 (from wheel)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:00.2278240Z   Downloading packaging-26.2-py3-none-any.whl.metadata (3.5 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:00.2352710Z Using cached wheel-0.47.0-py3-none-any.whl (32 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:00.2361570Z Using cached setuptools-82.0.1-py3-none-any.whl (1.0 MB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:00.2399550Z Downloading packaging-26.2-py3-none-any.whl (100 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:00.2767820Z Installing collected packages: setuptools, packaging, wheel
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:00.7729070Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:00.7737580Z Successfully installed packaging-26.2 setuptools-82.0.1 wheel-0.47.0
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:01.0032570Z Obtaining file:///Users/runner/work/MantisAnalysis/MantisAnalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:01.0049880Z   Installing build dependencies: started
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:01.4256330Z   Installing build dependencies: finished with status 'done'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:01.4262820Z   Checking if build backend supports build_editable: started
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:01.6182360Z   Checking if build backend supports build_editable: finished with status 'done'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:01.6191260Z   Getting requirements to build editable: started
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:01.8283500Z   Getting requirements to build editable: finished with status 'done'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:01.8295440Z   Preparing editable metadata (pyproject.toml): started
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:01.9696270Z   Preparing editable metadata (pyproject.toml): finished with status 'done'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.0259660Z Collecting h5py>=3.0 (from mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.0270990Z   Using cached h5py-3.16.0-cp312-cp312-macosx_11_0_arm64.whl.metadata (3.0 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.1299460Z Collecting numpy>=1.24 (from mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.1311480Z   Using cached numpy-2.4.4-cp312-cp312-macosx_14_0_arm64.whl.metadata (6.6 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.1878680Z Collecting scipy>=1.10 (from mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.1890410Z   Using cached scipy-1.17.1-cp312-cp312-macosx_14_0_arm64.whl.metadata (62 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.2801140Z Collecting matplotlib>=3.7 (from mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.2811850Z   Using cached matplotlib-3.10.9-cp312-cp312-macosx_11_0_arm64.whl.metadata (52 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.3686170Z Collecting Pillow>=10.0 (from mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.3696760Z   Using cached pillow-12.2.0-cp312-cp312-macosx_11_0_arm64.whl.metadata (8.8 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.3855270Z Collecting tifffile>=2023.0 (from mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.3868220Z   Using cached tifffile-2026.4.11-py3-none-any.whl.metadata (31 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.4119240Z Collecting fastapi>=0.110 (from mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.4135500Z   Using cached fastapi-0.136.1-py3-none-any.whl.metadata (28 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.4273100Z Collecting uvicorn>=0.27 (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.4282430Z   Using cached uvicorn-0.46.0-py3-none-any.whl.metadata (6.7 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.4368560Z Collecting python-multipart>=0.0.9 (from mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.4377170Z   Using cached python_multipart-0.0.26-py3-none-any.whl.metadata (2.1 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.5063310Z Collecting pydantic>=2.5 (from mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.5078550Z   Using cached pydantic-2.13.3-py3-none-any.whl.metadata (108 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.5359230Z Collecting pyinstaller>=6.6 (from mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.5642860Z   Downloading pyinstaller-6.20.0-py3-none-macosx_10_13_universal2.whl.metadata (8.5 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.5801340Z Collecting starlette>=0.46.0 (from fastapi>=0.110->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.5813280Z   Using cached starlette-1.0.0-py3-none-any.whl.metadata (6.3 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.5915620Z Collecting typing-extensions>=4.8.0 (from fastapi>=0.110->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.5927890Z   Using cached typing_extensions-4.15.0-py3-none-any.whl.metadata (3.3 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.6001210Z Collecting typing-inspection>=0.4.2 (from fastapi>=0.110->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.6009900Z   Using cached typing_inspection-0.4.2-py3-none-any.whl.metadata (2.6 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.6065850Z Collecting annotated-doc>=0.0.2 (from fastapi>=0.110->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.6074080Z   Using cached annotated_doc-0.0.4-py3-none-any.whl.metadata (6.6 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.6389220Z Collecting contourpy>=1.0.1 (from matplotlib>=3.7->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.6398960Z   Using cached contourpy-1.3.3-cp312-cp312-macosx_11_0_arm64.whl.metadata (5.5 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.6476860Z Collecting cycler>=0.10 (from matplotlib>=3.7->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.6488090Z   Using cached cycler-0.12.1-py3-none-any.whl.metadata (3.8 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.7205940Z Collecting fonttools>=4.22.0 (from matplotlib>=3.7->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.7216490Z   Using cached fonttools-4.62.1-cp312-cp312-macosx_10_13_universal2.whl.metadata (117 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.7573270Z Collecting kiwisolver>=1.3.1 (from matplotlib>=3.7->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.7583270Z   Using cached kiwisolver-1.5.0-cp312-cp312-macosx_11_0_arm64.whl.metadata (5.1 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.7618960Z Requirement already satisfied: packaging>=20.0 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from matplotlib>=3.7->mantisanalysis==0.2.0) (26.2)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.7738860Z Collecting pyparsing>=3 (from matplotlib>=3.7->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.7748930Z   Using cached pyparsing-3.3.2-py3-none-any.whl.metadata (5.8 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.7856930Z Collecting python-dateutil>=2.7 (from matplotlib>=3.7->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.7866970Z   Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl.metadata (8.4 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.7969500Z Collecting annotated-types>=0.6.0 (from pydantic>=2.5->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:02.7977630Z   Using cached annotated_types-0.7.0-py3-none-any.whl.metadata (15 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.1438780Z Collecting pydantic-core==2.46.3 (from pydantic>=2.5->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.1451490Z   Using cached pydantic_core-2.46.3-cp312-cp312-macosx_11_0_arm64.whl.metadata (6.6 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.1557120Z Collecting altgraph (from pyinstaller>=6.6->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.1593440Z   Downloading altgraph-0.17.5-py2.py3-none-any.whl.metadata (7.5 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.1706850Z Collecting macholib>=1.8 (from pyinstaller>=6.6->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.1785460Z   Downloading macholib-1.16.4-py2.py3-none-any.whl.metadata (12 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.1915960Z Collecting pyinstaller-hooks-contrib>=2026.4 (from pyinstaller>=6.6->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.1950840Z   Downloading pyinstaller_hooks_contrib-2026.4-py3-none-any.whl.metadata (16 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.1992800Z Requirement already satisfied: setuptools>=42.0.0 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from pyinstaller>=6.6->mantisanalysis==0.2.0) (82.0.1)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.2066790Z Collecting six>=1.5 (from python-dateutil>=2.7->matplotlib>=3.7->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.2075690Z   Using cached six-1.17.0-py2.py3-none-any.whl.metadata (1.7 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.2219020Z Collecting anyio<5,>=3.6.2 (from starlette>=0.46.0->fastapi>=0.110->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.2227360Z   Using cached anyio-4.13.0-py3-none-any.whl.metadata (4.5 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.2326170Z Collecting idna>=2.8 (from anyio<5,>=3.6.2->starlette>=0.46.0->fastapi>=0.110->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.2334550Z   Using cached idna-3.13-py3-none-any.whl.metadata (8.0 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.2462790Z Collecting click>=7.0 (from uvicorn>=0.27->uvicorn[standard]>=0.27->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.2472590Z   Using cached click-8.3.3-py3-none-any.whl.metadata (2.6 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.2544020Z Collecting h11>=0.8 (from uvicorn>=0.27->uvicorn[standard]>=0.27->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.2553000Z   Using cached h11-0.16.0-py3-none-any.whl.metadata (8.3 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.2711620Z Collecting httptools>=0.6.3 (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.2720990Z   Using cached httptools-0.7.1-cp312-cp312-macosx_11_0_arm64.whl.metadata (3.5 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.2804370Z Collecting python-dotenv>=0.13 (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.2812860Z   Using cached python_dotenv-1.2.2-py3-none-any.whl.metadata (27 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.3012410Z Collecting pyyaml>=5.1 (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.3024330Z   Using cached pyyaml-6.0.3-cp312-cp312-macosx_11_0_arm64.whl.metadata (2.4 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.3625240Z Collecting uvloop>=0.15.1 (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.3635260Z   Using cached uvloop-0.22.1-cp312-cp312-macosx_10_13_universal2.whl.metadata (4.9 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.3972550Z Collecting watchfiles>=0.20 (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.3982940Z   Using cached watchfiles-1.1.1-cp312-cp312-macosx_11_0_arm64.whl.metadata (4.9 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.4381700Z Collecting websockets>=10.4 (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.4393630Z   Using cached websockets-16.0-cp312-cp312-macosx_11_0_arm64.whl.metadata (6.8 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.4448790Z Using cached fastapi-0.136.1-py3-none-any.whl (117 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.4459930Z Using cached annotated_doc-0.0.4-py3-none-any.whl (5.3 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.4468820Z Using cached h5py-3.16.0-cp312-cp312-macosx_11_0_arm64.whl (3.1 MB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.4502020Z Using cached matplotlib-3.10.9-cp312-cp312-macosx_11_0_arm64.whl (8.2 MB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.4575290Z Using cached contourpy-1.3.3-cp312-cp312-macosx_11_0_arm64.whl (273 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.4593090Z Using cached cycler-0.12.1-py3-none-any.whl (8.3 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.4602340Z Using cached fonttools-4.62.1-cp312-cp312-macosx_10_13_universal2.whl (2.9 MB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.4622580Z Using cached kiwisolver-1.5.0-cp312-cp312-macosx_11_0_arm64.whl (64 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.4636560Z Using cached numpy-2.4.4-cp312-cp312-macosx_14_0_arm64.whl (5.2 MB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.4674310Z Using cached pillow-12.2.0-cp312-cp312-macosx_11_0_arm64.whl (4.7 MB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.4698870Z Using cached pydantic-2.13.3-py3-none-any.whl (471 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.4709400Z Using cached pydantic_core-2.46.3-cp312-cp312-macosx_11_0_arm64.whl (2.0 MB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.4726040Z Using cached annotated_types-0.7.0-py3-none-any.whl (13 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.4776980Z Downloading pyinstaller-6.20.0-py3-none-macosx_10_13_universal2.whl (1.0 MB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.5009720Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.0/1.0 MB 62.2 MB/s  0:00:00
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.5067900Z Downloading macholib-1.16.4-py2.py3-none-any.whl (38 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.5142210Z Downloading altgraph-0.17.5-py2.py3-none-any.whl (21 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.5208530Z Downloading pyinstaller_hooks_contrib-2026.4-py3-none-any.whl (455 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.5291990Z Using cached pyparsing-3.3.2-py3-none-any.whl (122 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.5306720Z Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl (229 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.5322990Z Using cached python_multipart-0.0.26-py3-none-any.whl (28 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.5332870Z Using cached scipy-1.17.1-cp312-cp312-macosx_14_0_arm64.whl (20.3 MB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.5394120Z Using cached six-1.17.0-py2.py3-none-any.whl (11 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.5424140Z Using cached starlette-1.0.0-py3-none-any.whl (72 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.5435070Z Using cached anyio-4.13.0-py3-none-any.whl (114 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.5443350Z Using cached idna-3.13-py3-none-any.whl (68 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.5451510Z Using cached tifffile-2026.4.11-py3-none-any.whl (248 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.5460870Z Using cached typing_extensions-4.15.0-py3-none-any.whl (44 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.5469120Z Using cached typing_inspection-0.4.2-py3-none-any.whl (14 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.5477440Z Using cached uvicorn-0.46.0-py3-none-any.whl (70 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.5488020Z Using cached click-8.3.3-py3-none-any.whl (110 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.5501550Z Using cached h11-0.16.0-py3-none-any.whl (37 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.5510250Z Using cached httptools-0.7.1-cp312-cp312-macosx_11_0_arm64.whl (110 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.5521760Z Using cached python_dotenv-1.2.2-py3-none-any.whl (22 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.5532710Z Using cached pyyaml-6.0.3-cp312-cp312-macosx_11_0_arm64.whl (173 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.5541240Z Using cached uvloop-0.22.1-cp312-cp312-macosx_10_13_universal2.whl (1.4 MB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.5554730Z Using cached watchfiles-1.1.1-cp312-cp312-macosx_11_0_arm64.whl (391 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.5566230Z Using cached websockets-16.0-cp312-cp312-macosx_11_0_arm64.whl (175 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.6086980Z Building wheels for collected packages: mantisanalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.6093400Z   Building editable for mantisanalysis (pyproject.toml): started
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.7475870Z   Building editable for mantisanalysis (pyproject.toml): finished with status 'done'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.7483090Z   Created wheel for mantisanalysis: filename=mantisanalysis-0.2.0-0.editable-py3-none-any.whl size=9824 sha256=a1cff436e51f3472f5a3a645451636ffbd4a46ae515da42b493f3deef262510a
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.7484220Z   Stored in directory: /private/var/folders/4p/8vd_3q4s5xd_63_2t67zykqm0000gn/T/pip-ephem-wheel-cache-e_gm29ml/wheels/a2/ca/58/d4f3dd1d4de47c1d8874c44878556775c260eee1b8d228c83f
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.7502710Z Successfully built mantisanalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:03.8028610Z Installing collected packages: altgraph, websockets, uvloop, typing-extensions, six, pyyaml, python-multipart, python-dotenv, pyparsing, pyinstaller-hooks-contrib, Pillow, numpy, macholib, kiwisolver, idna, httptools, h11, fonttools, cycler, click, annotated-types, annotated-doc, uvicorn, typing-inspection, tifffile, scipy, python-dateutil, pyinstaller, pydantic-core, h5py, contourpy, anyio, watchfiles, starlette, pydantic, matplotlib, fastapi, mantisanalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:11.1373010Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:11.1450800Z Successfully installed Pillow-12.2.0 altgraph-0.17.5 annotated-doc-0.0.4 annotated-types-0.7.0 anyio-4.13.0 click-8.3.3 contourpy-1.3.3 cycler-0.12.1 fastapi-0.136.1 fonttools-4.62.1 h11-0.16.0 h5py-3.16.0 httptools-0.7.1 idna-3.13 kiwisolver-1.5.0 macholib-1.16.4 mantisanalysis-0.2.0 matplotlib-3.10.9 numpy-2.4.4 pydantic-2.13.3 pydantic-core-2.46.3 pyinstaller-6.20.0 pyinstaller-hooks-contrib-2026.4 pyparsing-3.3.2 python-dateutil-2.9.0.post0 python-dotenv-1.2.2 python-multipart-0.0.26 pyyaml-6.0.3 scipy-1.17.1 six-1.17.0 starlette-1.0.0 tifffile-2026.4.11 typing-extensions-4.15.0 typing-inspection-0.4.2 uvicorn-0.46.0 uvloop-0.22.1 watchfiles-1.1.1 websockets-16.0
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:11.5574660Z ##[group]Run python packaging/build.py --no-venv
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:11.5574960Z [36;1mpython packaging/build.py --no-venv[0m
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:11.5632720Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:11.5632960Z env:
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:11.5633190Z   pythonLocation: /Users/runner/hostedtoolcache/Python/3.12.10/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:11.5633580Z   PKG_CONFIG_PATH: /Users/runner/hostedtoolcache/Python/3.12.10/arm64/lib/pkgconfig
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:11.5633960Z   Python_ROOT_DIR: /Users/runner/hostedtoolcache/Python/3.12.10/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:11.5634300Z   Python2_ROOT_DIR: /Users/runner/hostedtoolcache/Python/3.12.10/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:11.5634840Z   Python3_ROOT_DIR: /Users/runner/hostedtoolcache/Python/3.12.10/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:11.5635100Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:11.6152320Z >> /Library/Frameworks/Python.framework/Versions/3.12/bin/python -m pip install --upgrade -e /Users/runner/work/MantisAnalysis/MantisAnalysis[build]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:11.8070330Z Obtaining file:///Users/runner/work/MantisAnalysis/MantisAnalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:11.8085250Z   Installing build dependencies: started
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.2226430Z   Installing build dependencies: finished with status 'done'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.2233750Z   Checking if build backend supports build_editable: started
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.3996970Z   Checking if build backend supports build_editable: finished with status 'done'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.4005700Z   Getting requirements to build editable: started
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.5984990Z   Getting requirements to build editable: finished with status 'done'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.5995410Z   Preparing editable metadata (pyproject.toml): started
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7242370Z   Preparing editable metadata (pyproject.toml): finished with status 'done'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7284920Z Requirement already satisfied: h5py>=3.0 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from mantisanalysis==0.2.0) (3.16.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7287360Z Requirement already satisfied: numpy>=1.24 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from mantisanalysis==0.2.0) (2.4.4)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7289570Z Requirement already satisfied: scipy>=1.10 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from mantisanalysis==0.2.0) (1.17.1)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7291680Z Requirement already satisfied: matplotlib>=3.7 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from mantisanalysis==0.2.0) (3.10.9)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7293760Z Requirement already satisfied: Pillow>=10.0 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from mantisanalysis==0.2.0) (12.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7295830Z Requirement already satisfied: tifffile>=2023.0 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from mantisanalysis==0.2.0) (2026.4.11)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7297770Z Requirement already satisfied: fastapi>=0.110 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from mantisanalysis==0.2.0) (0.136.1)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7302270Z Requirement already satisfied: uvicorn>=0.27 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (0.46.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7304370Z Requirement already satisfied: python-multipart>=0.0.9 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from mantisanalysis==0.2.0) (0.0.26)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7306290Z Requirement already satisfied: pydantic>=2.5 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from mantisanalysis==0.2.0) (2.13.3)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7315210Z Requirement already satisfied: pyinstaller>=6.6 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from mantisanalysis==0.2.0) (6.20.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7325720Z Requirement already satisfied: starlette>=0.46.0 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from fastapi>=0.110->mantisanalysis==0.2.0) (1.0.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7327340Z Requirement already satisfied: typing-extensions>=4.8.0 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from fastapi>=0.110->mantisanalysis==0.2.0) (4.15.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7329430Z Requirement already satisfied: typing-inspection>=0.4.2 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from fastapi>=0.110->mantisanalysis==0.2.0) (0.4.2)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7331530Z Requirement already satisfied: annotated-doc>=0.0.2 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from fastapi>=0.110->mantisanalysis==0.2.0) (0.0.4)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7370300Z Requirement already satisfied: contourpy>=1.0.1 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from matplotlib>=3.7->mantisanalysis==0.2.0) (1.3.3)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7371900Z Requirement already satisfied: cycler>=0.10 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from matplotlib>=3.7->mantisanalysis==0.2.0) (0.12.1)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7375160Z Requirement already satisfied: fonttools>=4.22.0 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from matplotlib>=3.7->mantisanalysis==0.2.0) (4.62.1)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7376910Z Requirement already satisfied: kiwisolver>=1.3.1 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from matplotlib>=3.7->mantisanalysis==0.2.0) (1.5.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7379750Z Requirement already satisfied: packaging>=20.0 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from matplotlib>=3.7->mantisanalysis==0.2.0) (26.2)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7382180Z Requirement already satisfied: pyparsing>=3 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from matplotlib>=3.7->mantisanalysis==0.2.0) (3.3.2)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7384410Z Requirement already satisfied: python-dateutil>=2.7 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from matplotlib>=3.7->mantisanalysis==0.2.0) (2.9.0.post0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7450780Z Requirement already satisfied: annotated-types>=0.6.0 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from pydantic>=2.5->mantisanalysis==0.2.0) (0.7.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7452400Z Requirement already satisfied: pydantic-core==2.46.3 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from pydantic>=2.5->mantisanalysis==0.2.0) (2.46.3)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7468530Z Requirement already satisfied: altgraph in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from pyinstaller>=6.6->mantisanalysis==0.2.0) (0.17.5)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7472140Z Requirement already satisfied: macholib>=1.8 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from pyinstaller>=6.6->mantisanalysis==0.2.0) (1.16.4)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7474880Z Requirement already satisfied: pyinstaller-hooks-contrib>=2026.4 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from pyinstaller>=6.6->mantisanalysis==0.2.0) (2026.4)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7477360Z Requirement already satisfied: setuptools>=42.0.0 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from pyinstaller>=6.6->mantisanalysis==0.2.0) (82.0.1)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7503330Z Requirement already satisfied: six>=1.5 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from python-dateutil>=2.7->matplotlib>=3.7->mantisanalysis==0.2.0) (1.17.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7566230Z Requirement already satisfied: anyio<5,>=3.6.2 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from starlette>=0.46.0->fastapi>=0.110->mantisanalysis==0.2.0) (4.13.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7575720Z Requirement already satisfied: idna>=2.8 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from anyio<5,>=3.6.2->starlette>=0.46.0->fastapi>=0.110->mantisanalysis==0.2.0) (3.13)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7609850Z Requirement already satisfied: click>=7.0 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from uvicorn>=0.27->uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (8.3.3)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7611720Z Requirement already satisfied: h11>=0.8 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from uvicorn>=0.27->uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (0.16.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7630140Z Requirement already satisfied: httptools>=0.6.3 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (0.7.1)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7632640Z Requirement already satisfied: python-dotenv>=0.13 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (1.2.2)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7636080Z Requirement already satisfied: pyyaml>=5.1 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (6.0.3)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7639810Z Requirement already satisfied: uvloop>=0.15.1 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (0.22.1)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7642110Z Requirement already satisfied: watchfiles>=0.20 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (1.1.1)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7647070Z Requirement already satisfied: websockets>=10.4 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (16.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7691440Z Building wheels for collected packages: mantisanalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.7697850Z   Building editable for mantisanalysis (pyproject.toml): started
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.9065840Z   Building editable for mantisanalysis (pyproject.toml): finished with status 'done'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.9075180Z   Created wheel for mantisanalysis: filename=mantisanalysis-0.2.0-0.editable-py3-none-any.whl size=9824 sha256=3713084d6f53c97aba96459e0f016b226dcb5f04c3ea6f26dc8217974fc67f95
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.9076540Z   Stored in directory: /private/var/folders/4p/8vd_3q4s5xd_63_2t67zykqm0000gn/T/pip-ephem-wheel-cache-qq2k836q/wheels/a2/ca/58/d4f3dd1d4de47c1d8874c44878556775c260eee1b8d228c83f
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.9103810Z Successfully built mantisanalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.9265510Z Installing collected packages: mantisanalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.9265840Z   Attempting uninstall: mantisanalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.9281460Z     Found existing installation: mantisanalysis 0.2.0
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.9295370Z     Uninstalling mantisanalysis-0.2.0:
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.9680350Z       Successfully uninstalled mantisanalysis-0.2.0
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:12.9748620Z Successfully installed mantisanalysis-0.2.0
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:13.0298460Z >> /Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/npm install
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:15.9406610Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:15.9407360Z added 293 packages, and audited 294 packages in 3s
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:15.9407790Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:15.9407990Z 125 packages are looking for funding
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:15.9408350Z   run `npm fund` for details
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:15.9448370Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:15.9448910Z 2 moderate severity vulnerabilities
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:15.9449170Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:15.9449450Z To address all issues (including breaking changes), run:
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:15.9449850Z   npm audit fix --force
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:15.9450000Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:15.9450150Z Run `npm audit` for details.
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:15.9542720Z >> /Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/npm run build
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:16.0733430Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:16.0735410Z > mantisanalysis-web@0.2.0 build
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:16.0735780Z > vite build
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:16.0736060Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:16.3425680Z [36mvite v5.4.21 [32mbuilding for production...[36m[39m
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:16.3822380Z transforming...
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:39.9501150Z [32m✓[39m 41 modules transformed.
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:43.3775510Z rendering chunks...
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:56.9987670Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:56.9991480Z <--- Last few GCs --->
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:56.9992280Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:56.9993400Z [35228:0x120008000]    39175 ms: Mark-Compact (reduce) 2039.1 (2083.2) -> 2038.3 (2082.9) MB, 626.21 / 0.00 ms  (average mu = 0.142, current mu = 0.006) allocation failure; scavenge might not succeed
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0089160Z [35228:0x120008000]    40904 ms: Mark-Compact (reduce) 2039.6 (2083.4) -> 2039.1 (2083.9) MB, 1305.29 / 0.00 ms  (average mu = 0.209, current mu = 0.245) allocation failure; GC in old space requested
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0089800Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0089810Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0089900Z <--- JS stacktrace --->
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0090500Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0090920Z FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0091430Z ----- Native stack trace -----
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0091730Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0093980Z  1: 0x102c2c1b4 node::OOMErrorHandler(char const*, v8::OOMDetails const&) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0095050Z  2: 0x102ddaee0 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0096180Z  3: 0x102fe8904 v8::internal::Heap::GarbageCollectionReasonToString(v8::internal::GarbageCollectionReason) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0097370Z  4: 0x102fe726c v8::internal::Heap::CollectGarbage(v8::internal::AllocationSpace, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0098870Z  5: 0x102fdd108 v8::internal::HeapAllocator::AllocateRawWithLightRetrySlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0101070Z  6: 0x102fdd960 v8::internal::HeapAllocator::AllocateRawWithRetryOrFailSlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0102680Z  7: 0x102fc1e0c v8::internal::Factory::NewFillerObject(int, v8::internal::AllocationAlignment, v8::internal::AllocationType, v8::internal::AllocationOrigin) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0103880Z  8: 0x1033d01dc v8::internal::Runtime_AllocateInOldGeneration(int, unsigned long*, v8::internal::Isolate*) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0104860Z  9: 0x103764fe4 Builtins_CEntry_Return1_ArgvOnStack_NoBuiltinExit [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0105340Z 10: 0x108aba3a4 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0105900Z 11: 0x1036dc3e4 Builtins_InterpreterEntryTrampoline [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0106810Z 12: 0x1036dc3e4 Builtins_InterpreterEntryTrampoline [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0107680Z 13: 0x103713450 Builtins_AsyncFunctionAwaitResolveClosure [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0108620Z 14: 0x1037c1b18 Builtins_PromiseFulfillReactionJob [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0109600Z 15: 0x103702d14 Builtins_RunMicrotasks [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0110480Z 16: 0x1036da3f4 Builtins_JSRunMicrotasksEntry [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0120060Z 17: 0x102f53274 v8::internal::(anonymous namespace)::Invoke(v8::internal::Isolate*, v8::internal::(anonymous namespace)::InvokeParams const&) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0122020Z 18: 0x102f53ba0 v8::internal::(anonymous namespace)::InvokeWithTryCatch(v8::internal::Isolate*, v8::internal::(anonymous namespace)::InvokeParams const&) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0123480Z 19: 0x102f53d8c v8::internal::Execution::TryRunMicrotasks(v8::internal::Isolate*, v8::internal::MicrotaskQueue*) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0125530Z 20: 0x102f7eac4 v8::internal::MicrotaskQueue::RunMicrotasks(v8::internal::Isolate*) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0126600Z 21: 0x102f7f250 v8::internal::MicrotaskQueue::PerformCheckpoint(v8::Isolate*) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0127480Z 22: 0x102b40c84 node::InternalCallbackScope::Close() [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0128860Z 23: 0x102b40fb4 node::InternalMakeCallback(node::Environment*, v8::Local<v8::Object>, v8::Local<v8::Object>, v8::Local<v8::Function>, int, v8::Local<v8::Value>*, node::async_context) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0130120Z 24: 0x102b55470 node::AsyncWrap::MakeCallback(v8::Local<v8::Function>, int, v8::Local<v8::Value>*) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0131070Z 25: 0x102c31e9c node::fs::FSReqCallback::Resolve(v8::Local<v8::Value>) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0131930Z 26: 0x102c32590 node::fs::AfterNoArgs(uv_fs_s*) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0132840Z 27: 0x102c2480c node::MakeLibuvRequestCallback<uv_fs_s, void (*)(uv_fs_s*)>::Wrapper(uv_fs_s*) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0133690Z 28: 0x1036b58a0 uv__work_done [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0134310Z 29: 0x1036b92c8 uv__async_io [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0134960Z 30: 0x1036cbf70 uv__io_poll [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0135640Z 31: 0x1036b9830 uv_run [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0136400Z 32: 0x102b417e8 node::SpinEventLoopInternal(node::Environment*) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0138540Z 33: 0x102c70b90 node::NodeMainInstance::Run() [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0141800Z 34: 0x102bed0f8 node::Start(int, char**) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0142710Z 35: 0x1806d3154 start [/usr/lib/dyld]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0329490Z Traceback (most recent call last):
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0456140Z   File "/Users/runner/work/MantisAnalysis/MantisAnalysis/packaging/build.py", line 149, in <module>
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0520790Z     sys.exit(main())
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0521470Z              ^^^^^^
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0522310Z   File "/Users/runner/work/MantisAnalysis/MantisAnalysis/packaging/build.py", line 136, in main
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0525820Z     _build_frontend()
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0529190Z   File "/Users/runner/work/MantisAnalysis/MantisAnalysis/packaging/build.py", line 75, in _build_frontend
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0530230Z     _run([npm, "run", "build"], cwd=REPO)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0531030Z   File "/Users/runner/work/MantisAnalysis/MantisAnalysis/packaging/build.py", line 42, in _run
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0531870Z     subprocess.check_call(cmd, cwd=cwd and str(cwd))
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0536290Z   File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/subprocess.py", line 413, in check_call
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0537760Z     raise CalledProcessError(retcode, cmd)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0538620Z subprocess.CalledProcessError: Command '['/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/npm', 'run', 'build']' died with <Signals.SIGABRT: 6>.
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.0732080Z ##[error]Process completed with exit code 1.
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.1035600Z Post job cleanup.
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.6211450Z [command]/opt/homebrew/bin/git version
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.7077820Z git version 2.53.0
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.7127190Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/9d01e298-7874-45aa-8214-234996cfa459/.gitconfig'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.7134550Z Temporarily overriding HOME='/Users/runner/work/_temp/9d01e298-7874-45aa-8214-234996cfa459' before making global git config changes
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.7135970Z Adding repository directory to the temporary git global config as a safe directory
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.7145900Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/MantisAnalysis/MantisAnalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.7255420Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.7316280Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.8655250Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.8701260Z http.https://github.com/.extraheader
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.8711780Z [command]/opt/homebrew/bin/git config --local --unset-all http.https://github.com/.extraheader
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.8772060Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.9423440Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:57.9471000Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:58.0180160Z Cleaning up orphan processes
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:04:58.4568790Z ##[warning]Node.js 20 actions are deprecated. The following actions are running on Node.js 20 and may not work as expected: actions/checkout@v4, actions/setup-node@v4, actions/setup-python@v5. Actions will be forced to run with Node.js 24 by default starting June 2nd, 2026. Node.js 20 will be removed from the runner on September 16th, 2026. Please check if updated versions of these actions are available that support Node.js 24. To opt into Node.js 24 now, set the FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true environment variable on the runner or in your workflow file. Once Node.js 24 becomes the default, you can temporarily opt out by setting ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+build / windows-x86_64	UNKNOWN STEP	﻿2026-04-25T03:03:51.0558019Z Current runner version: '2.334.0'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0587768Z ##[group]Runner Image Provisioner
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0588818Z Hosted Compute Agent
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0589376Z Version: 20260213.493
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0589917Z Commit: 5c115507f6dd24b8de37d8bbe0bb4509d0cc0fa3
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0590589Z Build Date: 2026-02-13T00:28:41Z
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0591179Z Worker ID: {26bd9866-f65d-49da-ae49-7802e4a8b3f0}
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0591835Z Azure Region: eastus
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0592291Z ##[endgroup]
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0594031Z ##[group]Operating System
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0594588Z Microsoft Windows Server 2025
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0595111Z 10.0.26100
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0595572Z Datacenter
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0595979Z ##[endgroup]
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0596417Z ##[group]Runner Image
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0596929Z Image: windows-2025
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0597397Z Version: 20260413.84.1
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0598764Z Included Software: https://github.com/actions/runner-images/blob/win25/20260413.84/images/windows/Windows2025-Readme.md
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0600212Z Image Release: https://github.com/actions/runner-images/releases/tag/win25%2F20260413.84
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0601039Z ##[endgroup]
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0602022Z ##[group]GITHUB_TOKEN Permissions
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0604210Z Contents: write
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0604764Z Metadata: read
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0605190Z ##[endgroup]
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0608136Z Secret source: Actions
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0609054Z Prepare workflow directory
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0954139Z Prepare all required actions
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.0994057Z Getting action download info
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.3581181Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.4951341Z Download action repository 'actions/setup-python@v5' (SHA:a26af69be951a213d495a4c3e4e4022e16d87065)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.6465275Z Download action repository 'actions/setup-node@v4' (SHA:49933ea5288caeca8642d1e84afbd3f7d6820020)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:51.8165159Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:52.1681959Z Complete job name: build / windows-x86_64
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:52.3847210Z ##[group]Run actions/checkout@v4
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:52.3848370Z with:
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:52.3848842Z   repository: BioSensorsLab-Illinois/MantisAnalysis
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:52.3849726Z   token: ***
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:52.3850083Z   ssh-strict: true
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:52.3850470Z   ssh-user: git
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:52.3850874Z   persist-credentials: true
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:52.3851341Z   clean: true
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:52.3851745Z   sparse-checkout-cone-mode: true
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:52.3852254Z   fetch-depth: 1
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:52.3852650Z   fetch-tags: false
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:52.3853055Z   show-progress: true
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:52.3853479Z   lfs: false
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:52.3853857Z   submodules: false
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:52.3854285Z   set-safe-directory: true
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:52.3854953Z ##[endgroup]
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:52.5629623Z Syncing repository: BioSensorsLab-Illinois/MantisAnalysis
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:52.5631782Z ##[group]Getting Git version info
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:52.5632850Z Working directory is 'D:\a\MantisAnalysis\MantisAnalysis'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:52.6693400Z [command]"C:\Program Files\Git\bin\git.exe" version
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:53.0761900Z git version 2.53.0.windows.2
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:53.0828814Z ##[endgroup]
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:53.0852773Z Temporarily overriding HOME='D:\a\_temp\41e7cccc-b1de-4f9e-96f5-3ef908a89691' before making global git config changes
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:53.0855258Z Adding repository directory to the temporary git global config as a safe directory
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:53.0864954Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\MantisAnalysis\MantisAnalysis
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:53.1483623Z Deleting the contents of 'D:\a\MantisAnalysis\MantisAnalysis'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:53.1490807Z ##[group]Initializing the repository
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:53.1501747Z [command]"C:\Program Files\Git\bin\git.exe" init D:\a\MantisAnalysis\MantisAnalysis
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:53.2439749Z Initialized empty Git repository in D:/a/MantisAnalysis/MantisAnalysis/.git/
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:53.2493365Z [command]"C:\Program Files\Git\bin\git.exe" remote add origin https://github.com/BioSensorsLab-Illinois/MantisAnalysis
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:53.3084877Z ##[endgroup]
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:53.3088373Z ##[group]Disabling automatic garbage collection
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:53.3096584Z [command]"C:\Program Files\Git\bin\git.exe" config --local gc.auto 0
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:53.3446272Z ##[endgroup]
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:53.3448820Z ##[group]Setting up auth
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:53.3462661Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:53.3826699Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:54.9778179Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:55.0112335Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:55.6011902Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:55.6336506Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:56.1781540Z [command]"C:\Program Files\Git\bin\git.exe" config --local http.https://github.com/.extraheader "AUTHORIZATION: basic ***"
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:56.2106629Z ##[endgroup]
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:56.2107543Z ##[group]Fetching the repository
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:56.2123951Z [command]"C:\Program Files\Git\bin\git.exe" -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +07736f37c8a5cb76f118c27897bff33982828b5f:refs/remotes/origin/main
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.1711197Z From https://github.com/BioSensorsLab-Illinois/MantisAnalysis
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.1712026Z  * [new ref]         07736f37c8a5cb76f118c27897bff33982828b5f -> origin/main
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.2134387Z ##[endgroup]
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.2134950Z ##[group]Determining the checkout info
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.2137556Z ##[endgroup]
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.2150713Z [command]"C:\Program Files\Git\bin\git.exe" sparse-checkout disable
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.2604808Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all extensions.worktreeConfig
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.2934868Z ##[group]Checking out the ref
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.2946882Z [command]"C:\Program Files\Git\bin\git.exe" checkout --progress --force -B main refs/remotes/origin/main
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.4091351Z Switched to a new branch 'main'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.4154613Z branch 'main' set up to track 'origin/main'.
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.4212451Z ##[endgroup]
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.4667798Z [command]"C:\Program Files\Git\bin\git.exe" log -1 --format=%H
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.4953595Z 07736f37c8a5cb76f118c27897bff33982828b5f
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.5424463Z ##[group]Run actions/setup-python@v5
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.5424933Z with:
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.5425197Z   python-version: 3.12
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.5425502Z   cache: pip
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.5425760Z   check-latest: false
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.5426145Z   token: ***
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.5426428Z   update-environment: true
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.5426715Z   allow-prereleases: false
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.5427035Z   freethreaded: false
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.5427310Z ##[endgroup]
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.7896350Z ##[group]Installed versions
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.8124370Z Successfully set up CPython (3.12.10)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:03:57.8125358Z ##[endgroup]
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:01.0168120Z Cache hit for: setup-python-Windows-x64-python-3.12.10-pip-b19d1168ab9257f6b1cbd3f73ae64d727b9b6274ea1911eb57c9ce69d56b4c08
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:02.0834375Z Received 130023424 of 358935608 (36.2%), 123.6 MBs/sec
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:03.0914916Z Received 130023424 of 358935608 (36.2%), 61.7 MBs/sec
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:04.1055740Z Received 130023424 of 358935608 (36.2%), 41.0 MBs/sec
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:05.1196985Z Received 130023424 of 358935608 (36.2%), 30.7 MBs/sec
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:06.1318458Z Received 264241152 of 358935608 (73.6%), 49.9 MBs/sec
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:07.1465107Z Received 354741304 of 358935608 (98.8%), 55.8 MBs/sec
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:08.1481348Z Received 354741304 of 358935608 (98.8%), 47.9 MBs/sec
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:08.4345813Z Received 358935608 of 358935608 (100.0%), 46.5 MBs/sec
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:08.4350610Z Cache Size: ~342 MB (358935608 B)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:08.4436433Z [command]"C:\Program Files\Git\usr\bin\tar.exe" -xf D:/a/_temp/19445b0a-c8b9-4a1e-8ec8-11ff9fee83e6/cache.tzst -P -C D:/a/MantisAnalysis/MantisAnalysis --force-local --use-compress-program "zstd -d"
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:11.2593795Z Cache restored successfully
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:11.2816261Z Cache restored from key: setup-python-Windows-x64-python-3.12.10-pip-b19d1168ab9257f6b1cbd3f73ae64d727b9b6274ea1911eb57c9ce69d56b4c08
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:11.3258851Z ##[group]Run actions/setup-node@v4
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:11.3259159Z with:
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:11.3259320Z   node-version: 20
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:11.3259500Z   cache: npm
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:11.3259661Z   always-auth: false
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:11.3259840Z   check-latest: false
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:11.3260165Z   token: ***
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:11.3260324Z env:
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:11.3260568Z   pythonLocation: C:\hostedtoolcache\windows\Python\3.12.10\x64
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:11.3261014Z   PKG_CONFIG_PATH: C:\hostedtoolcache\windows\Python\3.12.10\x64/lib/pkgconfig
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:11.3261458Z   Python_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:11.3261841Z   Python2_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:11.3262239Z   Python3_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:11.3262520Z ##[endgroup]
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:11.5898817Z Found in cache @ C:\hostedtoolcache\windows\node\20.20.2\x64
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:11.5915188Z ##[group]Environment details
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:16.5090408Z node: v20.20.2
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:16.5090647Z npm: 10.8.2
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:16.5091078Z yarn: 1.22.22
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:16.5092516Z ##[endgroup]
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:16.6007168Z [command]C:\Windows\system32\cmd.exe /D /S /C "C:\hostedtoolcache\windows\node\20.20.2\x64\npm.cmd config get cache"
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:17.1897435Z C:\npm\cache
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:17.4070675Z npm cache is not found
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:17.4356288Z ##[group]Run python -m pip install --upgrade pip wheel setuptools
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:17.4356865Z [36;1mpython -m pip install --upgrade pip wheel setuptools[0m
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:17.4357232Z [36;1mpython -m pip install -e .[build][0m
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:17.4376392Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:17.4376793Z env:
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:17.4377043Z   pythonLocation: C:\hostedtoolcache\windows\Python\3.12.10\x64
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:17.4377489Z   PKG_CONFIG_PATH: C:\hostedtoolcache\windows\Python\3.12.10\x64/lib/pkgconfig
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:17.4377915Z   Python_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:17.4378304Z   Python2_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:17.4378692Z   Python3_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:17.4379265Z ##[endgroup]
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:19.6208198Z Requirement already satisfied: pip in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (26.0.1)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:19.9916819Z Collecting wheel
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:19.9942491Z   Using cached wheel-0.47.0-py3-none-any.whl.metadata (2.3 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:20.1244134Z Collecting setuptools
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:20.1269321Z   Using cached setuptools-82.0.1-py3-none-any.whl.metadata (6.5 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:20.1462551Z Requirement already satisfied: packaging>=24.0 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from wheel) (26.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:20.1647155Z Using cached wheel-0.47.0-py3-none-any.whl (32 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:20.1665328Z Using cached setuptools-82.0.1-py3-none-any.whl (1.0 MB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:20.3092891Z Installing collected packages: wheel, setuptools
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:22.1264224Z 
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:22.1281297Z Successfully installed setuptools-82.0.1 wheel-0.47.0
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:23.3403442Z Obtaining file:///D:/a/MantisAnalysis/MantisAnalysis
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:23.3443336Z   Installing build dependencies: started
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:26.1290967Z   Installing build dependencies: finished with status 'done'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:26.1308348Z   Checking if build backend supports build_editable: started
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:26.6667846Z   Checking if build backend supports build_editable: finished with status 'done'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:26.6695250Z   Getting requirements to build editable: started
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:27.2104339Z   Getting requirements to build editable: finished with status 'done'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:27.2136606Z   Preparing editable metadata (pyproject.toml): started
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:27.5715449Z   Preparing editable metadata (pyproject.toml): finished with status 'done'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:27.8989180Z Collecting h5py>=3.0 (from mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:27.9017746Z   Using cached h5py-3.16.0-cp312-cp312-win_amd64.whl.metadata (3.1 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:28.1189656Z Collecting numpy>=1.24 (from mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:28.1213661Z   Using cached numpy-2.4.4-cp312-cp312-win_amd64.whl.metadata (6.6 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:28.2599636Z Collecting scipy>=1.10 (from mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:28.2624369Z   Using cached scipy-1.17.1-cp312-cp312-win_amd64.whl.metadata (60 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:28.5403449Z Collecting matplotlib>=3.7 (from mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:28.5433062Z   Using cached matplotlib-3.10.9-cp312-cp312-win_amd64.whl.metadata (52 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:28.7363028Z Collecting Pillow>=10.0 (from mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:28.7388991Z   Using cached pillow-12.2.0-cp312-cp312-win_amd64.whl.metadata (9.0 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:28.8119582Z Collecting tifffile>=2023.0 (from mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:28.8157091Z   Using cached tifffile-2026.4.11-py3-none-any.whl.metadata (31 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:28.8830604Z Collecting fastapi>=0.110 (from mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:28.8856089Z   Using cached fastapi-0.136.1-py3-none-any.whl.metadata (28 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:28.9264394Z Collecting uvicorn>=0.27 (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:28.9284980Z   Using cached uvicorn-0.46.0-py3-none-any.whl.metadata (6.7 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:28.9616244Z Collecting python-multipart>=0.0.9 (from mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:28.9638726Z   Using cached python_multipart-0.0.26-py3-none-any.whl.metadata (2.1 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:29.1165412Z Collecting pydantic>=2.5 (from mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:29.1191438Z   Using cached pydantic-2.13.3-py3-none-any.whl.metadata (108 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:29.1895835Z Collecting pyinstaller>=6.6 (from mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:29.4160880Z   Downloading pyinstaller-6.20.0-py3-none-win_amd64.whl.metadata (8.5 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:29.4753046Z Collecting starlette>=0.46.0 (from fastapi>=0.110->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:29.4781219Z   Using cached starlette-1.0.0-py3-none-any.whl.metadata (6.3 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:29.5122500Z Collecting typing-extensions>=4.8.0 (from fastapi>=0.110->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:29.5145358Z   Using cached typing_extensions-4.15.0-py3-none-any.whl.metadata (3.3 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:29.5361149Z Collecting typing-inspection>=0.4.2 (from fastapi>=0.110->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:29.5382286Z   Using cached typing_inspection-0.4.2-py3-none-any.whl.metadata (2.6 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:29.5618176Z Collecting annotated-doc>=0.0.2 (from fastapi>=0.110->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:29.5642714Z   Using cached annotated_doc-0.0.4-py3-none-any.whl.metadata (6.6 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:29.6455647Z Collecting contourpy>=1.0.1 (from matplotlib>=3.7->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:29.6485693Z   Using cached contourpy-1.3.3-cp312-cp312-win_amd64.whl.metadata (5.5 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:29.6778184Z Collecting cycler>=0.10 (from matplotlib>=3.7->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:29.6802272Z   Using cached cycler-0.12.1-py3-none-any.whl.metadata (3.8 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:29.8345780Z Collecting fonttools>=4.22.0 (from matplotlib>=3.7->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:29.8370229Z   Using cached fonttools-4.62.1-cp312-cp312-win_amd64.whl.metadata (119 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:29.9247300Z Collecting kiwisolver>=1.3.1 (from matplotlib>=3.7->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:29.9271160Z   Using cached kiwisolver-1.5.0-cp312-cp312-win_amd64.whl.metadata (5.2 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:29.9346579Z Requirement already satisfied: packaging>=20.0 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from matplotlib>=3.7->mantisanalysis==0.2.0) (26.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:29.9652164Z Collecting pyparsing>=3 (from matplotlib>=3.7->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:29.9726995Z   Using cached pyparsing-3.3.2-py3-none-any.whl.metadata (5.8 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:29.9991731Z Collecting python-dateutil>=2.7 (from matplotlib>=3.7->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:30.0014763Z   Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl.metadata (8.4 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:30.0322467Z Collecting annotated-types>=0.6.0 (from pydantic>=2.5->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:30.0348996Z   Using cached annotated_types-0.7.0-py3-none-any.whl.metadata (15 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:30.7493884Z Collecting pydantic-core==2.46.3 (from pydantic>=2.5->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:30.7518558Z   Using cached pydantic_core-2.46.3-cp312-cp312-win_amd64.whl.metadata (6.7 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:30.7859008Z Collecting altgraph (from pyinstaller>=6.6->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:30.7912082Z   Downloading altgraph-0.17.5-py2.py3-none-any.whl.metadata (7.5 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:30.8556307Z Collecting pefile>=2022.5.30 (from pyinstaller>=6.6->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:30.8623860Z   Downloading pefile-2024.8.26-py3-none-any.whl.metadata (1.4 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:30.9236583Z Collecting pyinstaller-hooks-contrib>=2026.4 (from pyinstaller>=6.6->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:30.9299636Z   Downloading pyinstaller_hooks_contrib-2026.4-py3-none-any.whl.metadata (16 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:30.9969496Z Collecting pywin32-ctypes>=0.2.1 (from pyinstaller>=6.6->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.0019578Z   Downloading pywin32_ctypes-0.2.3-py3-none-any.whl.metadata (3.9 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.0273252Z Requirement already satisfied: setuptools>=42.0.0 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from pyinstaller>=6.6->mantisanalysis==0.2.0) (82.0.1)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.0538616Z Collecting six>=1.5 (from python-dateutil>=2.7->matplotlib>=3.7->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.0565659Z   Using cached six-1.17.0-py2.py3-none-any.whl.metadata (1.7 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.0949350Z Collecting anyio<5,>=3.6.2 (from starlette>=0.46.0->fastapi>=0.110->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.0976386Z   Using cached anyio-4.13.0-py3-none-any.whl.metadata (4.5 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.1264696Z Collecting idna>=2.8 (from anyio<5,>=3.6.2->starlette>=0.46.0->fastapi>=0.110->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.1291079Z   Using cached idna-3.13-py3-none-any.whl.metadata (8.0 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.1409897Z Requirement already satisfied: click>=7.0 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from uvicorn>=0.27->uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (8.3.2)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.1595285Z Collecting h11>=0.8 (from uvicorn>=0.27->uvicorn[standard]>=0.27->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.1622021Z   Using cached h11-0.16.0-py3-none-any.whl.metadata (8.3 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.1705150Z Requirement already satisfied: colorama in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from click>=7.0->uvicorn>=0.27->uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (0.4.6)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.2157878Z Collecting httptools>=0.6.3 (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.2187706Z   Using cached httptools-0.7.1-cp312-cp312-win_amd64.whl.metadata (3.6 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.2489936Z Collecting python-dotenv>=0.13 (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.2519873Z   Using cached python_dotenv-1.2.2-py3-none-any.whl.metadata (27 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.3035743Z Collecting pyyaml>=5.1 (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.3061492Z   Using cached pyyaml-6.0.3-cp312-cp312-win_amd64.whl.metadata (2.4 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.4652268Z Collecting watchfiles>=0.20 (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.4676442Z   Using cached watchfiles-1.1.1-cp312-cp312-win_amd64.whl.metadata (5.0 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.5667941Z Collecting websockets>=10.4 (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.5691826Z   Using cached websockets-16.0-cp312-cp312-win_amd64.whl.metadata (7.0 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.5859878Z Using cached fastapi-0.136.1-py3-none-any.whl (117 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.5883600Z Using cached annotated_doc-0.0.4-py3-none-any.whl (5.3 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.5925148Z Using cached h5py-3.16.0-cp312-cp312-win_amd64.whl (3.2 MB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.5965117Z Using cached matplotlib-3.10.9-cp312-cp312-win_amd64.whl (8.2 MB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.6023955Z Using cached contourpy-1.3.3-cp312-cp312-win_amd64.whl (226 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.6047691Z Using cached cycler-0.12.1-py3-none-any.whl (8.3 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.6066879Z Using cached fonttools-4.62.1-cp312-cp312-win_amd64.whl (2.3 MB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.6104008Z Using cached kiwisolver-1.5.0-cp312-cp312-win_amd64.whl (73 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.6122818Z Using cached numpy-2.4.4-cp312-cp312-win_amd64.whl (12.3 MB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.6206408Z Using cached pillow-12.2.0-cp312-cp312-win_amd64.whl (7.1 MB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.6260666Z Using cached pydantic-2.13.3-py3-none-any.whl (471 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.6282381Z Using cached pydantic_core-2.46.3-cp312-cp312-win_amd64.whl (2.1 MB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.6317950Z Using cached annotated_types-0.7.0-py3-none-any.whl (13 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.6395640Z Downloading pyinstaller-6.20.0-py3-none-win_amd64.whl (1.4 MB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.7525743Z    ---------------------------------------- 1.4/1.4 MB 24.0 MB/s  0:00:00
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.7597390Z Downloading pefile-2024.8.26-py3-none-any.whl (74 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:31.9787092Z Downloading pyinstaller_hooks_contrib-2026.4-py3-none-any.whl (455 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.0175340Z Using cached pyparsing-3.3.2-py3-none-any.whl (122 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.0197757Z Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl (229 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.0216633Z Using cached python_multipart-0.0.26-py3-none-any.whl (28 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.0264464Z Downloading pywin32_ctypes-0.2.3-py3-none-any.whl (30 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.0478290Z Using cached scipy-1.17.1-cp312-cp312-win_amd64.whl (36.5 MB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.0675633Z Using cached six-1.17.0-py2.py3-none-any.whl (11 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.0721672Z Using cached starlette-1.0.0-py3-none-any.whl (72 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.0740650Z Using cached anyio-4.13.0-py3-none-any.whl (114 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.0763971Z Using cached idna-3.13-py3-none-any.whl (68 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.0782408Z Using cached tifffile-2026.4.11-py3-none-any.whl (248 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.0806433Z Using cached typing_extensions-4.15.0-py3-none-any.whl (44 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.0824775Z Using cached typing_inspection-0.4.2-py3-none-any.whl (14 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.0846851Z Using cached uvicorn-0.46.0-py3-none-any.whl (70 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.0865338Z Using cached h11-0.16.0-py3-none-any.whl (37 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.0888889Z Using cached httptools-0.7.1-cp312-cp312-win_amd64.whl (86 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.0907648Z Using cached python_dotenv-1.2.2-py3-none-any.whl (22 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.0930527Z Using cached pyyaml-6.0.3-cp312-cp312-win_amd64.whl (154 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.0994898Z Using cached watchfiles-1.1.1-cp312-cp312-win_amd64.whl (288 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.1015440Z Using cached websockets-16.0-cp312-cp312-win_amd64.whl (178 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.1066513Z Downloading altgraph-0.17.5-py2.py3-none-any.whl (21 kB)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.2973474Z Building wheels for collected packages: mantisanalysis
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.3069672Z   Building editable for mantisanalysis (pyproject.toml): started
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.6794200Z   Building editable for mantisanalysis (pyproject.toml): finished with status 'done'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.6838729Z   Created wheel for mantisanalysis: filename=mantisanalysis-0.2.0-0.editable-py3-none-any.whl size=9873 sha256=85301d273de3787a17d680c8577c9e9c0c89ad4d6d61240d70d2ed3e0e93cb30
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.6840897Z   Stored in directory: C:\Users\runneradmin\AppData\Local\Temp\pip-ephem-wheel-cache-1gqjcvu6\wheels\23\c1\d7\b028dadc61a7db876071a91c0dc613ec7322d3cd755efda2b5
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.6879622Z Successfully built mantisanalysis
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:04:32.8077057Z Installing collected packages: altgraph, websockets, typing-extensions, six, pyyaml, pywin32-ctypes, python-multipart, python-dotenv, pyparsing, pyinstaller-hooks-contrib, Pillow, pefile, numpy, kiwisolver, idna, httptools, h11, fonttools, cycler, annotated-types, annotated-doc, uvicorn, typing-inspection, tifffile, scipy, python-dateutil, pyinstaller, pydantic-core, h5py, contourpy, anyio, watchfiles, starlette, pydantic, matplotlib, fastapi, mantisanalysis
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:01.0427751Z 
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:01.0480586Z Successfully installed Pillow-12.2.0 altgraph-0.17.5 annotated-doc-0.0.4 annotated-types-0.7.0 anyio-4.13.0 contourpy-1.3.3 cycler-0.12.1 fastapi-0.136.1 fonttools-4.62.1 h11-0.16.0 h5py-3.16.0 httptools-0.7.1 idna-3.13 kiwisolver-1.5.0 mantisanalysis-0.2.0 matplotlib-3.10.9 numpy-2.4.4 pefile-2024.8.26 pydantic-2.13.3 pydantic-core-2.46.3 pyinstaller-6.20.0 pyinstaller-hooks-contrib-2026.4 pyparsing-3.3.2 python-dateutil-2.9.0.post0 python-dotenv-1.2.2 python-multipart-0.0.26 pywin32-ctypes-0.2.3 pyyaml-6.0.3 scipy-1.17.1 six-1.17.0 starlette-1.0.0 tifffile-2026.4.11 typing-extensions-4.15.0 typing-inspection-0.4.2 uvicorn-0.46.0 watchfiles-1.1.1 websockets-16.0
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:01.8144976Z ##[group]Run python packaging/build.py --no-venv
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:01.8145417Z [36;1mpython packaging/build.py --no-venv[0m
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:01.8160426Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:01.8160805Z env:
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:01.8161062Z   pythonLocation: C:\hostedtoolcache\windows\Python\3.12.10\x64
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:01.8161487Z   PKG_CONFIG_PATH: C:\hostedtoolcache\windows\Python\3.12.10\x64/lib/pkgconfig
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:01.8161929Z   Python_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:01.8162357Z   Python2_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:01.8163071Z   Python3_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.12.10\x64
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:01.8163550Z ##[endgroup]
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:01.9336245Z >> C:\hostedtoolcache\windows\Python\3.12.10\x64\python.exe -m pip install --upgrade -e D:\a\MantisAnalysis\MantisAnalysis[build]
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:03.0877043Z Obtaining file:///D:/a/MantisAnalysis/MantisAnalysis
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:03.0916590Z   Installing build dependencies: started
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:05.2883396Z   Installing build dependencies: finished with status 'done'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:05.2901069Z   Checking if build backend supports build_editable: started
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:05.8489427Z   Checking if build backend supports build_editable: finished with status 'done'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:05.8517799Z   Getting requirements to build editable: started
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.3800939Z   Getting requirements to build editable: finished with status 'done'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.3832320Z   Preparing editable metadata (pyproject.toml): started
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7168257Z   Preparing editable metadata (pyproject.toml): finished with status 'done'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7245082Z Requirement already satisfied: h5py>=3.0 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from mantisanalysis==0.2.0) (3.16.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7250910Z Requirement already satisfied: numpy>=1.24 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from mantisanalysis==0.2.0) (2.4.4)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7255763Z Requirement already satisfied: scipy>=1.10 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from mantisanalysis==0.2.0) (1.17.1)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7261364Z Requirement already satisfied: matplotlib>=3.7 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from mantisanalysis==0.2.0) (3.10.9)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7267168Z Requirement already satisfied: Pillow>=10.0 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from mantisanalysis==0.2.0) (12.2.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7272189Z Requirement already satisfied: tifffile>=2023.0 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from mantisanalysis==0.2.0) (2026.4.11)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7277521Z Requirement already satisfied: fastapi>=0.110 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from mantisanalysis==0.2.0) (0.136.1)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7285383Z Requirement already satisfied: uvicorn>=0.27 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (0.46.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7291192Z Requirement already satisfied: python-multipart>=0.0.9 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from mantisanalysis==0.2.0) (0.0.26)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7296431Z Requirement already satisfied: pydantic>=2.5 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from mantisanalysis==0.2.0) (2.13.3)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7313465Z Requirement already satisfied: pyinstaller>=6.6 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from mantisanalysis==0.2.0) (6.20.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7331834Z Requirement already satisfied: starlette>=0.46.0 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from fastapi>=0.110->mantisanalysis==0.2.0) (1.0.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7341054Z Requirement already satisfied: typing-extensions>=4.8.0 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from fastapi>=0.110->mantisanalysis==0.2.0) (4.15.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7344366Z Requirement already satisfied: typing-inspection>=0.4.2 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from fastapi>=0.110->mantisanalysis==0.2.0) (0.4.2)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7349310Z Requirement already satisfied: annotated-doc>=0.0.2 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from fastapi>=0.110->mantisanalysis==0.2.0) (0.0.4)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7443829Z Requirement already satisfied: contourpy>=1.0.1 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from matplotlib>=3.7->mantisanalysis==0.2.0) (1.3.3)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7448693Z Requirement already satisfied: cycler>=0.10 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from matplotlib>=3.7->mantisanalysis==0.2.0) (0.12.1)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7455215Z Requirement already satisfied: fonttools>=4.22.0 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from matplotlib>=3.7->mantisanalysis==0.2.0) (4.62.1)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7461352Z Requirement already satisfied: kiwisolver>=1.3.1 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from matplotlib>=3.7->mantisanalysis==0.2.0) (1.5.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7467724Z Requirement already satisfied: packaging>=20.0 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from matplotlib>=3.7->mantisanalysis==0.2.0) (26.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7476408Z Requirement already satisfied: pyparsing>=3 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from matplotlib>=3.7->mantisanalysis==0.2.0) (3.3.2)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7482105Z Requirement already satisfied: python-dateutil>=2.7 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from matplotlib>=3.7->mantisanalysis==0.2.0) (2.9.0.post0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7668737Z Requirement already satisfied: annotated-types>=0.6.0 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from pydantic>=2.5->mantisanalysis==0.2.0) (0.7.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7675043Z Requirement already satisfied: pydantic-core==2.46.3 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from pydantic>=2.5->mantisanalysis==0.2.0) (2.46.3)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7721268Z Requirement already satisfied: altgraph in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from pyinstaller>=6.6->mantisanalysis==0.2.0) (0.17.5)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7733871Z Requirement already satisfied: pefile>=2022.5.30 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from pyinstaller>=6.6->mantisanalysis==0.2.0) (2024.8.26)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7741622Z Requirement already satisfied: pyinstaller-hooks-contrib>=2026.4 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from pyinstaller>=6.6->mantisanalysis==0.2.0) (2026.4)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7751070Z Requirement already satisfied: pywin32-ctypes>=0.2.1 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from pyinstaller>=6.6->mantisanalysis==0.2.0) (0.2.3)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7756527Z Requirement already satisfied: setuptools>=42.0.0 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from pyinstaller>=6.6->mantisanalysis==0.2.0) (82.0.1)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7819955Z Requirement already satisfied: six>=1.5 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from python-dateutil>=2.7->matplotlib>=3.7->mantisanalysis==0.2.0) (1.17.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.7985954Z Requirement already satisfied: anyio<5,>=3.6.2 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from starlette>=0.46.0->fastapi>=0.110->mantisanalysis==0.2.0) (4.13.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.8008536Z Requirement already satisfied: idna>=2.8 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from anyio<5,>=3.6.2->starlette>=0.46.0->fastapi>=0.110->mantisanalysis==0.2.0) (3.13)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.8100282Z Requirement already satisfied: click>=7.0 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from uvicorn>=0.27->uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (8.3.2)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.8104752Z Requirement already satisfied: h11>=0.8 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from uvicorn>=0.27->uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (0.16.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.8130729Z Requirement already satisfied: colorama in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from click>=7.0->uvicorn>=0.27->uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (0.4.6)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.8161588Z Requirement already satisfied: httptools>=0.6.3 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (0.7.1)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.8169041Z Requirement already satisfied: python-dotenv>=0.13 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (1.2.2)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.8175678Z Requirement already satisfied: pyyaml>=5.1 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (6.0.3)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.8182231Z Requirement already satisfied: watchfiles>=0.20 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (1.1.1)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.8211980Z Requirement already satisfied: websockets>=10.4 in C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (16.0)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.8316994Z Building wheels for collected packages: mantisanalysis
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:06.8344676Z   Building editable for mantisanalysis (pyproject.toml): started
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:07.2064356Z   Building editable for mantisanalysis (pyproject.toml): finished with status 'done'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:07.2116942Z   Created wheel for mantisanalysis: filename=mantisanalysis-0.2.0-0.editable-py3-none-any.whl size=9873 sha256=561bdbe8cd5f6f5b78777611bc6b38d96feb57cbcf3de749527bd6b7953e12f6
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:07.2119393Z   Stored in directory: C:\Users\runneradmin\AppData\Local\Temp\pip-ephem-wheel-cache-vso8r74u\wheels\23\c1\d7\b028dadc61a7db876071a91c0dc613ec7322d3cd755efda2b5
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:07.2165512Z Successfully built mantisanalysis
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:07.2555136Z Installing collected packages: mantisanalysis
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:07.2556431Z   Attempting uninstall: mantisanalysis
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:07.2588711Z     Found existing installation: mantisanalysis 0.2.0
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:07.2632691Z     Uninstalling mantisanalysis-0.2.0:
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:07.5713410Z       Successfully uninstalled mantisanalysis-0.2.0
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:07.6228420Z Successfully installed mantisanalysis-0.2.0
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:07.8355452Z >> C:\hostedtoolcache\windows\node\20.20.2\x64\npm.CMD install
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:18.7578533Z 
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:18.7579172Z added 293 packages, and audited 294 packages in 11s
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:18.7579770Z 
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:18.7580141Z 125 packages are looking for funding
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:18.7580779Z   run `npm fund` for details
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:18.7675494Z 
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:18.7675970Z 2 moderate severity vulnerabilities
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:18.7676326Z 
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:18.7676684Z To address all issues (including breaking changes), run:
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:18.7677235Z   npm audit fix --force
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:18.7677483Z 
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:18.7678192Z Run `npm audit` for details.
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:18.7950182Z >> C:\hostedtoolcache\windows\node\20.20.2\x64\npm.CMD run build
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:19.1641805Z 
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:19.1642398Z > mantisanalysis-web@0.2.0 build
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:19.1642764Z > vite build
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:19.1642899Z 
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:20.5300273Z [36mvite v5.4.21 [32mbuilding for production...[36m[39m
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:20.6274503Z transforming...
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:54.1048994Z [32m✓[39m 41 modules transformed.
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:05:57.4530415Z rendering chunks...
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:00.3446872Z computing gzip size...
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:00.5398034Z [2mdist/[22m[32mindex.html                [39m[1m[2m    2.51 kB[22m[1m[22m[2m │ gzip:     1.11 kB[22m
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:00.5399232Z [2mdist/[22m[36massets/index-DqDuy9Q_.js  [39m[1m[33m5,353.21 kB[39m[22m[2m │ gzip: 1,628.80 kB[22m[2m │ map: 13,209.12 kB[22m
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:00.5401835Z [33m
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:00.5402220Z (!) Some chunks are larger than 500 kB after minification. Consider:
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:00.5402727Z - Using dynamic import() to code-split the application
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:00.5403504Z - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:00.5404383Z - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:00.5405973Z [32m✓ built in 39.97s[39m
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:00.7778907Z >> C:\hostedtoolcache\windows\Python\3.12.10\x64\python.exe -m PyInstaller D:\a\MantisAnalysis\MantisAnalysis\packaging\mantisanalysis.spec --noconfirm --clean
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:01.2268856Z 311 INFO: PyInstaller: 6.20.0, contrib hooks: 2026.4
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:01.2273194Z 312 INFO: Python: 3.12.10
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:01.2511358Z 334 INFO: Platform: Windows-2025Server-10.0.26100-SP0
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:01.2511945Z 334 INFO: Python environment: C:\hostedtoolcache\windows\Python\3.12.10\x64
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:01.2591114Z 344 INFO: Removing temporary files and cleaning cache in C:\Users\runneradmin\AppData\Local\pyinstaller
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:06.0816673Z 5166 INFO: Module search paths (PYTHONPATH):
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:06.0817218Z ['D:\\a\\MantisAnalysis\\MantisAnalysis',
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:06.0817733Z  'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\python312.zip',
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:06.0818270Z  'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\DLLs',
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:06.0818741Z  'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib',
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:06.0819229Z  'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64',
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:06.0819738Z  'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages',
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:06.0820246Z  'D:\\a\\MantisAnalysis\\MantisAnalysis\\packaging',
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:06.0820646Z  'D:\\a\\MantisAnalysis\\MantisAnalysis']
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:06.4042721Z 5487 INFO: Appending 'datas' from .spec
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:06.4140828Z 5499 INFO: checking Analysis
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:06.4141588Z 5499 INFO: Building Analysis because Analysis-00.toc is non existent
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:06.4143656Z 5499 INFO: Looking for Python shared library...
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:06.4144711Z 5499 INFO: Using Python shared library: C:\hostedtoolcache\windows\Python\3.12.10\x64\python312.dll
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:06.4145647Z 5499 INFO: Running Analysis Analysis-00.toc
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:06.4146232Z 5499 INFO: Target bytecode optimization level: 0
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:06.4146883Z 5499 INFO: Initializing module dependency graph...
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:06.4175151Z 5501 INFO: Initializing module graph hook caches...
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:06.4335545Z 5516 INFO: Analyzing modules for base_library.zip ...
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:07.7021813Z 6785 INFO: Processing standard module hook 'hook-encodings.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:09.5215523Z 8604 INFO: Processing standard module hook 'hook-pickle.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:10.7051891Z 9789 INFO: Processing standard module hook 'hook-heapq.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:11.2653269Z 10349 INFO: Caching module dependency graph...
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:11.3064084Z 10390 INFO: Analyzing D:\a\MantisAnalysis\MantisAnalysis\packaging\entry.py
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:11.3480438Z 10431 INFO: Processing standard module hook 'hook-multiprocessing.util.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:11.5258623Z 10609 INFO: Processing standard module hook 'hook-xml.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:11.7931638Z 10876 INFO: Processing standard module hook 'hook-_ctypes.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:11.9222659Z 11007 INFO: Processing standard module hook 'hook-platform.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:11.9425695Z 11026 INFO: Processing standard module hook 'hook-numpy.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:12.3904915Z 11474 INFO: Processing standard module hook 'hook-difflib.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:13.2753814Z 12358 INFO: Processing standard module hook 'hook-sysconfig.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:14.6022703Z 13687 INFO: Processing pre-safe-import-module hook 'hook-typing_extensions.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:14.6029330Z 13687 INFO: SetuptoolsInfo: initializing cached setuptools info...
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:15.9360919Z 15019 INFO: Processing standard module hook 'hook-h5py.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:17.8895462Z 16973 INFO: Processing standard module hook 'hook-xml.etree.cElementTree.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:17.9439007Z 17027 INFO: Processing standard module hook 'hook-xml.dom.domreg.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:18.1490436Z 17233 INFO: Processing standard module hook 'hook-matplotlib.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:18.4588013Z 17542 INFO: Processing pre-safe-import-module hook 'hook-packaging.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:18.5828763Z 17667 INFO: Processing pre-safe-import-module hook 'hook-gi.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:18.8829379Z 17966 INFO: Processing standard module hook 'hook-matplotlib.backend_bases.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:19.0052356Z 18089 INFO: Processing standard module hook 'hook-PIL.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:19.1103432Z 18194 INFO: Processing standard module hook 'hook-PIL.Image.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:19.5920001Z 18675 INFO: Processing standard module hook 'hook-PIL.ImageFilter.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:20.3833740Z 19466 INFO: Processing standard module hook 'hook-matplotlib.backends.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:20.6134580Z 19697 INFO: Processing standard module hook 'hook-matplotlib.pyplot.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:21.5715429Z 20655 INFO: Processing standard module hook 'hook-dateutil.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:21.6540498Z 20738 INFO: Processing pre-safe-import-module hook 'hook-six.moves.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:23.1859353Z 22270 INFO: Processing standard module hook 'hook-uvicorn.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:24.3812619Z 23464 INFO: Processing standard module hook 'hook-websockets.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:24.9890933Z 24073 INFO: Processing standard module hook 'hook-anyio.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:26.0578946Z 25142 INFO: Analyzing hidden import 'uvicorn.__main__'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:26.0585558Z 25143 INFO: Analyzing hidden import 'uvicorn.lifespan'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:26.0590524Z 25143 INFO: Analyzing hidden import 'uvicorn.lifespan.off'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:26.0604041Z 25144 INFO: Analyzing hidden import 'uvicorn.lifespan.on'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:26.0658972Z 25150 INFO: Analyzing hidden import 'uvicorn.loops'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:26.0664000Z 25150 INFO: Analyzing hidden import 'uvicorn.loops.asyncio'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:26.0674755Z 25152 INFO: Analyzing hidden import 'uvicorn.loops.auto'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:26.0696505Z 25154 INFO: Analyzing hidden import 'uvicorn.protocols.http.auto'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:26.0705770Z 25154 INFO: Analyzing hidden import 'uvicorn.protocols.websockets.auto'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:26.0717346Z 25156 INFO: Analyzing hidden import 'uvicorn.workers'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:26.0759965Z 25160 INFO: Analyzing hidden import 'fastapi'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:26.2223419Z 25307 INFO: Processing standard module hook 'hook-pydantic.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:26.9863729Z 26071 INFO: Processing standard module hook 'hook-zoneinfo.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.3210581Z 27404 INFO: Analyzing hidden import 'fastapi.__main__'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.3227398Z 27406 INFO: Analyzing hidden import 'fastapi.middleware.cors'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.3296197Z 27412 INFO: Analyzing hidden import 'fastapi.middleware.gzip'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.3366100Z 27420 INFO: Analyzing hidden import 'fastapi.middleware.httpsredirect'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.3386433Z 27422 INFO: Analyzing hidden import 'fastapi.middleware.trustedhost'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.3417960Z 27426 INFO: Analyzing hidden import 'fastapi.middleware.wsgi'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.3489785Z 27432 INFO: Analyzing hidden import 'fastapi.staticfiles'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.3574616Z 27441 INFO: Analyzing hidden import 'fastapi.templating'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.3625405Z 27447 INFO: Analyzing hidden import 'fastapi.testclient'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.3883776Z 27472 INFO: Analyzing hidden import 'starlette.authentication'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.3944029Z 27478 INFO: Analyzing hidden import 'starlette.config'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.3999826Z 27484 INFO: Analyzing hidden import 'starlette.endpoints'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.4058178Z 27490 INFO: Analyzing hidden import 'starlette.middleware.authentication'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.4084772Z 27492 INFO: Analyzing hidden import 'starlette.schemas'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.4134485Z 27498 INFO: Analyzing hidden import 'anyio._backends'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.4139634Z 27498 INFO: Analyzing hidden import 'anyio._backends._asyncio'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.5315731Z 27615 INFO: Analyzing hidden import 'anyio._backends._trio'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.5818628Z 27665 INFO: Analyzing hidden import 'anyio.functools'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.5941115Z 27678 INFO: Analyzing hidden import 'anyio.pytest_plugin'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.6053348Z 27688 INFO: Analyzing hidden import 'anyio.streams.buffered'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.6113342Z 27694 INFO: Analyzing hidden import 'anyio.streams.file'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.6161206Z 27700 INFO: Analyzing hidden import 'anyio.streams.text'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.6217504Z 27706 INFO: Analyzing hidden import 'anyio.to_interpreter'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.6294955Z 27712 INFO: Analyzing hidden import 'anyio.to_process'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.6389233Z 27722 INFO: Analyzing hidden import 'websockets.__main__'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.6453834Z 27728 INFO: Analyzing hidden import 'websockets.auth'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.6506526Z 27734 INFO: Analyzing hidden import 'websockets.connection'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.6513311Z 27736 INFO: Analyzing hidden import 'websockets.http'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.6522888Z 27736 INFO: Analyzing hidden import 'websockets.legacy.client'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.6676491Z 27752 INFO: Analyzing hidden import 'websockets.sync'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.6681659Z 27752 INFO: Analyzing hidden import 'websockets.sync.client'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.7110143Z 27796 INFO: Analyzing hidden import 'websockets.sync.router'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.7287940Z 27813 INFO: Analyzing hidden import 'pydantic.alias_generators'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.7307884Z 27815 INFO: Analyzing hidden import 'pydantic.class_validators'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.7313712Z 27815 INFO: Analyzing hidden import 'pydantic.datetime_parse'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.7319070Z 27815 INFO: Analyzing hidden import 'pydantic.decorator'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.7324561Z 27815 INFO: Analyzing hidden import 'pydantic.deprecated.decorator'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.7431918Z 27827 INFO: Analyzing hidden import 'pydantic.env_settings'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.7438151Z 27827 INFO: Analyzing hidden import 'pydantic.error_wrappers'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.7446454Z 27829 INFO: Analyzing hidden import 'pydantic.experimental'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.7451891Z 27829 INFO: Analyzing hidden import 'pydantic.experimental.arguments_schema'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.7469849Z 27831 INFO: Analyzing hidden import 'pydantic.experimental.missing_sentinel'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.7475957Z 27831 INFO: Analyzing hidden import 'pydantic.experimental.pipeline'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.7724168Z 27855 INFO: Analyzing hidden import 'pydantic.generics'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.7730413Z 27858 INFO: Analyzing hidden import 'pydantic.json'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.7735878Z 27858 INFO: Analyzing hidden import 'pydantic.mypy'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.8522051Z 27936 INFO: Processing pre-safe-import-module hook 'hook-tomli.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.8524611Z 27936 INFO: Setuptools: 'tomli' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.tomli'!
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.8579475Z 27942 INFO: Processing standard module hook 'hook-setuptools.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.8697241Z 27954 INFO: Processing pre-safe-import-module hook 'hook-distutils.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.8964387Z 27980 INFO: Processing pre-safe-import-module hook 'hook-jaraco.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.8966532Z 27980 INFO: Setuptools: 'jaraco' appears to be a full setuptools-vendored copy - creating alias to 'setuptools._vendor.jaraco'!
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.9081548Z 27991 INFO: Processing pre-safe-import-module hook 'hook-more_itertools.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:28.9084205Z 27991 INFO: Setuptools: 'more_itertools' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.more_itertools'!
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:29.5367055Z 28620 INFO: Processing standard module hook 'hook-setuptools._vendor.jaraco.text.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:29.5382054Z 28622 INFO: Processing pre-safe-import-module hook 'hook-importlib_resources.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:29.5472233Z 28630 INFO: Processing pre-safe-import-module hook 'hook-backports.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:29.5476558Z 28632 INFO: Setuptools: 'backports' appears to be a full setuptools-vendored copy - creating alias to 'setuptools._vendor.backports'!
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:29.7116505Z 28795 INFO: Processing pre-safe-import-module hook 'hook-importlib_metadata.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:29.7118408Z 28796 INFO: Setuptools: 'importlib_metadata' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.importlib_metadata'!
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:29.7393450Z 28822 INFO: Processing standard module hook 'hook-setuptools._vendor.importlib_metadata.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:29.7630813Z 28847 INFO: Processing pre-safe-import-module hook 'hook-zipp.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:29.7633462Z 28848 INFO: Setuptools: 'zipp' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.zipp'!
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:30.4169726Z 29501 INFO: Processing pre-safe-import-module hook 'hook-wheel.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:30.4754618Z 29560 INFO: Analyzing hidden import 'pydantic.parse'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:30.4761201Z 29560 INFO: Analyzing hidden import 'pydantic.schema'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:30.4766736Z 29560 INFO: Analyzing hidden import 'pydantic.tools'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:30.4773281Z 29562 INFO: Analyzing hidden import 'pydantic.typing'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:30.4778730Z 29562 INFO: Analyzing hidden import 'pydantic.utils'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:30.4785059Z 29562 INFO: Analyzing hidden import 'pydantic.v1._hypothesis_plugin'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:30.4919459Z 29576 INFO: Analyzing hidden import 'pydantic.v1.generics'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:30.5034487Z 29588 INFO: Analyzing hidden import 'pydantic.v1.mypy'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:30.5329018Z 29615 INFO: Analyzing hidden import 'pydantic.validators'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:30.5335409Z 29617 INFO: Analyzing hidden import 'multipart.decoders'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:30.5340623Z 29617 INFO: Analyzing hidden import 'multipart.exceptions'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:30.5346816Z 29617 INFO: Analyzing hidden import 'matplotlib.backends._backend_gtk'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:30.5448336Z 29629 INFO: Analyzing hidden import 'matplotlib.backends._backend_pdf_ps'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:32.8955807Z 31978 INFO: Analyzing hidden import 'matplotlib.backends._backend_tk'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:32.9385104Z 32022 INFO: Analyzing hidden import 'matplotlib.backends.backend_cairo'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:32.9579710Z 32041 INFO: Analyzing hidden import 'matplotlib.backends.backend_gtk3'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:32.9786392Z 32063 INFO: Analyzing hidden import 'matplotlib.backends.backend_gtk3agg'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:32.9823300Z 32066 INFO: Analyzing hidden import 'matplotlib.backends.backend_gtk3cairo'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:32.9841720Z 32068 INFO: Analyzing hidden import 'matplotlib.backends.backend_gtk4'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.0063437Z 32089 INFO: Analyzing hidden import 'matplotlib.backends.backend_gtk4agg'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.0084289Z 32091 INFO: Analyzing hidden import 'matplotlib.backends.backend_gtk4cairo'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.0101219Z 32093 INFO: Analyzing hidden import 'matplotlib.backends.backend_macosx'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.0172735Z 32101 INFO: Analyzing hidden import 'matplotlib.backends.backend_mixed'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.0198941Z 32103 INFO: Analyzing hidden import 'matplotlib.backends.backend_nbagg'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.0281507Z 32111 INFO: Analyzing hidden import 'matplotlib.backends.backend_pdf'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.1454043Z 32228 INFO: Analyzing hidden import 'matplotlib.backends.backend_pgf'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.1765992Z 32260 INFO: Analyzing hidden import 'matplotlib.backends.backend_ps'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.2257384Z 32309 INFO: Analyzing hidden import 'matplotlib.backends.backend_qt'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.2773016Z 32361 INFO: Processing standard module hook 'hook-matplotlib.backends.qt_compat.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.4899044Z 32572 WARNING: hook-matplotlib.backends.qt_compat: no Qt bindings are available!
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.5142177Z 32598 INFO: Analyzing hidden import 'matplotlib.backends.backend_qt5'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.5156217Z 32599 INFO: Analyzing hidden import 'matplotlib.backends.backend_qt5agg'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.5187649Z 32603 INFO: Processing standard module hook 'hook-matplotlib.backends.backend_qtagg.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.5193420Z 32603 INFO: Analyzing hidden import 'matplotlib.backends.backend_qt5cairo'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.5223164Z 32607 INFO: Processing standard module hook 'hook-matplotlib.backends.backend_qtcairo.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.5228218Z 32607 INFO: Analyzing hidden import 'matplotlib.backends.backend_svg'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.5684144Z 32652 INFO: Analyzing hidden import 'matplotlib.backends.backend_template'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.5710092Z 32654 INFO: Analyzing hidden import 'matplotlib.backends.backend_tkagg'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.5724260Z 32656 INFO: Analyzing hidden import 'matplotlib.backends.backend_tkcairo'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.5741337Z 32658 INFO: Analyzing hidden import 'matplotlib.backends.backend_wx'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.6219742Z 32706 INFO: Analyzing hidden import 'matplotlib.backends.backend_wxagg'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.6242788Z 32708 INFO: Analyzing hidden import 'matplotlib.backends.backend_wxcairo'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.6259203Z 32710 INFO: Analyzing hidden import 'mantisanalysis.__main__'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.6266820Z 32710 INFO: Analyzing hidden import 'mantisanalysis.dof_analysis'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:33.6518732Z 32735 INFO: Processing standard module hook 'hook-scipy.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:34.7339244Z 33816 INFO: Processing standard module hook 'hook-scipy.special._ufuncs.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:34.8814305Z 33965 INFO: Processing standard module hook 'hook-scipy.linalg.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:36.9406614Z 36024 INFO: Processing standard module hook 'hook-scipy.spatial._ckdtree.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:37.4896099Z 36573 INFO: Processing standard module hook 'hook-scipy.spatial.transform.rotation.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:38.4598764Z 37544 INFO: Processing standard module hook 'hook-scipy.stats._stats.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:38.9789121Z 38063 INFO: Processing standard module hook 'hook-scipy.sparse.csgraph.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:39.7798398Z 38864 INFO: Processing standard module hook 'hook-scipy.special._ellip_harm_2.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:39.8038493Z 38887 INFO: Analyzing hidden import 'mantisanalysis.dof_render'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:39.8354421Z 38919 INFO: Analyzing hidden import 'mantisanalysis.figures'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:40.4583580Z 39542 INFO: Analyzing hidden import 'mantisanalysis.resolution'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:40.4686853Z 39553 INFO: Analyzing hidden import 'mantisanalysis.server'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:40.5301096Z 39614 INFO: Analyzing hidden import 'mantisanalysis.usaf_figures'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:40.5529378Z 39636 INFO: Processing module hooks (post-graph stage)...
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:40.5673598Z 39652 WARNING: Hidden import "tzdata" not found!
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:40.5754677Z 39660 INFO: Processing standard module hook 'hook-matplotlib.backends.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:40.5758030Z 39660 INFO: Matplotlib backend selection method: automatic discovery of used backends
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:40.6613762Z 39746 INFO: Discovered Matplotlib backend(s) via `matplotlib.use()` call in module 'mantisanalysis.session': ['Agg']
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:40.6657501Z 39749 INFO: Discovered Matplotlib backend(s) via `matplotlib.use()` call in module 'mantisanalysis.figures': ['Agg']
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:40.6754663Z 39759 INFO: Discovered Matplotlib backend(s) via `matplotlib.use()` call in module 'mantisanalysis.usaf_figures': ['Agg']
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:40.6757258Z 39759 INFO: The following Matplotlib backends were discovered by scanning for `matplotlib.use()` calls: ['Agg']. If your backend of choice is not in this list, either add a `matplotlib.use()` call to your code, or configure the backend collection via hook options (see: https://pyinstaller.org/en/stable/hooks-config.html#matplotlib-hooks).
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:40.6759384Z 39759 INFO: Selected matplotlib backends: ['Agg']
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:40.9431240Z 40027 INFO: Processing standard module hook 'hook-PIL.SpiderImagePlugin.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:40.9970740Z 40081 WARNING: Hidden import "scipy.special._cdflib" not found!
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:41.2166194Z 40300 INFO: Performing binary vs. data reclassification (318 entries)
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:41.2444631Z 40327 INFO: Looking for ctypes DLLs
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:41.3902968Z 40474 INFO: Analyzing run-time hooks ...
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:41.4009371Z 40484 INFO: Including run-time hook 'pyi_rth_pkgutil.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:41.4036804Z 40488 INFO: Including run-time hook 'pyi_rth_mplconfig.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:41.4049726Z 40488 INFO: Processing pre-find-module-path hook 'hook-_pyi_rth_utils.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks\\pre_find_module_path'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:41.4063559Z 40490 INFO: Processing standard module hook 'hook-_pyi_rth_utils.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:41.4153547Z 40499 INFO: Including run-time hook 'pyi_rth_inspect.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:41.4186309Z 40503 INFO: Including run-time hook 'pyi_rth_setuptools.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:41.4199216Z 40504 INFO: Including run-time hook 'pyi_rth_multiprocessing.py' from 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:41.4665014Z 40549 INFO: Creating base_library.zip...
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:41.4900683Z 40573 INFO: Looking for dynamic libraries
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:47.0542390Z 46138 INFO: Extra DLL search directories (AddDllDirectory): ['C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\numpy.libs', 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Lib\\site-packages\\scipy.libs']
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:47.0543672Z 46138 INFO: Extra DLL search directories (PATH): []
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:49.7958567Z 48880 INFO: Warnings written to D:\a\MantisAnalysis\MantisAnalysis\build\mantisanalysis\warn-mantisanalysis.txt
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:49.9998772Z 49084 INFO: Graph cross-reference written to D:\a\MantisAnalysis\MantisAnalysis\build\mantisanalysis\xref-mantisanalysis.html
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:50.0739334Z 49157 INFO: checking PYZ
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:50.0740305Z 49157 INFO: Building PYZ because PYZ-00.toc is non existent
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:50.0741780Z 49157 INFO: Building PYZ (ZlibArchive) D:\a\MantisAnalysis\MantisAnalysis\build\mantisanalysis\PYZ-00.pyz
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:52.1037385Z 51187 INFO: Building PYZ (ZlibArchive) D:\a\MantisAnalysis\MantisAnalysis\build\mantisanalysis\PYZ-00.pyz completed successfully.
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:52.1518654Z 51236 INFO: checking PKG
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:52.1519517Z 51236 INFO: Building PKG because PKG-00.toc is non existent
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:52.1520761Z 51236 INFO: Building PKG (CArchive) MantisAnalysis.pkg
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:52.1778262Z 51260 INFO: Building PKG (CArchive) MantisAnalysis.pkg completed successfully.
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:52.1787359Z 51262 INFO: Bootloader C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\site-packages\PyInstaller\bootloader\Windows-64bit-intel\run.exe
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:52.1788580Z 51262 INFO: checking EXE
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:52.1789026Z 51262 INFO: Building EXE because EXE-00.toc is non existent
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:52.1790915Z 51262 INFO: Building EXE from EXE-00.toc
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:52.1791669Z 51262 INFO: Copying bootloader EXE to D:\a\MantisAnalysis\MantisAnalysis\build\mantisanalysis\MantisAnalysis.exe
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:52.1814508Z 51264 INFO: Copying icon to EXE
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:52.1834710Z 51267 INFO: Copying 0 resources to EXE
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:52.1835815Z 51268 INFO: Embedding manifest in EXE
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:52.1891479Z 51273 INFO: Appending PKG archive to EXE
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:52.1998216Z 51284 INFO: Fixing EXE headers
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:52.3557765Z 51440 INFO: Building EXE from EXE-00.toc completed successfully.
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:52.3621270Z 51446 INFO: checking COLLECT
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:52.3621897Z 51446 INFO: Building COLLECT because COLLECT-00.toc is non existent
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:52.3624706Z 51446 INFO: Building COLLECT COLLECT-00.toc
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:52.8043926Z 51887 INFO: Building COLLECT COLLECT-00.toc completed successfully.
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:52.8171171Z 51901 INFO: Build complete! The results are available in: D:\a\MantisAnalysis\MantisAnalysis\dist
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:53.0158858Z Traceback (most recent call last):
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:53.0160030Z   File "D:\a\MantisAnalysis\MantisAnalysis\packaging\build.py", line 149, in <module>
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:53.0160767Z     sys.exit(main())
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:53.0161619Z              ^^^^^^
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:53.0162767Z   File "D:\a\MantisAnalysis\MantisAnalysis\packaging\build.py", line 141, in main
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:53.0163990Z     out = _archive()
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:53.0164339Z           ^^^^^^^^^^
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:53.0164853Z   File "D:\a\MantisAnalysis\MantisAnalysis\packaging\build.py", line 110, in _archive
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:53.0166978Z     print(f"-- zipping {src} \u2192 {out}")
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:53.0168280Z   File "C:\hostedtoolcache\windows\Python\3.12.10\x64\Lib\encodings\cp1252.py", line 19, in encode
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:53.0170373Z     return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:53.0171421Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:53.0172623Z UnicodeEncodeError: 'charmap' codec can't encode character '\u2192' in position 66: character maps to <undefined>
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:53.0315816Z ##[error]Process completed with exit code 1.
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:53.0543450Z Post job cleanup.
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:53.3070989Z [command]"C:\Program Files\Git\bin\git.exe" version
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:53.3357011Z git version 2.53.0.windows.2
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:53.3442789Z Temporarily overriding HOME='D:\a\_temp\587e4d4e-c7d6-4d4e-a9af-c9f99ed780ff' before making global git config changes
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:53.3444296Z Adding repository directory to the temporary git global config as a safe directory
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:53.3456536Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\MantisAnalysis\MantisAnalysis
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:53.3826220Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:53.4200829Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:53.9759577Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:54.0039449Z http.https://github.com/.extraheader
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:54.0091739Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all http.https://github.com/.extraheader
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:54.0426785Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:54.6013354Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:54.6337658Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:55.1973325Z Cleaning up orphan processes
+build / windows-x86_64	UNKNOWN STEP	2026-04-25T03:06:55.2170615Z ##[warning]Node.js 20 actions are deprecated. The following actions are running on Node.js 20 and may not work as expected: actions/checkout@v4, actions/setup-node@v4, actions/setup-python@v5. Actions will be forced to run with Node.js 24 by default starting June 2nd, 2026. Node.js 20 will be removed from the runner on September 16th, 2026. Please check if updated versions of these actions are available that support Node.js 24. To opt into Node.js 24 now, set the FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true environment variable on the runner or in your workflow file. Once Node.js 24 becomes the default, you can temporarily opt out by setting ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
