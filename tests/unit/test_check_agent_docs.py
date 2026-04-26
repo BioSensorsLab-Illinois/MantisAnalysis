@@ -9,6 +9,7 @@ These tests run against synthetic docs written into a tmp_path —
 they do NOT scan the real .agent/ tree. That keeps them hermetic +
 fast + not dependent on repo state.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -35,9 +36,7 @@ def _load_checker(monkeypatch: pytest.MonkeyPatch, root: Path):
     shim = scripts_dir / "check_agent_docs.py"
     shim.write_text(SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
 
-    spec = importlib.util.spec_from_file_location(
-        f"check_agent_docs_{root.name}", shim
-    )
+    spec = importlib.util.spec_from_file_location(f"check_agent_docs_{root.name}", shim)
     assert spec is not None
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
@@ -76,9 +75,7 @@ def test_unterminated_allow_block_flagged(tmp_path: Path, monkeypatch: pytest.Mo
     mod = _load_checker(monkeypatch, tmp_path)
     doc = tmp_path / ".agent" / "broken.md"
     doc.write_text(
-        "# Broken\n\n"
-        "<!-- qt-allowed: should be closed -->\n"
-        "PySide6 stuff.\n",
+        "# Broken\n\n<!-- qt-allowed: should be closed -->\nPySide6 stuff.\n",
         encoding="utf-8",
     )
     hits = mod.scan_qt_drift([doc])
@@ -123,8 +120,7 @@ def test_cmd_path_missing_flagged(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     mod = _load_checker(monkeypatch, tmp_path)
     doc = tmp_path / ".agent" / "cmds.md"
     doc.write_text(
-        "Run: `python scripts/doesnotexist.py`\n"
-        "Also: `python scripts/check_agent_docs.py`\n",
+        "Run: `python scripts/doesnotexist.py`\nAlso: `python scripts/check_agent_docs.py`\n",
         encoding="utf-8",
     )
     misses = mod.scan_command_paths([doc])

@@ -1,0 +1,400 @@
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:50.1068810Z [command]/opt/homebrew/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:50.1126040Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:50.1127540Z ##[group]Fetching the repository
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:50.1131370Z [command]/opt/homebrew/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +b7894a94af6f197e464b16ac8b9d6ee1cfbb6996:refs/remotes/origin/main
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.0280060Z From https://github.com/BioSensorsLab-Illinois/MantisAnalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.0291870Z  * [new ref]         b7894a94af6f197e464b16ac8b9d6ee1cfbb6996 -> origin/main
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.0358720Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.0360280Z ##[group]Determining the checkout info
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.0361920Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.0363030Z [command]/opt/homebrew/bin/git sparse-checkout disable
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.0443500Z [command]/opt/homebrew/bin/git config --local --unset-all extensions.worktreeConfig
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.0500820Z ##[group]Checking out the ref
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.0502690Z [command]/opt/homebrew/bin/git checkout --progress --force -B main refs/remotes/origin/main
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.0943860Z Switched to a new branch 'main'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.0954510Z branch 'main' set up to track 'origin/main'.
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.0958850Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.1101630Z [command]/opt/homebrew/bin/git log -1 --format=%H
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.1135870Z b7894a94af6f197e464b16ac8b9d6ee1cfbb6996
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.1370800Z ##[group]Run actions/setup-python@v5
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.1371310Z with:
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.1371610Z   python-version: 3.12
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.1371950Z   cache: pip
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.1372250Z   check-latest: false
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.1372810Z   token: ***
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.1373110Z   update-environment: true
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.1373460Z   allow-prereleases: false
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.1373840Z   freethreaded: false
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.1374150Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.3079030Z ##[group]Installed versions
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.3373270Z Successfully set up CPython (3.12.10)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.3374220Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:51.3816740Z [command]/Users/runner/hostedtoolcache/Python/3.12.10/arm64/bin/pip cache dir
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:52.0723750Z /Users/runner/Library/Caches/pip
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:52.2842420Z Cache hit for: setup-python-macOS-arm64-python-3.12.10-pip-2c9387b00f7e73336cbc195d09b2c9815b827b3b9beac36c4f336822baf18e4a
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:53.4453630Z Received 33554432 of 541686464 (6.2%), 32.0 MBs/sec
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:54.4469160Z Received 109051904 of 541686464 (20.1%), 51.9 MBs/sec
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:55.4485260Z Received 134217728 of 541686464 (24.8%), 42.6 MBs/sec
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:56.4483200Z Received 205520896 of 541686464 (37.9%), 49.0 MBs/sec
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:57.4502290Z Received 268435456 of 541686464 (49.6%), 51.1 MBs/sec
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:58.4525230Z Received 322961408 of 541686464 (59.6%), 51.3 MBs/sec
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:55:59.5363090Z Received 402653184 of 541686464 (74.3%), 54.1 MBs/sec
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:00.5351000Z Received 465567744 of 541686464 (85.9%), 54.9 MBs/sec
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:01.5382070Z Received 536870912 of 541686464 (99.1%), 56.3 MBs/sec
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:02.0768580Z Received 541686464 of 541686464 (100.0%), 53.6 MBs/sec
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:02.0794150Z Cache Size: ~517 MB (541686464 B)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:02.1068420Z [command]/opt/homebrew/bin/gtar -xf /Users/runner/work/_temp/860f3b68-f08a-4e42-93ba-5c8314c2b3bf/cache.tzst -P -C /Users/runner/work/MantisAnalysis/MantisAnalysis --delay-directory-restore --use-compress-program unzstd
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:03.8722000Z Cache restored successfully
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:03.8915300Z Cache restored from key: setup-python-macOS-arm64-python-3.12.10-pip-2c9387b00f7e73336cbc195d09b2c9815b827b3b9beac36c4f336822baf18e4a
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:03.9393460Z ##[group]Run actions/setup-node@v4
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:03.9393810Z with:
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:03.9393970Z   node-version: 20
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:03.9394160Z   cache: npm
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:03.9394410Z   always-auth: false
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:03.9394610Z   check-latest: false
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:03.9394920Z   token: ***
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:03.9395160Z env:
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:03.9395470Z   pythonLocation: /Users/runner/hostedtoolcache/Python/3.12.10/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:03.9395970Z   PKG_CONFIG_PATH: /Users/runner/hostedtoolcache/Python/3.12.10/arm64/lib/pkgconfig
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:03.9396490Z   Python_ROOT_DIR: /Users/runner/hostedtoolcache/Python/3.12.10/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:03.9396870Z   Python2_ROOT_DIR: /Users/runner/hostedtoolcache/Python/3.12.10/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:03.9397280Z   Python3_ROOT_DIR: /Users/runner/hostedtoolcache/Python/3.12.10/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:03.9397570Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:04.2437990Z Found in cache @ /Users/runner/hostedtoolcache/node/20.20.2/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:04.2442410Z ##[group]Environment details
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:04.9633600Z node: v20.20.2
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:04.9634590Z npm: 10.8.2
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:04.9635870Z yarn: 1.22.22
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:04.9637420Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:04.9662280Z [command]/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/npm config get cache
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:05.1393120Z /Users/runner/.npm
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:05.3279120Z npm cache is not found
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:05.3390090Z ##[group]Run python -m pip install --upgrade pip wheel setuptools
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:05.3390820Z [36;1mpython -m pip install --upgrade pip wheel setuptools[0m
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:05.3401410Z [36;1mpython -m pip install -e .[build][0m
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:05.3632540Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:05.3632960Z env:
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:05.3633310Z   pythonLocation: /Users/runner/hostedtoolcache/Python/3.12.10/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:05.3633740Z   PKG_CONFIG_PATH: /Users/runner/hostedtoolcache/Python/3.12.10/arm64/lib/pkgconfig
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:05.3634220Z   Python_ROOT_DIR: /Users/runner/hostedtoolcache/Python/3.12.10/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:05.3634730Z   Python2_ROOT_DIR: /Users/runner/hostedtoolcache/Python/3.12.10/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:05.3635230Z   Python3_ROOT_DIR: /Users/runner/hostedtoolcache/Python/3.12.10/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:05.3635670Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:06.1650590Z Requirement already satisfied: pip in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (26.0.1)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:06.3082210Z Collecting wheel
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:06.3096260Z   Using cached wheel-0.47.0-py3-none-any.whl.metadata (2.3 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:06.3937900Z Collecting setuptools
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:06.3949870Z   Using cached setuptools-82.0.1-py3-none-any.whl.metadata (6.5 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:06.4180530Z Collecting packaging>=24.0 (from wheel)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:06.4191960Z   Using cached packaging-26.2-py3-none-any.whl.metadata (3.5 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:06.4217690Z Using cached wheel-0.47.0-py3-none-any.whl (32 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:06.4226690Z Using cached setuptools-82.0.1-py3-none-any.whl (1.0 MB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:06.4242530Z Using cached packaging-26.2-py3-none-any.whl (100 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:06.4345280Z Installing collected packages: setuptools, packaging, wheel
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:07.1102960Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:07.1119700Z Successfully installed packaging-26.2 setuptools-82.0.1 wheel-0.47.0
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:07.4198860Z Obtaining file:///Users/runner/work/MantisAnalysis/MantisAnalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:07.4216250Z   Installing build dependencies: started
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:08.0487460Z   Installing build dependencies: finished with status 'done'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:08.0496940Z   Checking if build backend supports build_editable: started
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:08.2692870Z   Checking if build backend supports build_editable: finished with status 'done'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:08.2702280Z   Getting requirements to build editable: started
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:08.5081970Z   Getting requirements to build editable: finished with status 'done'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:08.5093190Z   Preparing editable metadata (pyproject.toml): started
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:08.6406800Z   Preparing editable metadata (pyproject.toml): finished with status 'done'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:08.7244080Z Collecting h5py>=3.0 (from mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:08.7254770Z   Using cached h5py-3.16.0-cp312-cp312-macosx_11_0_arm64.whl.metadata (3.0 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:08.8366850Z Collecting numpy>=1.24 (from mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:08.8379900Z   Using cached numpy-2.4.4-cp312-cp312-macosx_14_0_arm64.whl.metadata (6.6 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:08.9115260Z Collecting scipy>=1.10 (from mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:08.9128520Z   Using cached scipy-1.17.1-cp312-cp312-macosx_14_0_arm64.whl.metadata (62 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:08.9995700Z Collecting matplotlib>=3.7 (from mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.0008170Z   Using cached matplotlib-3.10.9-cp312-cp312-macosx_11_0_arm64.whl.metadata (52 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.0995040Z Collecting Pillow>=10.0 (from mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.1006680Z   Using cached pillow-12.2.0-cp312-cp312-macosx_11_0_arm64.whl.metadata (8.8 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.1274300Z Collecting tifffile>=2023.0 (from mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.1290420Z   Using cached tifffile-2026.4.11-py3-none-any.whl.metadata (31 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.1617200Z Collecting fastapi>=0.110 (from mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.1632060Z   Using cached fastapi-0.136.1-py3-none-any.whl.metadata (28 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.1873070Z Collecting uvicorn>=0.27 (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.1895410Z   Using cached uvicorn-0.46.0-py3-none-any.whl.metadata (6.7 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.2095740Z Collecting python-multipart>=0.0.9 (from mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.2102050Z   Using cached python_multipart-0.0.26-py3-none-any.whl.metadata (2.1 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.3122510Z Collecting pydantic>=2.5 (from mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.3138850Z   Using cached pydantic-2.13.3-py3-none-any.whl.metadata (108 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.3811310Z Collecting pyinstaller>=6.6 (from mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.4571980Z   Downloading pyinstaller-6.20.0-py3-none-macosx_10_13_universal2.whl.metadata (8.5 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.4884910Z Collecting starlette>=0.46.0 (from fastapi>=0.110->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.4904890Z   Using cached starlette-1.0.0-py3-none-any.whl.metadata (6.3 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.5132180Z Collecting typing-extensions>=4.8.0 (from fastapi>=0.110->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.5152900Z   Using cached typing_extensions-4.15.0-py3-none-any.whl.metadata (3.3 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.5320170Z Collecting typing-inspection>=0.4.2 (from fastapi>=0.110->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.5333600Z   Using cached typing_inspection-0.4.2-py3-none-any.whl.metadata (2.6 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.5506660Z Collecting annotated-doc>=0.0.2 (from fastapi>=0.110->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.5517970Z   Using cached annotated_doc-0.0.4-py3-none-any.whl.metadata (6.6 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.5967790Z Collecting contourpy>=1.0.1 (from matplotlib>=3.7->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.5980790Z   Using cached contourpy-1.3.3-cp312-cp312-macosx_11_0_arm64.whl.metadata (5.5 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.6154710Z Collecting cycler>=0.10 (from matplotlib>=3.7->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.6172600Z   Using cached cycler-0.12.1-py3-none-any.whl.metadata (3.8 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.7020010Z Collecting fonttools>=4.22.0 (from matplotlib>=3.7->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.7032380Z   Using cached fonttools-4.62.1-cp312-cp312-macosx_10_13_universal2.whl.metadata (117 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.7506790Z Collecting kiwisolver>=1.3.1 (from matplotlib>=3.7->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.7517490Z   Using cached kiwisolver-1.5.0-cp312-cp312-macosx_11_0_arm64.whl.metadata (5.1 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.7557060Z Requirement already satisfied: packaging>=20.0 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from matplotlib>=3.7->mantisanalysis==0.2.0) (26.2)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.7779380Z Collecting pyparsing>=3 (from matplotlib>=3.7->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.7791320Z   Using cached pyparsing-3.3.2-py3-none-any.whl.metadata (5.8 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.7960950Z Collecting python-dateutil>=2.7 (from matplotlib>=3.7->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.7976170Z   Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl.metadata (8.4 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.8199380Z Collecting annotated-types>=0.6.0 (from pydantic>=2.5->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:09.8212630Z   Using cached annotated_types-0.7.0-py3-none-any.whl.metadata (15 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.2196670Z Collecting pydantic-core==2.46.3 (from pydantic>=2.5->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.2212700Z   Using cached pydantic_core-2.46.3-cp312-cp312-macosx_11_0_arm64.whl.metadata (6.6 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.2457840Z Collecting altgraph (from pyinstaller>=6.6->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.2582260Z   Downloading altgraph-0.17.5-py2.py3-none-any.whl.metadata (7.5 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.2822470Z Collecting macholib>=1.8 (from pyinstaller>=6.6->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.2962440Z   Downloading macholib-1.16.4-py2.py3-none-any.whl.metadata (12 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.3233440Z Collecting pyinstaller-hooks-contrib>=2026.4 (from pyinstaller>=6.6->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.3353220Z   Downloading pyinstaller_hooks_contrib-2026.4-py3-none-any.whl.metadata (16 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.3405860Z Requirement already satisfied: setuptools>=42.0.0 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from pyinstaller>=6.6->mantisanalysis==0.2.0) (82.0.1)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.3595010Z Collecting six>=1.5 (from python-dateutil>=2.7->matplotlib>=3.7->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.3608960Z   Using cached six-1.17.0-py2.py3-none-any.whl.metadata (1.7 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.3865950Z Collecting anyio<5,>=3.6.2 (from starlette>=0.46.0->fastapi>=0.110->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.3878000Z   Using cached anyio-4.13.0-py3-none-any.whl.metadata (4.5 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.4068260Z Collecting idna>=2.8 (from anyio<5,>=3.6.2->starlette>=0.46.0->fastapi>=0.110->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.4081950Z   Using cached idna-3.13-py3-none-any.whl.metadata (8.0 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.4359670Z Collecting click>=7.0 (from uvicorn>=0.27->uvicorn[standard]>=0.27->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.4378740Z   Using cached click-8.3.3-py3-none-any.whl.metadata (2.6 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.4600930Z Collecting h11>=0.8 (from uvicorn>=0.27->uvicorn[standard]>=0.27->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.4619430Z   Using cached h11-0.16.0-py3-none-any.whl.metadata (8.3 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.4965360Z Collecting httptools>=0.6.3 (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.4979470Z   Using cached httptools-0.7.1-cp312-cp312-macosx_11_0_arm64.whl.metadata (3.5 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.5315150Z Collecting python-dotenv>=0.13 (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.5329070Z   Using cached python_dotenv-1.2.2-py3-none-any.whl.metadata (27 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.5663910Z Collecting pyyaml>=5.1 (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.5678040Z   Using cached pyyaml-6.0.3-cp312-cp312-macosx_11_0_arm64.whl.metadata (2.4 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.6533750Z Collecting uvloop>=0.15.1 (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.6562150Z   Using cached uvloop-0.22.1-cp312-cp312-macosx_10_13_universal2.whl.metadata (4.9 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.7056020Z Collecting watchfiles>=0.20 (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.7068970Z   Using cached watchfiles-1.1.1-cp312-cp312-macosx_11_0_arm64.whl.metadata (4.9 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.7628130Z Collecting websockets>=10.4 (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.7644200Z   Using cached websockets-16.0-cp312-cp312-macosx_11_0_arm64.whl.metadata (6.8 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.7716390Z Using cached fastapi-0.136.1-py3-none-any.whl (117 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.7733910Z Using cached annotated_doc-0.0.4-py3-none-any.whl (5.3 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.7746030Z Using cached h5py-3.16.0-cp312-cp312-macosx_11_0_arm64.whl (3.1 MB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.7815080Z Using cached matplotlib-3.10.9-cp312-cp312-macosx_11_0_arm64.whl (8.2 MB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.7917310Z Using cached contourpy-1.3.3-cp312-cp312-macosx_11_0_arm64.whl (273 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.7938010Z Using cached cycler-0.12.1-py3-none-any.whl (8.3 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.7949010Z Using cached fonttools-4.62.1-cp312-cp312-macosx_10_13_universal2.whl (2.9 MB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.7979020Z Using cached kiwisolver-1.5.0-cp312-cp312-macosx_11_0_arm64.whl (64 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.7993400Z Using cached numpy-2.4.4-cp312-cp312-macosx_14_0_arm64.whl (5.2 MB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.8074330Z Using cached pillow-12.2.0-cp312-cp312-macosx_11_0_arm64.whl (4.7 MB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.8103620Z Using cached pydantic-2.13.3-py3-none-any.whl (471 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.8114850Z Using cached pydantic_core-2.46.3-cp312-cp312-macosx_11_0_arm64.whl (2.0 MB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.8135210Z Using cached annotated_types-0.7.0-py3-none-any.whl (13 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.8277670Z Downloading pyinstaller-6.20.0-py3-none-macosx_10_13_universal2.whl (1.0 MB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.8818700Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.0/1.0 MB 28.6 MB/s  0:00:00
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.8978980Z Downloading macholib-1.16.4-py2.py3-none-any.whl (38 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.9147050Z Downloading altgraph-0.17.5-py2.py3-none-any.whl (21 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.9313760Z Downloading pyinstaller_hooks_contrib-2026.4-py3-none-any.whl (455 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.9385330Z Using cached pyparsing-3.3.2-py3-none-any.whl (122 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.9408990Z Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl (229 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.9432040Z Using cached python_multipart-0.0.26-py3-none-any.whl (28 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.9444710Z Using cached scipy-1.17.1-cp312-cp312-macosx_14_0_arm64.whl (20.3 MB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.9531110Z Using cached six-1.17.0-py2.py3-none-any.whl (11 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.9557480Z Using cached starlette-1.0.0-py3-none-any.whl (72 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.9576400Z Using cached anyio-4.13.0-py3-none-any.whl (114 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.9588990Z Using cached idna-3.13-py3-none-any.whl (68 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.9603200Z Using cached tifffile-2026.4.11-py3-none-any.whl (248 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.9619580Z Using cached typing_extensions-4.15.0-py3-none-any.whl (44 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.9632610Z Using cached typing_inspection-0.4.2-py3-none-any.whl (14 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.9645080Z Using cached uvicorn-0.46.0-py3-none-any.whl (70 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.9660850Z Using cached click-8.3.3-py3-none-any.whl (110 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.9680370Z Using cached h11-0.16.0-py3-none-any.whl (37 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.9692700Z Using cached httptools-0.7.1-cp312-cp312-macosx_11_0_arm64.whl (110 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.9709460Z Using cached python_dotenv-1.2.2-py3-none-any.whl (22 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.9726320Z Using cached pyyaml-6.0.3-cp312-cp312-macosx_11_0_arm64.whl (173 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.9748000Z Using cached uvloop-0.22.1-cp312-cp312-macosx_10_13_universal2.whl (1.4 MB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.9780780Z Using cached watchfiles-1.1.1-cp312-cp312-macosx_11_0_arm64.whl (391 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:10.9815300Z Using cached websockets-16.0-cp312-cp312-macosx_11_0_arm64.whl (175 kB)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:11.0423570Z Building wheels for collected packages: mantisanalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:11.0432740Z   Building editable for mantisanalysis (pyproject.toml): started
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:11.2162950Z   Building editable for mantisanalysis (pyproject.toml): finished with status 'done'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:11.2170850Z   Created wheel for mantisanalysis: filename=mantisanalysis-0.2.0-0.editable-py3-none-any.whl size=9836 sha256=6f7c28e4f46b777a9b10c93840265042a137d10365b5b2ed9399491356ea5f73
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:11.2175050Z   Stored in directory: /private/var/folders/4p/8vd_3q4s5xd_63_2t67zykqm0000gn/T/pip-ephem-wheel-cache-glce4ehc/wheels/a2/ca/58/d4f3dd1d4de47c1d8874c44878556775c260eee1b8d228c83f
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:11.2194350Z Successfully built mantisanalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:11.2846260Z Installing collected packages: altgraph, websockets, uvloop, typing-extensions, six, pyyaml, python-multipart, python-dotenv, pyparsing, pyinstaller-hooks-contrib, Pillow, numpy, macholib, kiwisolver, idna, httptools, h11, fonttools, cycler, click, annotated-types, annotated-doc, uvicorn, typing-inspection, tifffile, scipy, python-dateutil, pyinstaller, pydantic-core, h5py, contourpy, anyio, watchfiles, starlette, pydantic, matplotlib, fastapi, mantisanalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:19.7838740Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:19.7876200Z Successfully installed Pillow-12.2.0 altgraph-0.17.5 annotated-doc-0.0.4 annotated-types-0.7.0 anyio-4.13.0 click-8.3.3 contourpy-1.3.3 cycler-0.12.1 fastapi-0.136.1 fonttools-4.62.1 h11-0.16.0 h5py-3.16.0 httptools-0.7.1 idna-3.13 kiwisolver-1.5.0 macholib-1.16.4 mantisanalysis-0.2.0 matplotlib-3.10.9 numpy-2.4.4 pydantic-2.13.3 pydantic-core-2.46.3 pyinstaller-6.20.0 pyinstaller-hooks-contrib-2026.4 pyparsing-3.3.2 python-dateutil-2.9.0.post0 python-dotenv-1.2.2 python-multipart-0.0.26 pyyaml-6.0.3 scipy-1.17.1 six-1.17.0 starlette-1.0.0 tifffile-2026.4.11 typing-extensions-4.15.0 typing-inspection-0.4.2 uvicorn-0.46.0 uvloop-0.22.1 watchfiles-1.1.1 websockets-16.0
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:20.2000240Z ##[group]Run python packaging/build.py --no-venv
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:20.2000560Z [36;1mpython packaging/build.py --no-venv[0m
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:20.2063270Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:20.2063540Z env:
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:20.2063870Z   pythonLocation: /Users/runner/hostedtoolcache/Python/3.12.10/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:20.2064290Z   PKG_CONFIG_PATH: /Users/runner/hostedtoolcache/Python/3.12.10/arm64/lib/pkgconfig
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:20.2064700Z   Python_ROOT_DIR: /Users/runner/hostedtoolcache/Python/3.12.10/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:20.2065130Z   Python2_ROOT_DIR: /Users/runner/hostedtoolcache/Python/3.12.10/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:20.2065510Z   Python3_ROOT_DIR: /Users/runner/hostedtoolcache/Python/3.12.10/arm64
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:20.2065840Z ##[endgroup]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:20.2800380Z >> /Library/Frameworks/Python.framework/Versions/3.12/bin/python -m pip install --upgrade -e /Users/runner/work/MantisAnalysis/MantisAnalysis[build]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:20.5036420Z Obtaining file:///Users/runner/work/MantisAnalysis/MantisAnalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:20.5046370Z   Installing build dependencies: started
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.0437710Z   Installing build dependencies: finished with status 'done'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.0444610Z   Checking if build backend supports build_editable: started
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.2558240Z   Checking if build backend supports build_editable: finished with status 'done'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.2569230Z   Getting requirements to build editable: started
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.5078080Z   Getting requirements to build editable: finished with status 'done'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.5089900Z   Preparing editable metadata (pyproject.toml): started
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6643350Z   Preparing editable metadata (pyproject.toml): finished with status 'done'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6695980Z Requirement already satisfied: h5py>=3.0 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from mantisanalysis==0.2.0) (3.16.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6699210Z Requirement already satisfied: numpy>=1.24 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from mantisanalysis==0.2.0) (2.4.4)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6702240Z Requirement already satisfied: scipy>=1.10 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from mantisanalysis==0.2.0) (1.17.1)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6705730Z Requirement already satisfied: matplotlib>=3.7 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from mantisanalysis==0.2.0) (3.10.9)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6708820Z Requirement already satisfied: Pillow>=10.0 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from mantisanalysis==0.2.0) (12.2.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6711880Z Requirement already satisfied: tifffile>=2023.0 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from mantisanalysis==0.2.0) (2026.4.11)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6715110Z Requirement already satisfied: fastapi>=0.110 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from mantisanalysis==0.2.0) (0.136.1)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6718360Z Requirement already satisfied: uvicorn>=0.27 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (0.46.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6721810Z Requirement already satisfied: python-multipart>=0.0.9 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from mantisanalysis==0.2.0) (0.0.26)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6724990Z Requirement already satisfied: pydantic>=2.5 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from mantisanalysis==0.2.0) (2.13.3)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6728310Z Requirement already satisfied: pyinstaller>=6.6 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from mantisanalysis==0.2.0) (6.20.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6740730Z Requirement already satisfied: starlette>=0.46.0 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from fastapi>=0.110->mantisanalysis==0.2.0) (1.0.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6745020Z Requirement already satisfied: typing-extensions>=4.8.0 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from fastapi>=0.110->mantisanalysis==0.2.0) (4.15.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6749160Z Requirement already satisfied: typing-inspection>=0.4.2 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from fastapi>=0.110->mantisanalysis==0.2.0) (0.4.2)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6752600Z Requirement already satisfied: annotated-doc>=0.0.2 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from fastapi>=0.110->mantisanalysis==0.2.0) (0.0.4)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6790290Z Requirement already satisfied: contourpy>=1.0.1 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from matplotlib>=3.7->mantisanalysis==0.2.0) (1.3.3)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6793790Z Requirement already satisfied: cycler>=0.10 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from matplotlib>=3.7->mantisanalysis==0.2.0) (0.12.1)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6797220Z Requirement already satisfied: fonttools>=4.22.0 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from matplotlib>=3.7->mantisanalysis==0.2.0) (4.62.1)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6801430Z Requirement already satisfied: kiwisolver>=1.3.1 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from matplotlib>=3.7->mantisanalysis==0.2.0) (1.5.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6804910Z Requirement already satisfied: packaging>=20.0 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from matplotlib>=3.7->mantisanalysis==0.2.0) (26.2)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6808280Z Requirement already satisfied: pyparsing>=3 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from matplotlib>=3.7->mantisanalysis==0.2.0) (3.3.2)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6811810Z Requirement already satisfied: python-dateutil>=2.7 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from matplotlib>=3.7->mantisanalysis==0.2.0) (2.9.0.post0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6889790Z Requirement already satisfied: annotated-types>=0.6.0 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from pydantic>=2.5->mantisanalysis==0.2.0) (0.7.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6893400Z Requirement already satisfied: pydantic-core==2.46.3 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from pydantic>=2.5->mantisanalysis==0.2.0) (2.46.3)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6908240Z Requirement already satisfied: altgraph in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from pyinstaller>=6.6->mantisanalysis==0.2.0) (0.17.5)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6911870Z Requirement already satisfied: macholib>=1.8 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from pyinstaller>=6.6->mantisanalysis==0.2.0) (1.16.4)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6916080Z Requirement already satisfied: pyinstaller-hooks-contrib>=2026.4 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from pyinstaller>=6.6->mantisanalysis==0.2.0) (2026.4)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6922260Z Requirement already satisfied: setuptools>=42.0.0 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from pyinstaller>=6.6->mantisanalysis==0.2.0) (82.0.1)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.6958410Z Requirement already satisfied: six>=1.5 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from python-dateutil>=2.7->matplotlib>=3.7->mantisanalysis==0.2.0) (1.17.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.7039060Z Requirement already satisfied: anyio<5,>=3.6.2 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from starlette>=0.46.0->fastapi>=0.110->mantisanalysis==0.2.0) (4.13.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.7064990Z Requirement already satisfied: idna>=2.8 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from anyio<5,>=3.6.2->starlette>=0.46.0->fastapi>=0.110->mantisanalysis==0.2.0) (3.13)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.7110700Z Requirement already satisfied: click>=7.0 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from uvicorn>=0.27->uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (8.3.3)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.7112270Z Requirement already satisfied: h11>=0.8 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from uvicorn>=0.27->uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (0.16.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.7138780Z Requirement already satisfied: httptools>=0.6.3 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (0.7.1)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.7142600Z Requirement already satisfied: python-dotenv>=0.13 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (1.2.2)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.7146430Z Requirement already satisfied: pyyaml>=5.1 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (6.0.3)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.7151170Z Requirement already satisfied: uvloop>=0.15.1 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (0.22.1)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.7152760Z Requirement already satisfied: watchfiles>=0.20 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (1.1.1)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.7157150Z Requirement already satisfied: websockets>=10.4 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from uvicorn[standard]>=0.27->mantisanalysis==0.2.0) (16.0)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.7215920Z Building wheels for collected packages: mantisanalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.7222670Z   Building editable for mantisanalysis (pyproject.toml): started
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.8938090Z   Building editable for mantisanalysis (pyproject.toml): finished with status 'done'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.8946130Z   Created wheel for mantisanalysis: filename=mantisanalysis-0.2.0-0.editable-py3-none-any.whl size=9836 sha256=aacc60c765254c9269420ea423edbba17bdbc4562bfc588e9e38005d83e5417f
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.8949230Z   Stored in directory: /private/var/folders/4p/8vd_3q4s5xd_63_2t67zykqm0000gn/T/pip-ephem-wheel-cache-afycbmu7/wheels/a2/ca/58/d4f3dd1d4de47c1d8874c44878556775c260eee1b8d228c83f
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.8974380Z Successfully built mantisanalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.9151250Z Installing collected packages: mantisanalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.9152220Z   Attempting uninstall: mantisanalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.9168980Z     Found existing installation: mantisanalysis 0.2.0
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.9187100Z     Uninstalling mantisanalysis-0.2.0:
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.9661560Z       Successfully uninstalled mantisanalysis-0.2.0
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:21.9746350Z Successfully installed mantisanalysis-0.2.0
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:22.0557430Z >> /Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/npm install
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:25.8137390Z npm warn deprecated glob@10.5.0: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:31.5468110Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:31.5569650Z added 438 packages, and audited 439 packages in 9s
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:31.5669600Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:31.5770570Z 183 packages are looking for funding
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:31.5863920Z   run `npm fund` for details
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:31.5922000Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:31.5923120Z 5 moderate severity vulnerabilities
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:31.5924010Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:31.5924900Z To address all issues (including breaking changes), run:
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:31.5928080Z   npm audit fix --force
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:31.5928520Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:31.5929390Z Run `npm audit` for details.
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:31.5995960Z >> /Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/npm run build
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:31.7719120Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:31.7821010Z > mantisanalysis-web@0.2.0 build
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:31.7921160Z > vite build
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:31.7973380Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:31.9927930Z [36mvite v5.4.21 [32mbuilding for production...[36m[39m
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:32.0343050Z transforming...
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:56:57.6359950Z [32m✓[39m 41 modules transformed.
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:01.6190490Z rendering chunks...
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.2670740Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.2782970Z <--- Last few GCs --->
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.2885270Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.2991010Z [44883:0x148008000]    44478 ms: Mark-Compact (reduce) 2039.2 (2084.9) -> 2037.8 (2082.5) MB, 2221.54 / 0.00 ms  (average mu = 0.119, current mu = 0.005) allocation failure; scavenge might not succeed
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3095010Z [44883:0x148008000]    45447 ms: Mark-Compact (reduce) 2039.6 (2083.2) -> 2038.8 (2083.7) MB, 964.96 / 0.00 ms  (average mu = 0.077, current mu = 0.004) allocation failure; scavenge might not succeed
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3197950Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3299530Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3401810Z <--- JS stacktrace --->
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3503270Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3604510Z FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3708200Z ----- Native stack trace -----
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3765110Z 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3767140Z  1: 0x1007201b4 node::OOMErrorHandler(char const*, v8::OOMDetails const&) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3768270Z  2: 0x1008ceee0 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3769540Z  3: 0x100adc904 v8::internal::Heap::GarbageCollectionReasonToString(v8::internal::GarbageCollectionReason) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3771020Z  4: 0x100adb26c v8::internal::Heap::CollectGarbage(v8::internal::AllocationSpace, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3772560Z  5: 0x100ad1108 v8::internal::HeapAllocator::AllocateRawWithLightRetrySlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3775500Z  6: 0x100ad1960 v8::internal::HeapAllocator::AllocateRawWithRetryOrFailSlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3780150Z  7: 0x100ab5e0c v8::internal::Factory::NewFillerObject(int, v8::internal::AllocationAlignment, v8::internal::AllocationType, v8::internal::AllocationOrigin) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3783400Z  8: 0x100ec40d0 v8::internal::Runtime_AllocateInYoungGeneration(int, unsigned long*, v8::internal::Isolate*) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3786160Z  9: 0x101258fe4 Builtins_CEntry_Return1_ArgvOnStack_NoBuiltinExit [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3787810Z 10: 0x1011d28a8 Builtins_GrowFastSmiOrObjectElements [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3788360Z 11: 0x1065f6cd8 
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3788950Z 12: 0x1011d03e4 Builtins_InterpreterEntryTrampoline [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3790000Z 13: 0x1011d03e4 Builtins_InterpreterEntryTrampoline [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3800360Z 14: 0x101207450 Builtins_AsyncFunctionAwaitResolveClosure [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3801640Z 15: 0x1012b5b18 Builtins_PromiseFulfillReactionJob [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3815170Z 16: 0x1011f6d14 Builtins_RunMicrotasks [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3817260Z 17: 0x1011ce3f4 Builtins_JSRunMicrotasksEntry [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3825830Z 18: 0x100a47274 v8::internal::(anonymous namespace)::Invoke(v8::internal::Isolate*, v8::internal::(anonymous namespace)::InvokeParams const&) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3827380Z 19: 0x100a47ba0 v8::internal::(anonymous namespace)::InvokeWithTryCatch(v8::internal::Isolate*, v8::internal::(anonymous namespace)::InvokeParams const&) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3828850Z 20: 0x100a47d8c v8::internal::Execution::TryRunMicrotasks(v8::internal::Isolate*, v8::internal::MicrotaskQueue*) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3830120Z 21: 0x100a72ac4 v8::internal::MicrotaskQueue::RunMicrotasks(v8::internal::Isolate*) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3831240Z 22: 0x100a73250 v8::internal::MicrotaskQueue::PerformCheckpoint(v8::Isolate*) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3832250Z 23: 0x100634c84 node::InternalCallbackScope::Close() [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3833670Z 24: 0x100634fb4 node::InternalMakeCallback(node::Environment*, v8::Local<v8::Object>, v8::Local<v8::Object>, v8::Local<v8::Function>, int, v8::Local<v8::Value>*, node::async_context) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3835310Z 25: 0x100649470 node::AsyncWrap::MakeCallback(v8::Local<v8::Function>, int, v8::Local<v8::Value>*) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3837780Z 26: 0x100725e9c node::fs::FSReqCallback::Resolve(v8::Local<v8::Value>) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3838730Z 27: 0x100726590 node::fs::AfterNoArgs(uv_fs_s*) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3839840Z 28: 0x10071880c node::MakeLibuvRequestCallback<uv_fs_s, void (*)(uv_fs_s*)>::Wrapper(uv_fs_s*) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3840660Z 29: 0x1011a98a0 uv__work_done [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3841440Z 30: 0x1011ad2c8 uv__async_io [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3842130Z 31: 0x1011bff70 uv__io_poll [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3842760Z 32: 0x1011ad830 uv_run [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3843680Z 33: 0x1006357e8 node::SpinEventLoopInternal(node::Environment*) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3844530Z 34: 0x100764b90 node::NodeMainInstance::Run() [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3845320Z 35: 0x1006e10f8 node::Start(int, char**) [/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/node]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3845800Z 36: 0x18485f154 start [/usr/lib/dyld]
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3846130Z Traceback (most recent call last):
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3846870Z   File "/Users/runner/work/MantisAnalysis/MantisAnalysis/packaging/build.py", line 149, in <module>
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3847330Z     sys.exit(main())
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3847600Z              ^^^^^^
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3848100Z   File "/Users/runner/work/MantisAnalysis/MantisAnalysis/packaging/build.py", line 136, in main
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3848680Z     _build_frontend()
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3849240Z   File "/Users/runner/work/MantisAnalysis/MantisAnalysis/packaging/build.py", line 75, in _build_frontend
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3850550Z     _run([npm, "run", "build"], cwd=REPO)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3851230Z   File "/Users/runner/work/MantisAnalysis/MantisAnalysis/packaging/build.py", line 42, in _run
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3852190Z     subprocess.check_call(cmd, cwd=cwd and str(cwd))
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3852830Z   File "/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/subprocess.py", line 413, in check_call
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3853580Z     raise CalledProcessError(retcode, cmd)
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3854390Z subprocess.CalledProcessError: Command '['/Users/runner/hostedtoolcache/node/20.20.2/arm64/bin/npm', 'run', 'build']' died with <Signals.SIGABRT: 6>.
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.3883710Z ##[error]Process completed with exit code 1.
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:17.4288140Z Post job cleanup.
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:18.1607690Z [command]/opt/homebrew/bin/git version
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:18.1985780Z git version 2.53.0
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:18.2198560Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/5ba9fbb0-1442-4c31-9a8f-71e20f44da33/.gitconfig'
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:18.2211660Z Temporarily overriding HOME='/Users/runner/work/_temp/5ba9fbb0-1442-4c31-9a8f-71e20f44da33' before making global git config changes
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:18.2212650Z Adding repository directory to the temporary git global config as a safe directory
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:18.2213580Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/MantisAnalysis/MantisAnalysis
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:18.2327470Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:18.2420010Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:18.3641790Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:18.3695740Z http.https://github.com/.extraheader
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:18.3716320Z [command]/opt/homebrew/bin/git config --local --unset-all http.https://github.com/.extraheader
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:18.3797990Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:18.4763970Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:18.4822320Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:18.6112440Z Cleaning up orphan processes
+build / macos-arm64	UNKNOWN STEP	2026-04-25T03:57:19.2986420Z ##[warning]Node.js 20 actions are deprecated. The following actions are running on Node.js 20 and may not work as expected: actions/checkout@v4, actions/setup-node@v4, actions/setup-python@v5. Actions will be forced to run with Node.js 24 by default starting June 2nd, 2026. Node.js 20 will be removed from the runner on September 16th, 2026. Please check if updated versions of these actions are available that support Node.js 24. To opt into Node.js 24 now, set the FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true environment variable on the runner or in your workflow file. Once Node.js 24 becomes the default, you can temporarily opt out by setting ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
