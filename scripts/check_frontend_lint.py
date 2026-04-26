@@ -20,6 +20,7 @@ Usage
     python scripts/check_frontend_lint.py            # Tier-0 smoke hook
     python scripts/check_frontend_lint.py --strict   # also fail on warnings
 """
+
 from __future__ import annotations
 
 import argparse
@@ -65,23 +66,33 @@ def main() -> int:
         return 0
 
     if not _has_node():
-        print("check_frontend_lint: skipped — `node` not on PATH. "
-              "Install Node >= 20 and run `npm install` to enable this gate.")
+        print(
+            "check_frontend_lint: skipped — `node` not on PATH. "
+            "Install Node >= 20 and run `npm install` to enable this gate."
+        )
         return 0
 
     if not _has_local_bin("prettier") or not _has_local_bin("eslint"):
-        print("check_frontend_lint: skipped — `node_modules/.bin/prettier` "
-              "or `.../eslint` missing. Run `npm install` to enable this gate.")
+        print(
+            "check_frontend_lint: skipped — `node_modules/.bin/prettier` "
+            "or `.../eslint` missing. Run `npm install` to enable this gate."
+        )
         return 0
 
     has_tsc = _has_local_bin("tsc")
     has_tsconfig = (ROOT / "tsconfig.json").is_file()
 
     # Prettier check ---------------------------------------------------
-    pr = _run([
-        "npx", "--no-install", "prettier", "--check",
-        "web/src/**/*.{js,jsx,ts,tsx,json,css,html}",
-    ], timeout=45.0)
+    pr = _run(
+        [
+            "npx",
+            "--no-install",
+            "prettier",
+            "--check",
+            "web/src/**/*.{js,jsx,ts,tsx,json,css,html}",
+        ],
+        timeout=45.0,
+    )
     if pr.returncode != 0:
         print("check_frontend_lint: prettier reported drift:")
         print(pr.stdout)
@@ -91,10 +102,17 @@ def main() -> int:
 
     # ESLint check -----------------------------------------------------
     max_warnings = "0" if args.strict else "9999"
-    es = _run([
-        "npx", "--no-install", "eslint", "web/src",
-        "--max-warnings", max_warnings,
-    ], timeout=60.0)
+    es = _run(
+        [
+            "npx",
+            "--no-install",
+            "eslint",
+            "web/src",
+            "--max-warnings",
+            max_warnings,
+        ],
+        timeout=60.0,
+    )
     if es.returncode != 0:
         print("check_frontend_lint: eslint reported errors:")
         print(es.stdout)
@@ -109,9 +127,15 @@ def main() -> int:
     # only — .jsx files have `checkJs: false` and are not type-checked.
     tsc_msg = ""
     if has_tsc and has_tsconfig:
-        tc = _run([
-            "npx", "--no-install", "tsc", "--noEmit",
-        ], timeout=90.0)
+        tc = _run(
+            [
+                "npx",
+                "--no-install",
+                "tsc",
+                "--noEmit",
+            ],
+            timeout=90.0,
+        )
         if tc.returncode != 0:
             print("check_frontend_lint: tsc reported type errors:")
             print(tc.stdout)

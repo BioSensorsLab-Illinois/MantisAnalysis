@@ -24,7 +24,6 @@ from pathlib import Path
 
 import pytest
 
-
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DIST_INDEX = _REPO_ROOT / "web" / "dist" / "index.html"
 
@@ -37,13 +36,11 @@ def test_boot_page_has_no_critical_or_serious_axe_violations(web_server: str) ->
     pytest.importorskip("playwright")
     pytest.importorskip("axe_playwright_python")
 
-    from playwright.sync_api import sync_playwright  # noqa: E402
     from axe_playwright_python.sync_playwright import Axe  # noqa: E402
+    from playwright.sync_api import sync_playwright  # noqa: E402
 
     if not _DIST_INDEX.is_file():
-        pytest.skip(
-            "web/dist/index.html not built. Run `npm install && npm run build`."
-        )
+        pytest.skip("web/dist/index.html not built. Run `npm install && npm run build`.")
 
     with sync_playwright() as p:
         browser = p.chromium.launch()

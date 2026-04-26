@@ -8,12 +8,13 @@ Process-local only — no auth, no multi-tenancy. One user, one machine.
 The server is meant to be launched via `python -m mantisanalysis`, which
 also opens the default browser to the root URL.
 """
+
 from __future__ import annotations
 
 import base64
 import io
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
@@ -24,7 +25,6 @@ from pydantic import BaseModel, Field
 
 from . import __version__
 from . import isp_modes as _isp
-from .image_io import rgb_composite as _rgb_composite
 from .dof_analysis import (
     DoFPoint,
     analyze_dof,
@@ -35,45 +35,43 @@ from .figures import (
     build_dof_multi_chromatic_png,
     build_dof_pngs,
     build_fpn_pngs,
-    build_usaf_pngs,
 )
 from .fpn_analysis import (
     FPNSettings,
     compute_fpn,
-    compute_fpn_multi,
     compute_prnu_stability,
 )
 from .image_processing import apply_sharpen
 from .session import STORE, _summary_dict, channel_to_png_bytes, subtract_dark
 from .usaf_groups import LineSpec, detection_limit_lp_mm, measure_line
 
-
 # ---------------------------------------------------------------------------
 # Pydantic request / response schemas
 # ---------------------------------------------------------------------------
+
 
 class SourceSummary(BaseModel):
     source_id: str
     name: str
     kind: str
-    channels: List[str]
-    shape: List[int]
+    channels: list[str]
+    shape: list[int]
     loaded_at: float
-    path: Optional[str] = None       # absolute disk path when available
-    has_dark: bool = False           # True iff a dark frame is attached
-    dark_name: Optional[str] = None  # display name (filename or 'load-path')
-    dark_path: Optional[str] = None  # absolute disk path of dark, when known
+    path: str | None = None  # absolute disk path when available
+    has_dark: bool = False  # True iff a dark frame is attached
+    dark_name: str | None = None  # display name (filename or 'load-path')
+    dark_path: str | None = None  # absolute disk path of dark, when known
     # ISP-modes-v1: active mode + resolved geometry + rename map.
     isp_mode_id: str = "rgb_nir"
-    isp_config: Dict[str, Any] = Field(default_factory=dict)
-    isp_channel_map: Dict[str, str] = Field(default_factory=dict)
+    isp_config: dict[str, Any] = Field(default_factory=dict)
+    isp_channel_map: dict[str, str] = Field(default_factory=dict)
     rgb_composite_available: bool = False
 
 
 class ISPChannelSpecOut(BaseModel):
     slot_id: str
     default_name: str
-    loc: Tuple[int, int]
+    loc: tuple[int, int]
     renameable: bool
     color_hint: str
 
@@ -83,10 +81,10 @@ class ISPModeOut(BaseModel):
     display_name: str
     description: str
     dual_gain: bool
-    channels: List[ISPChannelSpecOut]
-    default_origin: Tuple[int, int]
-    default_sub_step: Tuple[int, int]
-    default_outer_stride: Tuple[int, int]
+    channels: list[ISPChannelSpecOut]
+    default_origin: tuple[int, int]
+    default_sub_step: tuple[int, int]
+    default_outer_stride: tuple[int, int]
     supports_rgb_composite: bool
 
 
@@ -101,30 +99,31 @@ class ISPReconfigureRequest(BaseModel):
     at (1,1) instead of the default (0,1)). Keys for unknown slot_ids
     on the target mode are silently dropped.
     """
+
     mode_id: str
-    origin: Optional[Tuple[int, int]] = None
-    sub_step: Optional[Tuple[int, int]] = None
-    outer_stride: Optional[Tuple[int, int]] = None
-    channel_name_overrides: Optional[Dict[str, str]] = None
-    channel_loc_overrides: Optional[Dict[str, Tuple[int, int]]] = None
+    origin: tuple[int, int] | None = None
+    sub_step: tuple[int, int] | None = None
+    outer_stride: tuple[int, int] | None = None
+    channel_name_overrides: dict[str, str] | None = None
+    channel_loc_overrides: dict[str, tuple[int, int]] | None = None
 
 
 class DarkLoadPathRequest(BaseModel):
     path: str
-    name: Optional[str] = None
+    name: str | None = None
 
 
 class LoadFromPathRequest(BaseModel):
     path: str
-    name: Optional[str] = None
+    name: str | None = None
 
 
 class LineSpecIn(BaseModel):
     group: int
     element: int
-    direction: str                        # "H" or "V"
-    p0: Tuple[float, float]
-    p1: Tuple[float, float]
+    direction: str  # "H" or "V"
+    p0: tuple[float, float]
+    p1: tuple[float, float]
 
 
 class ISPParams(BaseModel):
@@ -140,18 +139,19 @@ class ISPParams(BaseModel):
         USAF stages run first, then FPN stages. In practice users only set
         one chain at a time, but composing is well-defined.
     """
+
     # USAF / sharpening chain
-    sharpen_method: Optional[str] = None        # "Unsharp mask" | "Laplacian" | "High-pass"
+    sharpen_method: str | None = None  # "Unsharp mask" | "Laplacian" | "High-pass"
     sharpen_amount: float = 1.0
     sharpen_radius: float = 2.0
-    denoise_sigma: float = 0.0                  # Gaussian σ in px
-    black_level: float = 0.0                    # DN offset subtracted before measure
+    denoise_sigma: float = 0.0  # Gaussian σ in px
+    black_level: float = 0.0  # DN offset subtracted before measure
     # FPN / smoothing chain (mirrors fpn_analysis.FPNSettings field names so
     # the same JSON shape feeds both `apply_isp` and the canvas thumbnail).
-    median_size: int = 0                         # 0 = off · else odd 3/5/7
-    gaussian_sigma: float = 0.0                  # 0 = off · stronger Gaussian (FPN-style)
-    hot_pixel_thr: float = 0.0                   # 0 = off · replace pixels > thr·σ from local median
-    bilateral: bool = False                      # cheap edge-preserving smoothing
+    median_size: int = 0  # 0 = off · else odd 3/5/7
+    gaussian_sigma: float = 0.0  # 0 = off · stronger Gaussian (FPN-style)
+    hot_pixel_thr: float = 0.0  # 0 = off · replace pixels > thr·σ from local median
+    bilateral: bool = False  # cheap edge-preserving smoothing
 
 
 class MeasureRequest(BaseModel):
@@ -159,12 +159,12 @@ class MeasureRequest(BaseModel):
     channel: str
     line: LineSpecIn
     swath_width: float = 8.0
-    method: str = "five_point"            # "percentile" | "minmax" | "fft" | "five_point"
-    isp: Optional[ISPParams] = None       # live-apply ISP before measurement
+    method: str = "five_point"  # "percentile" | "minmax" | "fft" | "five_point"
+    isp: ISPParams | None = None  # live-apply ISP before measurement
     # Optional manual 5-point overrides: sample indices into the extracted
     # profile. When present, the server uses these instead of auto-detection.
-    bar_indices: Optional[List[int]] = None
-    gap_indices: Optional[List[int]] = None
+    bar_indices: list[int] | None = None
+    gap_indices: list[int] | None = None
 
 
 class MeasureResponse(BaseModel):
@@ -182,30 +182,30 @@ class MeasureResponse(BaseModel):
     n_samples: int
     samples_per_cycle: float
     reliability: str
-    profile: List[float]
+    profile: list[float]
     # 5-point detection output (or user-supplied override echoed back)
-    bar_indices: List[int]
-    gap_indices: List[int]
-    bar_values: List[float]
-    gap_values: List[float]
+    bar_indices: list[int]
+    gap_indices: list[int]
+    bar_values: list[float]
+    gap_values: list[float]
     bars_bright: bool
 
 
 class USAFAnalyzeRequest(BaseModel):
     source_id: str
-    channels: Optional[List[str]] = None  # None = all
-    lines: List[LineSpecIn]
+    channels: list[str] | None = None  # None = all
+    lines: list[LineSpecIn]
     threshold: float = 0.2
     theme: str = "light"
-    transform: Dict[str, Any] = Field(default_factory=dict)
-    isp: Optional[ISPParams] = None
+    transform: dict[str, Any] = Field(default_factory=dict)
+    isp: ISPParams | None = None
 
 
 class FPNComputeRequest(BaseModel):
     source_id: str
     channel: str
-    roi: Tuple[int, int, int, int]        # (y0, x0, y1, x1)
-    settings: Dict[str, Any] = Field(default_factory=dict)
+    roi: tuple[int, int, int, int]  # (y0, x0, y1, x1)
+    settings: dict[str, Any] = Field(default_factory=dict)
     theme: str = "light"
 
 
@@ -213,6 +213,7 @@ class FPNComputeResponse(BaseModel):
     """Small-payload summary — used by the live-drag Live stats card.
     For the full per-ROI dataset (row/col profiles, 1-D PSDs, hot-pixel
     lists, etc.) hit /api/fpn/measure instead."""
+
     name: str
     mean: float
     mean_signal: float
@@ -249,30 +250,32 @@ class FPNMeasureRequest(FPNComputeRequest):
 class FPNMeasureBatchRequest(BaseModel):
     """Compute rich per-ROI data for a list of ROIs on one channel.
     Used by the multi-ROI compare view."""
+
     source_id: str
     channel: str
-    rois: List[Tuple[int, int, int, int]]
-    settings: Dict[str, Any] = Field(default_factory=dict)
+    rois: list[tuple[int, int, int, int]]
+    settings: dict[str, Any] = Field(default_factory=dict)
 
 
 class FPNStabilityRequest(BaseModel):
     source_id: str
     channel: str
-    roi: Tuple[int, int, int, int]
+    roi: tuple[int, int, int, int]
     n_shrinks: int = 5
-    settings: Dict[str, Any] = Field(default_factory=dict)
+    settings: dict[str, Any] = Field(default_factory=dict)
 
 
 class FPNAnalyzeRequest(BaseModel):
     """Full multi-channel FPN analysis, mirrors USAF's analyze shape.
     One or more channels, one or more ROIs; response is a rich JSON
     dataset plus base64 PNGs for offline export."""
+
     source_id: str
-    channels: Optional[List[str]] = None   # default = all
-    rois: List[Tuple[int, int, int, int]]
-    settings: Dict[str, Any] = Field(default_factory=dict)
+    channels: list[str] | None = None  # default = all
+    rois: list[tuple[int, int, int, int]]
+    settings: dict[str, Any] = Field(default_factory=dict)
     theme: str = "light"
-    include_pngs: bool = True              # off → faster, JSON-only
+    include_pngs: bool = True  # off → faster, JSON-only
 
 
 class DoFPointIn(BaseModel):
@@ -282,21 +285,21 @@ class DoFPointIn(BaseModel):
 
 
 class DoFLineIn(BaseModel):
-    p0: Tuple[float, float]
-    p1: Tuple[float, float]
+    p0: tuple[float, float]
+    p1: tuple[float, float]
 
 
 class DoFComputeRequest(BaseModel):
     source_id: str
     channel: str
-    points: List[DoFPointIn] = Field(default_factory=list)
-    lines: List[DoFLineIn] = Field(default_factory=list)
+    points: list[DoFPointIn] = Field(default_factory=list)
+    lines: list[DoFLineIn] = Field(default_factory=list)
     metric: str = "laplacian"
     half_window: int = 32
     threshold: float = 0.5
-    calibration: Optional[Dict[str, Any]] = None
+    calibration: dict[str, Any] | None = None
     theme: str = "light"
-    isp: Optional[ISPParams] = None
+    isp: ISPParams | None = None
     # dof-rewrite-v1 extras; default false so old callers keep paying zero cost.
     compute_all_metrics: bool = False
     bootstrap: bool = False
@@ -309,16 +312,17 @@ class DoFAnalyzeRequest(BaseModel):
     a list of channels, run the full pipeline per channel, and return
     a grid of per-channel DoFChannelResult dicts plus base64 PNGs for
     offline export."""
+
     source_id: str
-    channels: Optional[List[str]] = None   # None = all
-    points: List[DoFPointIn] = Field(default_factory=list)
-    lines: List[DoFLineIn] = Field(default_factory=list)
+    channels: list[str] | None = None  # None = all
+    points: list[DoFPointIn] = Field(default_factory=list)
+    lines: list[DoFLineIn] = Field(default_factory=list)
     metric: str = "laplacian"
     half_window: int = 32
     threshold: float = 0.5
-    calibration: Optional[Dict[str, Any]] = None
+    calibration: dict[str, Any] | None = None
     theme: str = "light"
-    isp: Optional[ISPParams] = None
+    isp: ISPParams | None = None
     compute_all_metrics: bool = True
     bootstrap: bool = True
     n_boot: int = 200
@@ -329,13 +333,13 @@ class DoFAnalyzeRequest(BaseModel):
 class DoFStabilityRequest(BaseModel):
     source_id: str
     channel: str
-    p0: Tuple[float, float]
-    p1: Tuple[float, float]
+    p0: tuple[float, float]
+    p1: tuple[float, float]
     metric: str = "laplacian"
     threshold: float = 0.5
     line_step_px: float = 4.0
-    windows: List[int] = Field(default_factory=lambda: [12, 16, 24, 32, 48, 64])
-    isp: Optional[ISPParams] = None
+    windows: list[int] = Field(default_factory=lambda: [12, 16, 24, 32, 48, 64])
+    isp: ISPParams | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -399,7 +403,9 @@ def create_app() -> FastAPI:
     # hot-reload development.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
     _mount_api(app)
@@ -411,17 +417,18 @@ def create_app() -> FastAPI:
 # API routes
 # ---------------------------------------------------------------------------
 
+
 def _mount_api(app: FastAPI) -> None:
 
     @app.get("/api/health")
-    def health() -> Dict[str, Any]:
+    def health() -> dict[str, Any]:
         return {
             "ok": True,
             "version": __version__,
             "sources": len(STORE.list()),
         }
 
-    @app.get("/api/sources", response_model=List[SourceSummary])
+    @app.get("/api/sources", response_model=list[SourceSummary])
     def list_sources():
         return STORE.list()
 
@@ -460,6 +467,7 @@ def _mount_api(app: FastAPI) -> None:
         import uuid
 
         from .session import LoadedSource
+
         src = LoadedSource(
             source_id=uuid.uuid4().hex[:12],
             name="sample (synthetic USAF target)",
@@ -511,6 +519,7 @@ def _mount_api(app: FastAPI) -> None:
     @app.post("/api/sources/{source_id}/dark/load-path", response_model=SourceSummary)
     def load_dark_path(source_id: str, req: DarkLoadPathRequest):
         from pathlib import Path as _P
+
         p = _P(req.path).expanduser()
         if not p.exists():
             raise HTTPException(404, f"path not found: {p}")
@@ -534,30 +543,37 @@ def _mount_api(app: FastAPI) -> None:
 
     # ---- ISP modes -----------------------------------------------------
 
-    @app.get("/api/isp/modes", response_model=List[ISPModeOut])
+    @app.get("/api/isp/modes", response_model=list[ISPModeOut])
     def list_isp_modes():
         """Static catalog of the ISP modes the analysis tool knows about.
 
         Shape matches ``ISPModeOut``; the UI consumes this once at startup
         and drives the settings-window dropdown off the result.
         """
-        out: List[ISPModeOut] = []
+        out: list[ISPModeOut] = []
         for mode in _isp.ALL_MODES.values():
-            out.append(ISPModeOut(
-                id=mode.id,
-                display_name=mode.display_name,
-                description=mode.description,
-                dual_gain=mode.dual_gain,
-                channels=[ISPChannelSpecOut(
-                    slot_id=c.slot_id, default_name=c.default_name,
-                    loc=tuple(c.loc), renameable=c.renameable,
-                    color_hint=c.color_hint,
-                ) for c in mode.channels],
-                default_origin=tuple(mode.default_origin),
-                default_sub_step=tuple(mode.default_sub_step),
-                default_outer_stride=tuple(mode.default_outer_stride),
-                supports_rgb_composite=mode.supports_rgb_composite,
-            ))
+            out.append(
+                ISPModeOut(
+                    id=mode.id,
+                    display_name=mode.display_name,
+                    description=mode.description,
+                    dual_gain=mode.dual_gain,
+                    channels=[
+                        ISPChannelSpecOut(
+                            slot_id=c.slot_id,
+                            default_name=c.default_name,
+                            loc=tuple(c.loc),
+                            renameable=c.renameable,
+                            color_hint=c.color_hint,
+                        )
+                        for c in mode.channels
+                    ],
+                    default_origin=tuple(mode.default_origin),
+                    default_sub_step=tuple(mode.default_sub_step),
+                    default_outer_stride=tuple(mode.default_outer_stride),
+                    supports_rgb_composite=mode.supports_rgb_composite,
+                )
+            )
         return out
 
     @app.get("/api/sources/{source_id}/isp", response_model=SourceSummary)
@@ -607,7 +623,7 @@ def _mount_api(app: FastAPI) -> None:
         max_dim: int = Query(1600, ge=64, le=8192),
         colormap: str = Query("gray"),
         # USAF / sharpen chain
-        sharpen_method: Optional[str] = Query(None),
+        sharpen_method: str | None = Query(None),
         sharpen_amount: float = Query(1.0),
         sharpen_radius: float = Query(2.0),
         denoise_sigma: float = Query(0.0),
@@ -619,12 +635,14 @@ def _mount_api(app: FastAPI) -> None:
         gaussian_sigma: float = Query(0.0, ge=0.0, le=20.0),
         hot_pixel_thr: float = Query(0.0, ge=0.0, le=50.0),
         bilateral: bool = Query(False),
-        vmin: Optional[float] = Query(None),
-        vmax: Optional[float] = Query(None),
-        rgb_composite: bool = Query(False,
+        vmin: float | None = Query(None),
+        vmax: float | None = Query(None),
+        rgb_composite: bool = Query(
+            False,
             description="Return an R/G/B composite PNG instead of a "
-                        "single-channel colormap. Only honored when the "
-                        "active ISP mode supports it."),
+            "single-channel colormap. Only honored when the "
+            "active ISP mode supports it.",
+        ),
     ):
         """Serve a channel as a display-ready PNG. Optional ISP query params
         apply the same pipeline used by /api/usaf/measure so the live canvas
@@ -646,11 +664,18 @@ def _mount_api(app: FastAPI) -> None:
         src = _must_get(source_id)
         if rgb_composite:
             composite_png = _try_build_rgb_composite_png(
-                src, channel, max_dim=max_dim, vmin=vmin, vmax=vmax,
+                src,
+                channel,
+                max_dim=max_dim,
+                vmin=vmin,
+                vmax=vmax,
             )
             if composite_png is not None:
-                return Response(content=composite_png, media_type="image/png",
-                                headers={"Cache-Control": "no-store"})
+                return Response(
+                    content=composite_png,
+                    media_type="image/png",
+                    headers={"Cache-Control": "no-store"},
+                )
             # Falls through to grayscale when composite unavailable so the
             # UI can optimistically request and gracefully degrade.
         # Use _channel_image so dark subtraction is applied transparently
@@ -658,9 +683,14 @@ def _mount_api(app: FastAPI) -> None:
         image = _channel_image(src, channel)
         # Only construct ISPParams if at least one stage is active, so the
         # no-ISP fast path still hits the raw array without a copy.
-        any_sharpen_chain = (sharpen_method and sharpen_method not in ("", "None")) or denoise_sigma > 0.05 or black_level > 0
-        any_fpn_chain    = (median_size >= 3 or gaussian_sigma > 0.05
-                            or hot_pixel_thr > 0.5 or bilateral)
+        any_sharpen_chain = (
+            (sharpen_method and sharpen_method not in ("", "None"))
+            or denoise_sigma > 0.05
+            or black_level > 0
+        )
+        any_fpn_chain = (
+            median_size >= 3 or gaussian_sigma > 0.05 or hot_pixel_thr > 0.5 or bilateral
+        )
         if any_sharpen_chain or any_fpn_chain:
             isp = ISPParams(
                 sharpen_method=sharpen_method,
@@ -674,13 +704,11 @@ def _mount_api(app: FastAPI) -> None:
                 bilateral=bilateral,
             )
             image = _apply_analysis_isp(image, isp)
-        png = channel_to_png_bytes(image, max_dim=max_dim, colormap=colormap,
-                                    vmin=vmin, vmax=vmax)
+        png = channel_to_png_bytes(image, max_dim=max_dim, colormap=colormap, vmin=vmin, vmax=vmax)
         # Thumbnails are state-dependent (ISP params are passed as query
         # args). Disable HTTP caching so the browser always re-fetches when
         # the URL changes, even if the URL happens to repeat.
-        return Response(content=png, media_type="image/png",
-                        headers={"Cache-Control": "no-store"})
+        return Response(content=png, media_type="image/png", headers={"Cache-Control": "no-store"})
 
     @app.get("/api/sources/{source_id}/channel/{channel}/range")
     def channel_range(source_id: str, channel: str):
@@ -691,22 +719,23 @@ def _mount_api(app: FastAPI) -> None:
         src = _must_get(source_id)
         a = _channel_image(src, channel).astype(np.float32, copy=False)
         return {
-            "min":  float(a.min()),
-            "max":  float(a.max()),
-            "p1":   float(np.percentile(a, 1.0)),
-            "p99":  float(np.percentile(a, 99.5)),
+            "min": float(a.min()),
+            "max": float(a.max()),
+            "p1": float(np.percentile(a, 1.0)),
+            "p99": float(np.percentile(a, 99.5)),
             "mean": float(a.mean()),
-            "std":  float(a.std()),
+            "std": float(a.std()),
         }
 
-    @app.get("/api/colormap/{name}.png",
-             responses={200: {"content": {"image/png": {}}}})
-    def colormap_strip(name: str, w: int = Query(16, ge=4, le=256),
-                                  h: int = Query(256, ge=8, le=2048)):
+    @app.get("/api/colormap/{name}.png", responses={200: {"content": {"image/png": {}}}})
+    def colormap_strip(
+        name: str, w: int = Query(16, ge=4, le=256), h: int = Query(256, ge=8, le=2048)
+    ):
         """Render a vertical colormap strip as PNG (top = high, bottom =
         low). Used by the frontend to draw the canvas colorbar with exact
         colormap parity (no need to ship matplotlib's LUT to the browser)."""
         from PIL import Image
+
         # Build a gradient column from 1.0 (top) to 0.0 (bottom).
         col = np.linspace(1.0, 0.0, h, dtype=np.float32)[:, None]
         col = np.repeat(col, w, axis=1)
@@ -716,6 +745,7 @@ def _mount_api(app: FastAPI) -> None:
             im = Image.fromarray(n8, mode="L")
         else:
             from matplotlib import colormaps
+
             try:
                 cmap = colormaps[cmap_name]
             except KeyError:
@@ -727,8 +757,11 @@ def _mount_api(app: FastAPI) -> None:
         buf = io.BytesIO()
         im.save(buf, format="PNG", optimize=False)
         # Colormap strips are pure functions of (name, w, h) — cacheable.
-        return Response(content=buf.getvalue(), media_type="image/png",
-                        headers={"Cache-Control": "public, max-age=86400"})
+        return Response(
+            content=buf.getvalue(),
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
 
     # ---- USAF ----
 
@@ -739,7 +772,8 @@ def _mount_api(app: FastAPI) -> None:
         spec = _line_spec(req.line)
         try:
             m = measure_line(
-                img, spec,
+                img,
+                spec,
                 swath_width=float(req.swath_width),
                 method=req.method,
                 bar_indices=req.bar_indices,
@@ -768,7 +802,8 @@ def _mount_api(app: FastAPI) -> None:
         # Apply dark subtraction first (no-op if no dark attached), then ISP.
         channel_images = {
             k: _apply_analysis_isp(_channel_image(src, k), req.isp)
-            for k in chs_requested if k in src.channels
+            for k in chs_requested
+            if k in src.channels
         }
         if not channel_images:
             raise HTTPException(400, "no valid channels requested")
@@ -776,10 +811,10 @@ def _mount_api(app: FastAPI) -> None:
         # Measure every line on every channel. Individual per-line failures
         # (degenerate / too-short) are reported as `null` entries so the
         # frontend can show partial data instead of erroring the whole run.
-        measurements: Dict[str, List[Any]] = {}
-        per_ch_lim: Dict[str, Optional[float]] = {}
+        measurements: dict[str, list[Any]] = {}
+        per_ch_lim: dict[str, float | None] = {}
         for ch, img in channel_images.items():
-            ms: List[Any] = []
+            ms: list[Any] = []
             lm_list = []
             for spec in specs:
                 try:
@@ -789,13 +824,14 @@ def _mount_api(app: FastAPI) -> None:
                 except Exception:
                     ms.append(None)
             measurements[ch] = ms
-            lim, _ = detection_limit_lp_mm(lm_list, float(req.threshold)) if lm_list else (None, None)
+            lim, _ = (
+                detection_limit_lp_mm(lm_list, float(req.threshold)) if lm_list else (None, None)
+            )
             per_ch_lim[ch] = lim
 
         # Channel thumbnails as data-URL PNGs so the detection-heatmap tab can
         # drop them in as Plotly layout images (no separate HTTP round-trip
         # per tab). Apply the requested colormap (default gray) server-side.
-        colormap = req.theme if req.theme in ("gray",) else "gray"
         thumbnails = {}
         thumb_dim = 520
         for ch, img in channel_images.items():
@@ -805,21 +841,26 @@ def _mount_api(app: FastAPI) -> None:
         any_ch = next(iter(channel_images))
         h, w = channel_images[any_ch].shape[:2]
 
-        return JSONResponse({
-            "channels": list(channel_images.keys()),
-            "specs": [
-                {"group": int(s.group), "element": int(s.element),
-                 "direction": s.direction,
-                 "p0": [float(s.p0[0]), float(s.p0[1])],
-                 "p1": [float(s.p1[0]), float(s.p1[1])]}
-                for s in specs
-            ],
-            "threshold": float(req.threshold),
-            "channel_shape": [int(h), int(w)],
-            "measurements": measurements,
-            "channel_thumbnails": thumbnails,
-            "per_channel_detection_limit": per_ch_lim,
-        })
+        return JSONResponse(
+            {
+                "channels": list(channel_images.keys()),
+                "specs": [
+                    {
+                        "group": int(s.group),
+                        "element": int(s.element),
+                        "direction": s.direction,
+                        "p0": [float(s.p0[0]), float(s.p0[1])],
+                        "p1": [float(s.p1[0]), float(s.p1[1])],
+                    }
+                    for s in specs
+                ],
+                "threshold": float(req.threshold),
+                "channel_shape": [int(h), int(w)],
+                "measurements": measurements,
+                "channel_thumbnails": thumbnails,
+                "per_channel_detection_limit": per_ch_lim,
+            }
+        )
 
     # ---- FPN ----
 
@@ -857,11 +898,10 @@ def _mount_api(app: FastAPI) -> None:
         src = _must_get(req.source_id)
         img = _channel_image(src, req.channel)
         settings = _fpn_settings(req.settings)
-        out: List[Dict[str, Any]] = []
-        for i, roi in enumerate(req.rois):
+        out: list[dict[str, Any]] = []
+        for _i, roi in enumerate(req.rois):
             try:
-                res = compute_fpn(img, name=req.channel, roi=tuple(roi),
-                                  settings=settings)
+                res = compute_fpn(img, name=req.channel, roi=tuple(roi), settings=settings)
                 out.append(_fpn_full_dict(res))
             except ValueError as exc:
                 out.append({"roi": list(roi), "error": str(exc)})
@@ -876,13 +916,12 @@ def _mount_api(app: FastAPI) -> None:
         img = _channel_image(src, req.channel)
         settings = _fpn_settings(req.settings)
         try:
-            curve = compute_prnu_stability(img, roi=tuple(req.roi),
-                                            n_shrinks=int(req.n_shrinks),
-                                            settings=settings)
+            curve = compute_prnu_stability(
+                img, roi=tuple(req.roi), n_shrinks=int(req.n_shrinks), settings=settings
+            )
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
-        return JSONResponse({"channel": req.channel,
-                             "roi": list(req.roi), "curve": curve})
+        return JSONResponse({"channel": req.channel, "roi": list(req.roi), "curve": curve})
 
     @app.post("/api/fpn/analyze")
     def fpn_analyze(req: FPNAnalyzeRequest):
@@ -915,14 +954,14 @@ def _mount_api(app: FastAPI) -> None:
         if not req.rois:
             raise HTTPException(400, "at least one ROI is required")
 
-        measurements: Dict[str, List[Any]] = {}
-        figures: Dict[str, Any] = {}
+        measurements: dict[str, list[Any]] = {}
+        figures: dict[str, Any] = {}
         thumb_dim = 520
-        thumbnails: Dict[str, str] = {}
+        thumbnails: dict[str, str] = {}
 
         for ch, img in channel_images.items():
-            per_roi: List[Any] = []
-            per_roi_figs: Dict[str, Any] = {}
+            per_roi: list[Any] = []
+            per_roi_figs: dict[str, Any] = {}
             for i, roi in enumerate(req.rois):
                 try:
                     res = compute_fpn(img, name=ch, roi=tuple(roi), settings=settings)
@@ -930,12 +969,10 @@ def _mount_api(app: FastAPI) -> None:
                     if req.include_pngs:
                         pngs = build_fpn_pngs(res, theme=req.theme)
                         per_roi_figs[str(i)] = {
-                            k: base64.b64encode(v).decode()
-                            for k, v in pngs.items()
+                            k: base64.b64encode(v).decode() for k, v in pngs.items()
                         }
                 except Exception as exc:
-                    per_roi.append({"roi": list(roi),
-                                    "error": f"{type(exc).__name__}: {exc}"})
+                    per_roi.append({"roi": list(roi), "error": f"{type(exc).__name__}: {exc}"})
             measurements[ch] = per_roi
             figures[ch] = per_roi_figs
             blob = channel_to_png_bytes(img, max_dim=thumb_dim, colormap="gray")
@@ -944,7 +981,7 @@ def _mount_api(app: FastAPI) -> None:
         any_ch = next(iter(channel_images))
         h, w = channel_images[any_ch].shape[:2]
 
-        resp: Dict[str, Any] = {
+        resp: dict[str, Any] = {
             "channels": list(channel_images.keys()),
             "rois": [list(r) for r in req.rois],
             "channel_shape": [int(h), int(w)],
@@ -976,10 +1013,12 @@ def _mount_api(app: FastAPI) -> None:
         img = _apply_analysis_isp(_channel_image(src, req.channel), req.isp)
         try:
             res = analyze_dof(
-                img, name=req.channel,
+                img,
+                name=req.channel,
                 points=[DoFPoint(x=p.x, y=p.y, label=p.label) for p in req.points],
                 lines=[(l.p0, l.p1) for l in req.lines],
-                metric=req.metric, half_window=int(req.half_window),
+                metric=req.metric,
+                half_window=int(req.half_window),
                 threshold=float(req.threshold),
                 build_heatmap=False,
                 calibration=req.calibration,
@@ -1001,19 +1040,25 @@ def _mount_api(app: FastAPI) -> None:
         img = _apply_analysis_isp(_channel_image(src, req.channel), req.isp)
         try:
             curve = compute_dof_stability(
-                img, p0=tuple(req.p0), p1=tuple(req.p1),
-                metric=req.metric, threshold=float(req.threshold),
+                img,
+                p0=tuple(req.p0),
+                p1=tuple(req.p1),
+                metric=req.metric,
+                threshold=float(req.threshold),
                 line_step_px=float(req.line_step_px),
                 windows=tuple(int(w) for w in req.windows),
             )
         except Exception as exc:
             raise HTTPException(422, f"{type(exc).__name__}: {exc}") from exc
-        return JSONResponse({
-            "channel": req.channel,
-            "p0": list(req.p0), "p1": list(req.p1),
-            "metric": req.metric,
-            "curve": curve,
-        })
+        return JSONResponse(
+            {
+                "channel": req.channel,
+                "p0": list(req.p0),
+                "p1": list(req.p1),
+                "metric": req.metric,
+                "curve": curve,
+            }
+        )
 
     @app.post("/api/dof/analyze")
     def dof_analyze(req: DoFAnalyzeRequest):
@@ -1031,7 +1076,8 @@ def _mount_api(app: FastAPI) -> None:
         chs_requested = req.channels or list(src.channels.keys())
         channel_images = {
             k: _apply_analysis_isp(_channel_image(src, k), req.isp)
-            for k in chs_requested if k in src.channels
+            for k in chs_requested
+            if k in src.channels
         }
         if not channel_images:
             raise HTTPException(400, "no valid channels requested")
@@ -1042,10 +1088,13 @@ def _mount_api(app: FastAPI) -> None:
         try:
             per_ch = analyze_dof_multi(
                 channel_images,
-                points=points, lines=lines,
-                metric=req.metric, half_window=int(req.half_window),
+                points=points,
+                lines=lines,
+                metric=req.metric,
+                half_window=int(req.half_window),
                 threshold=float(req.threshold),
-                build_heatmap=True, heatmap_step=48,
+                build_heatmap=True,
+                heatmap_step=48,
                 calibration=req.calibration,
                 compute_all_metrics=bool(req.compute_all_metrics),
                 bootstrap=bool(req.bootstrap),
@@ -1056,19 +1105,17 @@ def _mount_api(app: FastAPI) -> None:
             raise HTTPException(422, f"{type(exc).__name__}: {exc}") from exc
 
         results_json = {r.name: _dof_to_dict(r) for r in per_ch}
-        thumbnails: Dict[str, str] = {}
+        thumbnails: dict[str, str] = {}
         for name, img in channel_images.items():
             blob = channel_to_png_bytes(img, max_dim=520, colormap="gray")
             thumbnails[name] = "data:image/png;base64," + base64.b64encode(blob).decode()
 
-        figures_json: Dict[str, Dict[str, str]] = {}
-        chromatic_b64: Optional[str] = None
+        figures_json: dict[str, dict[str, str]] = {}
+        chromatic_b64: str | None = None
         if req.include_pngs:
             for r in per_ch:
                 pngs = build_dof_pngs(r, theme=req.theme)
-                figures_json[r.name] = {
-                    k: base64.b64encode(v).decode() for k, v in pngs.items()
-                }
+                figures_json[r.name] = {k: base64.b64encode(v).decode() for k, v in pngs.items()}
             if len(per_ch) > 1 and any(r.lines for r in per_ch):
                 try:
                     chromatic_b64 = base64.b64encode(
@@ -1077,7 +1124,7 @@ def _mount_api(app: FastAPI) -> None:
                 except Exception:
                     chromatic_b64 = None
 
-        resp: Dict[str, Any] = {
+        resp: dict[str, Any] = {
             "channels": list(channel_images.keys()),
             "channel_shape": list(next(iter(channel_images.values())).shape[:2]),
             "results": results_json,
@@ -1148,8 +1195,7 @@ def _mount_static(app: FastAPI) -> None:
     if not WEB_DIR.exists():
         return
 
-    NO_CACHE = {"Cache-Control": "no-store, max-age=0",
-                "Pragma": "no-cache", "Expires": "0"}
+    NO_CACHE = {"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache", "Expires": "0"}
 
     dist_dir = WEB_DIR / "dist"
     dist_index = dist_dir / "index.html"
@@ -1181,6 +1227,7 @@ def _mount_static(app: FastAPI) -> None:
 # ---------------------------------------------------------------------------
 # Conversion helpers
 # ---------------------------------------------------------------------------
+
 
 def _must_get(source_id: str):
     try:
@@ -1218,11 +1265,14 @@ def _channel_image(src, channel: str, *, apply_dark: bool = True) -> np.ndarray:
     return src.channels[channel]
 
 
-def _try_build_rgb_composite_png(src, channel: str, *,
-                                 max_dim: int = 1600,
-                                 vmin: Optional[float] = None,
-                                 vmax: Optional[float] = None,
-                                 ) -> Optional[bytes]:
+def _try_build_rgb_composite_png(
+    src,
+    channel: str,
+    *,
+    max_dim: int = 1600,
+    vmin: float | None = None,
+    vmax: float | None = None,
+) -> bytes | None:
     """Build an RGB composite PNG for sources whose active mode supports it.
 
     Returns ``None`` when the mode doesn't support composites or when
@@ -1275,6 +1325,7 @@ def _try_build_rgb_composite_png(src, channel: str, *,
     stack = np.dstack([_norm(r), _norm(g), _norm(b)])
     u8 = (stack * 255.0).astype(np.uint8)
     from PIL import Image
+
     im = Image.fromarray(u8, mode="RGB")
     if max(im.size) > max_dim:
         scale = max_dim / float(max(im.size))
@@ -1285,7 +1336,7 @@ def _try_build_rgb_composite_png(src, channel: str, *,
     return buf.getvalue()
 
 
-def _synthetic_usaf_sample(w: int = 640, h: int = 480) -> Dict[str, np.ndarray]:
+def _synthetic_usaf_sample(w: int = 640, h: int = 480) -> dict[str, np.ndarray]:
     """Build a 10-channel dual-gain GSense-shaped sample with realistic
     USAF-1951 bar groups. The bars have hard high-contrast edges, so the
     ISP sharpen / denoise sliders visibly change the rendered thumbnail.
@@ -1297,8 +1348,9 @@ def _synthetic_usaf_sample(w: int = 640, h: int = 480) -> Dict[str, np.ndarray]:
     """
     rng = np.random.default_rng(seed=42)
 
-    def draw_group(canvas: np.ndarray, cx: float, cy: float, bar_px: float,
-                   fg: float, bg: float) -> None:
+    def draw_group(
+        canvas: np.ndarray, cx: float, cy: float, bar_px: float, fg: float, bg: float
+    ) -> None:
         """Draw a classic USAF element: 3 horizontal bars + 3 vertical bars."""
         bp = max(1.0, float(bar_px))
         gap = bp
@@ -1311,7 +1363,7 @@ def _synthetic_usaf_sample(w: int = 640, h: int = 480) -> Dict[str, np.ndarray]:
             y0 = y
             y1 = int(round(y + bp))
             if 0 <= y0 < canvas.shape[0] and y1 <= canvas.shape[0]:
-                canvas[y0:y1, max(0, x0):min(canvas.shape[1], x1)] = fg
+                canvas[y0:y1, max(0, x0) : min(canvas.shape[1], x1)] = fg
         # Vertical bars (to the right, probe horizontal resolution)
         right_cx = cx + bp * 4.0
         for i in range(3):
@@ -1321,7 +1373,7 @@ def _synthetic_usaf_sample(w: int = 640, h: int = 480) -> Dict[str, np.ndarray]:
             x0 = x
             x1 = int(round(x + bp))
             if 0 <= x0 < canvas.shape[1] and x1 <= canvas.shape[1]:
-                canvas[max(0, y0):min(canvas.shape[0], y1), x0:x1] = fg
+                canvas[max(0, y0) : min(canvas.shape[0], y1), x0:x1] = fg
 
     # Build a grayscale canvas at high DN for the "bright" background,
     # then stamp dark bars (classic negative USAF on a lit frame).
@@ -1332,38 +1384,38 @@ def _synthetic_usaf_sample(w: int = 640, h: int = 480) -> Dict[str, np.ndarray]:
     # Place six groups (0–5) across the frame, bar widths halving as group grows.
     groups = [
         # (cx, cy, bar_px)
-        (70,  60,   18.0),  # G0 E1
-        (200, 60,   10.0),  # ~G1 E1
-        (330, 60,    6.2),  # ~G2 E1
-        (430, 60,    3.8),  # ~G3 E1
-        (510, 60,    2.4),  # ~G4 E1
-        (580, 60,    1.6),  # ~G5 E1
-        (70,  180,  14.0),
-        (200, 180,   8.5),
-        (330, 180,   5.4),
-        (430, 180,   3.4),
-        (510, 180,   2.2),
-        (580, 180,   1.4),
-        (70,  300,  11.5),
-        (200, 300,   7.5),
-        (330, 300,   4.8),
-        (430, 300,   3.0),
-        (510, 300,   1.9),
-        (580, 300,   1.25),
-        (70,  400,   9.5),
-        (200, 400,   6.5),
-        (330, 400,   4.2),
-        (430, 400,   2.6),
-        (510, 400,   1.7),
-        (580, 400,   1.1),
+        (70, 60, 18.0),  # G0 E1
+        (200, 60, 10.0),  # ~G1 E1
+        (330, 60, 6.2),  # ~G2 E1
+        (430, 60, 3.8),  # ~G3 E1
+        (510, 60, 2.4),  # ~G4 E1
+        (580, 60, 1.6),  # ~G5 E1
+        (70, 180, 14.0),
+        (200, 180, 8.5),
+        (330, 180, 5.4),
+        (430, 180, 3.4),
+        (510, 180, 2.2),
+        (580, 180, 1.4),
+        (70, 300, 11.5),
+        (200, 300, 7.5),
+        (330, 300, 4.8),
+        (430, 300, 3.0),
+        (510, 300, 1.9),
+        (580, 300, 1.25),
+        (70, 400, 9.5),
+        (200, 400, 6.5),
+        (330, 400, 4.2),
+        (430, 400, 2.6),
+        (510, 400, 1.7),
+        (580, 400, 1.1),
     ]
-    for (cx, cy, bp) in groups:
+    for cx, cy, bp in groups:
         draw_group(canvas, cx, cy, bp, fg, bg)
 
     # Subtle vignette makes it feel like a real frame.
     yy, xx = np.indices((h, w), dtype=np.float32)
     rr = np.hypot((xx - w / 2) / (w / 2), (yy - h / 2) / (h / 2))
-    canvas *= (1.0 - 0.18 * rr ** 2)
+    canvas *= 1.0 - 0.18 * rr**2
 
     # Per-channel noise + gain / black-level offsets so channels differ.
     def chan(gain: float, offset: float, noise_amp: float) -> np.ndarray:
@@ -1372,39 +1424,44 @@ def _synthetic_usaf_sample(w: int = 640, h: int = 480) -> Dict[str, np.ndarray]:
         return np.clip(a, 0, 65535).astype(np.uint16)
 
     hg = {
-        "HG-R": chan(1.00, 0,    140.0),
+        "HG-R": chan(1.00, 0, 140.0),
         "HG-G": chan(1.05, -200, 120.0),
-        "HG-B": chan(0.92, 200,  160.0),
+        "HG-B": chan(0.92, 200, 160.0),
         "HG-NIR": chan(1.15, -350, 180.0),
     }
     # HG-Y = Rec.601 luminance over HG-RGB
-    hg_y = (0.299 * hg["HG-R"].astype(np.float32)
-            + 0.587 * hg["HG-G"].astype(np.float32)
-            + 0.114 * hg["HG-B"].astype(np.float32))
+    hg_y = (
+        0.299 * hg["HG-R"].astype(np.float32)
+        + 0.587 * hg["HG-G"].astype(np.float32)
+        + 0.114 * hg["HG-B"].astype(np.float32)
+    )
     hg["HG-Y"] = np.clip(hg_y, 0, 65535).astype(np.uint16)
 
     # LG is a downscaled version — less saturation, more noise.
     lg_canvas = canvas / 4.2
+
     def lg_chan(gain: float, offset: float, noise_amp: float) -> np.ndarray:
         a = lg_canvas * gain + offset
         a += rng.normal(0.0, noise_amp, size=a.shape)
         return np.clip(a, 0, 65535).astype(np.uint16)
 
     lg = {
-        "LG-R": lg_chan(1.00, 0,    40.0),
-        "LG-G": lg_chan(1.05, -50,  35.0),
-        "LG-B": lg_chan(0.92, 50,   48.0),
+        "LG-R": lg_chan(1.00, 0, 40.0),
+        "LG-G": lg_chan(1.05, -50, 35.0),
+        "LG-B": lg_chan(0.92, 50, 48.0),
         "LG-NIR": lg_chan(1.15, -90, 55.0),
     }
-    lg_y = (0.299 * lg["LG-R"].astype(np.float32)
-            + 0.587 * lg["LG-G"].astype(np.float32)
-            + 0.114 * lg["LG-B"].astype(np.float32))
+    lg_y = (
+        0.299 * lg["LG-R"].astype(np.float32)
+        + 0.587 * lg["LG-G"].astype(np.float32)
+        + 0.114 * lg["LG-B"].astype(np.float32)
+    )
     lg["LG-Y"] = np.clip(lg_y, 0, 65535).astype(np.uint16)
 
     return {**hg, **lg}
 
 
-def _apply_analysis_isp(image: np.ndarray, isp: Optional[ISPParams]) -> np.ndarray:
+def _apply_analysis_isp(image: np.ndarray, isp: ISPParams | None) -> np.ndarray:
     """Apply optional ISP stages to the analysis image before measurement.
 
     Order: black-level subtract → sharpen → gaussian denoise. Returns a new
@@ -1421,30 +1478,38 @@ def _apply_analysis_isp(image: np.ndarray, isp: Optional[ISPParams]) -> np.ndarr
     if isp.black_level:
         a = np.maximum(0.0, a - float(isp.black_level))
     if isp.sharpen_method and isp.sharpen_method not in ("", "None"):
-        a = apply_sharpen(a, isp.sharpen_method,
-                          amount=float(isp.sharpen_amount),
-                          radius=float(isp.sharpen_radius))
+        a = apply_sharpen(
+            a,
+            isp.sharpen_method,
+            amount=float(isp.sharpen_amount),
+            radius=float(isp.sharpen_radius),
+        )
         np.maximum(a, 0.0, out=a)  # sharpening over-shoots can go negative
     if isp.denoise_sigma and isp.denoise_sigma > 0.05:
         from scipy.ndimage import gaussian_filter
+
         a = gaussian_filter(a, sigma=float(isp.denoise_sigma))
         np.maximum(a, 0.0, out=a)
     # FPN / smoothing chain (delegated to fpn_analysis.apply_isp so the
     # canvas thumbnail uses byte-for-byte the same pipeline as the FPN
     # analysis itself — no two-implementations drift).
-    if (isp.median_size or isp.gaussian_sigma > 0.05
-            or isp.hot_pixel_thr > 0.5 or isp.bilateral):
-        from .fpn_analysis import FPNSettings, apply_isp as fpn_apply_isp
-        a = fpn_apply_isp(a, FPNSettings(
-            median_size=int(isp.median_size),
-            gaussian_sigma=float(isp.gaussian_sigma),
-            hot_pixel_thr=float(isp.hot_pixel_thr),
-            bilateral=bool(isp.bilateral),
-        ))
+    if isp.median_size or isp.gaussian_sigma > 0.05 or isp.hot_pixel_thr > 0.5 or isp.bilateral:
+        from .fpn_analysis import FPNSettings
+        from .fpn_analysis import apply_isp as fpn_apply_isp
+
+        a = fpn_apply_isp(
+            a,
+            FPNSettings(
+                median_size=int(isp.median_size),
+                gaussian_sigma=float(isp.gaussian_sigma),
+                hot_pixel_thr=float(isp.hot_pixel_thr),
+                bilateral=bool(isp.bilateral),
+            ),
+        )
     return a
 
 
-def _summary(src) -> Dict[str, Any]:
+def _summary(src) -> dict[str, Any]:
     """Use the canonical summary helper from session.py so all API endpoints
     expose the same fields (channels, shape, dark info, path, ...)."""
     return _summary_dict(src)
@@ -1452,8 +1517,11 @@ def _summary(src) -> Dict[str, Any]:
 
 def _line_spec(line: LineSpecIn) -> LineSpec:
     return LineSpec(
-        group=int(line.group), element=int(line.element),
-        direction=line.direction, p0=tuple(line.p0), p1=tuple(line.p1),
+        group=int(line.group),
+        element=int(line.element),
+        direction=line.direction,
+        p0=tuple(line.p0),
+        p1=tuple(line.p1),
     )
 
 
@@ -1482,7 +1550,7 @@ def _measure_to_response(m) -> MeasureResponse:
     )
 
 
-def _fpn_settings(raw: Dict[str, Any]) -> FPNSettings:
+def _fpn_settings(raw: dict[str, Any]) -> FPNSettings:
     return FPNSettings(
         median_size=int(raw.get("median_size", 0)),
         gaussian_sigma=float(raw.get("gaussian_sigma", 0.0)),
@@ -1498,10 +1566,13 @@ def _fpn_settings(raw: Dict[str, Any]) -> FPNSettings:
 def _fpn_to_response(r) -> FPNComputeResponse:
     return FPNComputeResponse(
         name=r.name,
-        mean=float(r.mean), mean_signal=float(r.mean_signal),
+        mean=float(r.mean),
+        mean_signal=float(r.mean_signal),
         std=float(r.std),
-        dsnu_dn=float(r.dsnu_dn), prnu_pct=float(r.prnu_pct),
-        row_noise_dn=float(r.row_noise_dn), col_noise_dn=float(r.col_noise_dn),
+        dsnu_dn=float(r.dsnu_dn),
+        prnu_pct=float(r.prnu_pct),
+        row_noise_dn=float(r.row_noise_dn),
+        col_noise_dn=float(r.col_noise_dn),
         residual_pixel_noise_dn=float(r.residual_pixel_noise_dn),
         dsnu_row_only_dn=float(r.dsnu_row_only_dn),
         dsnu_col_only_dn=float(r.dsnu_col_only_dn),
@@ -1511,14 +1582,18 @@ def _fpn_to_response(r) -> FPNComputeResponse:
         col_peak_amp=float(r.col_peak_amp),
         hot_pixel_count=int(r.hot_pixel_count),
         cold_pixel_count=int(r.cold_pixel_count),
-        n_kept=int(r.n_kept), n_total=int(r.n_total),
-        minv=float(r.minv), maxv=float(r.maxv),
-        p1=float(r.p1), p99=float(r.p99), median=float(r.median),
+        n_kept=int(r.n_kept),
+        n_total=int(r.n_total),
+        minv=float(r.minv),
+        maxv=float(r.maxv),
+        p1=float(r.p1),
+        p99=float(r.p99),
+        median=float(r.median),
         drift_order=r.drift_order,
     )
 
 
-def _float32_grid(arr: np.ndarray, *, max_cells: int = 65_536) -> Dict[str, Any]:
+def _float32_grid(arr: np.ndarray, *, max_cells: int = 65_536) -> dict[str, Any]:
     """Pack a 2-D array as a compact client-consumable descriptor.
 
     The client renders heatmaps natively on a ``<canvas>`` in real time
@@ -1550,13 +1625,12 @@ def _float32_grid(arr: np.ndarray, *, max_cells: int = 65_536) -> Dict[str, Any]
     af = np.ascontiguousarray(a, dtype=np.float32)
     finite = af[np.isfinite(af)]
     if finite.size == 0:
-        stats = {"min": 0.0, "max": 1.0, "p1": 0.0, "p99": 1.0,
-                 "mean": 0.0, "has_nan": True}
+        stats = {"min": 0.0, "max": 1.0, "p1": 0.0, "p99": 1.0, "mean": 0.0, "has_nan": True}
     else:
         stats = {
             "min": float(finite.min()),
             "max": float(finite.max()),
-            "p1":  float(np.percentile(finite, 1)),
+            "p1": float(np.percentile(finite, 1)),
             "p99": float(np.percentile(finite, 99)),
             "mean": float(finite.mean()),
             "has_nan": bool(af.size != finite.size),
@@ -1569,7 +1643,7 @@ def _float32_grid(arr: np.ndarray, *, max_cells: int = 65_536) -> Dict[str, Any]
     }
 
 
-def _fpn_full_dict(r) -> Dict[str, Any]:
+def _fpn_full_dict(r) -> dict[str, Any]:
     """FPN result as a JSON-serializable dict, including the 1-D profile
     arrays + hot/cold pixel lists + 2-D grids the frontend needs for the
     native canvas heatmaps. 2-D grids are base64-float32 with a nearest-
@@ -1586,21 +1660,19 @@ def _fpn_full_dict(r) -> Dict[str, Any]:
     base["row_psd"] = [float(x) for x in r.row_psd.tolist()]
     base["col_psd"] = [float(x) for x in r.col_psd.tolist()]
     base["top_hot"] = [
-        {"y": int(y), "x": int(x), "value": float(v), "z": float(z)}
-        for (y, x, v, z) in r.top_hot
+        {"y": int(y), "x": int(x), "value": float(v), "z": float(z)} for (y, x, v, z) in r.top_hot
     ]
     base["top_cold"] = [
-        {"y": int(y), "x": int(x), "value": float(v), "z": float(z)}
-        for (y, x, v, z) in r.top_cold
+        {"y": int(y), "x": int(x), "value": float(v), "z": float(z)} for (y, x, v, z) in r.top_cold
     ]
     # Pixel-value histogram (256 bins). Sent as parallel arrays so the
     # frontend can render a bar chart without a follow-up round-trip.
     base["hist_bin_edges"] = [float(x) for x in r.hist_bin_edges.tolist()]
-    base["hist_counts"]    = [int(c) for c in r.hist_counts.tolist()]
+    base["hist_counts"] = [int(c) for c in r.hist_counts.tolist()]
     # 2-D grids for native canvas rendering (no server PNGs).
-    base["image_grid"]    = _float32_grid(r.image)
-    base["fpn_map_grid"]  = _float32_grid(r.fpn_map)
-    base["psd_log_grid"]  = _float32_grid(r.psd_log)
+    base["image_grid"] = _float32_grid(r.image)
+    base["fpn_map_grid"] = _float32_grid(r.fpn_map)
+    base["psd_log_grid"] = _float32_grid(r.psd_log)
     base["autocorr_grid"] = _float32_grid(r.autocorr_2d)
     base["kept_mask_dims"] = [int(r.mask_kept.shape[0]), int(r.mask_kept.shape[1])]
     # Pack the bool kept-mask the same way (as uint8 0/1) so the native
@@ -1620,16 +1692,16 @@ def _fpn_full_dict(r) -> Dict[str, Any]:
     return base
 
 
-def _finite_list(arr: np.ndarray) -> List[Optional[float]]:
+def _finite_list(arr: np.ndarray) -> list[float | None]:
     """Serialize a 1-D float array to JSON, turning NaNs into None so
     `json.dumps` doesn't emit bare `NaN` (which isn't strict JSON)."""
-    out: List[Optional[float]] = []
+    out: list[float | None] = []
     for v in arr.tolist():
         out.append(None if not np.isfinite(v) else float(v))
     return out
 
 
-def _dof_to_dict(r) -> Dict[str, Any]:
+def _dof_to_dict(r) -> dict[str, Any]:
     """Serialize DoFChannelResult to a JSON-safe dict. Extends the
     original shape (kept as-is for back-compat) with the dof-rewrite-v1
     fields: per-line ``gaussian`` fit, ``peak_ci95_px`` /
@@ -1682,11 +1754,10 @@ def _dof_to_dict(r) -> Dict[str, Any]:
                 "dof_high_unit": ln.dof_high_unit,
                 "dof_width_unit": ln.dof_width_unit,
                 "gaussian": _dof_gaussian_to_dict(ln.gaussian),
-                "peak_ci95_px": (list(ln.peak_ci95_px)
-                                 if ln.peak_ci95_px is not None else None),
-                "dof_width_ci95_px": (list(ln.dof_width_ci95_px)
-                                      if ln.dof_width_ci95_px is not None
-                                      else None),
+                "peak_ci95_px": (list(ln.peak_ci95_px) if ln.peak_ci95_px is not None else None),
+                "dof_width_ci95_px": (
+                    list(ln.dof_width_ci95_px) if ln.dof_width_ci95_px is not None else None
+                ),
                 "metric_sweep": ln.metric_sweep,
             }
             for ln in r.lines
@@ -1694,11 +1765,12 @@ def _dof_to_dict(r) -> Dict[str, Any]:
     }
 
 
-def _dof_gaussian_to_dict(g) -> Dict[str, Any]:
+def _dof_gaussian_to_dict(g) -> dict[str, Any]:
     """Serialize GaussianFit with NaN → None (strict JSON)."""
+
     def _ok(v):
-        return None if not isinstance(v, (int, float)) or not np.isfinite(v) \
-                    else float(v)
+        return None if not isinstance(v, (int, float)) or not np.isfinite(v) else float(v)
+
     return {
         "converged": bool(g.converged),
         "amp": _ok(g.amp),

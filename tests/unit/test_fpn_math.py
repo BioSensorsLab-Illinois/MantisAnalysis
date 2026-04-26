@@ -1,4 +1,5 @@
 """FPN metric sanity checks."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -39,5 +40,4 @@ def test_compute_fpn_raises_if_all_pixels_excluded() -> None:
     img = rng.normal(1000, 50, size=(32, 32)).astype(np.float64)
     # lo_pct + hi_pct > 100 should drop below 2 kept pixels.
     with pytest.raises(ValueError):
-        compute_fpn(img, name="all-out",
-                    settings=FPNSettings(lo_pct=60, hi_pct=45))
+        compute_fpn(img, name="all-out", settings=FPNSettings(lo_pct=60, hi_pct=45))
