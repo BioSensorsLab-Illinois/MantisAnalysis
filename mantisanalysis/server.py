@@ -273,6 +273,12 @@ class TiledExportViewSpec(BaseModel):
     gaussian_sigma: float = 0.0
     hot_pixel_thr: float = 0.0
     bilateral: bool = False
+    # Optional polygon ROI (image-pixel coords). When the per-tile
+    # render is render='overlay' and the polygon has ≥ 3 vertices, the
+    # colormapped overlay is composited only inside the polygon — base
+    # RGB shows through everywhere else. Mirrors mask_polygon on the
+    # per-frame /overlay.png route so exports honor WYSIWYG.
+    mask_polygon: Optional[List[List[float]]] = None
     # Display-only
     title: Optional[str] = None            # caption above this tile (UI label)
 
@@ -1480,14 +1486,29 @@ def _mount_api(app: FastAPI) -> None:
               "method": "mean" | "percentile" | "mode",
               "percentile": 50,                 # only for method=percentile
               "apply_dark": true,
-              "black_level": 0
+              "black_level": 0,
+              "view_config": {                  # optional, additive
+                "gain": 1.0, "offset": 0.0,
+                "sharpen_method": null|str, "sharpen_amount": 1.0,
+                "sharpen_radius": 2.0, "denoise_sigma": 0.0,
+                "median_size": 0, "gaussian_sigma": 0.0,
+                "hot_pixel_thr": 0.0, "bilateral": false
+              }
             }
 
-        Pipeline matches the rest of the Inspector ISP chain:
+        Pipeline matches the canvas thumbnail's linear chain at
+        ``frame_channel_thumbnail`` (server.py:1332-1343):
         per-frame channel extraction → optional dark subtract →
-        optional black-level subtract → polygon mask → stats. All
-        stats are computed on the post-correction values so the TBR
-        ratio reflects what the user is actually seeing on the canvas.
+        ``_apply_analysis_isp`` (sharpen + denoise + FPN) →
+        ``_apply_pre_norm`` (black_level + gain + offset) → polygon
+        mask → stats. The post-normalize tone curve (brightness /
+        contrast / gamma) and colormap are intentionally NOT applied
+        — TBR stays in physical-DN-scaled-by-gain units so the ratio
+        is comparable across frames and the standard error
+        propagation σ_R/R = √((σ_T/T)² + (σ_B/B)²) holds.
+
+        Response carries ``pipeline_version=2`` so clients can flag
+        entries committed under the pre-fix pipeline.
         """
         try:
             src = _must_get(source_id)
@@ -1514,18 +1535,51 @@ def _mount_api(app: FastAPI) -> None:
                 raise HTTPException(400, "percentile must be in [0, 100]")
             apply_dark = bool(body.get("apply_dark", True))
             black_level = float(body.get("black_level", 0.0) or 0.0)
+            # Optional view_config carrying gain/offset + the non-linear
+            # ISP chain (sharpen + denoise + FPN). Absent = back-compat.
+            vc = body.get("view_config") or {}
+            if not isinstance(vc, dict):
+                raise HTTPException(400, "view_config must be an object when present")
+            try:
+                vc_gain = float(vc.get("gain", 1.0))
+                vc_offset = float(vc.get("offset", 0.0))
+                vc_sharpen_amount = float(vc.get("sharpen_amount", 1.0))
+                vc_sharpen_radius = float(vc.get("sharpen_radius", 2.0))
+                vc_denoise_sigma = float(vc.get("denoise_sigma", 0.0))
+                vc_median_size = int(vc.get("median_size", 0) or 0)
+                vc_gaussian_sigma = float(vc.get("gaussian_sigma", 0.0))
+                vc_hot_pixel_thr = float(vc.get("hot_pixel_thr", 0.0))
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(400, f"view_config has non-numeric field: {exc}")
+            vc_sharpen_method = vc.get("sharpen_method")
+            if vc_sharpen_method is not None and not isinstance(vc_sharpen_method, str):
+                raise HTTPException(400, "view_config.sharpen_method must be a string or null")
+            vc_bilateral = bool(vc.get("bilateral", False))
+            isp_pre_chain = _isp_chain_from_query(
+                sharpen_method=vc_sharpen_method,
+                sharpen_amount=vc_sharpen_amount,
+                sharpen_radius=vc_sharpen_radius,
+                denoise_sigma=vc_denoise_sigma,
+                median_size=vc_median_size,
+                gaussian_sigma=vc_gaussian_sigma,
+                hot_pixel_thr=vc_hot_pixel_thr,
+                bilateral=vc_bilateral,
+            )
             image = chs[channel]
-            # Apply the same correction pipeline the canvas uses.
+            # Apply the same correction pipeline the canvas uses
+            # (frame_channel_thumbnail:1332-1343).
             if apply_dark and src.has_dark and src.dark_channels is not None:
                 d = src.dark_channels.get(channel)
                 if d is not None:
                     image = subtract_dark(image, d)
-            arr = image.astype(np.float64, copy=True)
-            if abs(black_level) > 1e-9:
-                arr = arr - black_level
-                # Match the channel-render path: hard-clip to >= 0
-                # so wrap-around (uint16 underflow) can't poison TBR.
-                np.clip(arr, 0.0, None, out=arr)
+            if isp_pre_chain is not None:
+                image = _apply_analysis_isp(image, isp_pre_chain)
+            # _apply_pre_norm folds black_level + gain + offset and
+            # hard-clips to [0, ∞) after black_level subtraction so
+            # wrap-around (uint16 underflow) can't poison TBR.
+            arr = _apply_pre_norm(
+                image, black_level=black_level, gain=vc_gain, offset=vc_offset,
+            ).astype(np.float64, copy=False)
             # Rasterize polygon → boolean mask (matches the channel
             # array shape, which is post-Bayer-extraction).
             try:
@@ -1584,6 +1638,12 @@ def _mount_api(app: FastAPI) -> None:
                     "computed_value": computed,
                     "apply_dark": apply_dark,
                     "black_level": black_level,
+                    # Pipeline v2: linear ISP chain (dark + analysis_isp +
+                    # pre_norm). v1 entries (pre-fix) only saw dark + black_level.
+                    "pipeline_version": 2,
+                    "view_config_applied": isp_pre_chain is not None
+                    or abs(vc_gain - 1.0) > 1e-9
+                    or abs(vc_offset) > 1e-9,
                 },
                 headers={"Cache-Control": "no-store"},
             )
@@ -1868,33 +1928,13 @@ def _mount_api(app: FastAPI) -> None:
             # Mask: pixels below low threshold are transparent.
             s = float(strength)
             mask = ov_norm.astype(np.float32) * s
-            # Optional polygon ROI: rasterize the user-drawn polygon
-            # to a binary {0,1} alpha mask and AND it into `mask`. The
-            # base image shows through outside the polygon (mask=0
-            # there), the colormapped overlay only blends inside.
-            if mask_polygon:
-                try:
-                    import json as _json
-                    pts = _json.loads(mask_polygon)
-                except Exception as exc:
-                    raise HTTPException(400, f"invalid mask_polygon JSON: {exc}")
-                if isinstance(pts, list) and len(pts) >= 3:
-                    try:
-                        from PIL import Image as _PI, ImageDraw as _PID
-                        H, W = mask.shape
-                        # Pillow expects [(x, y), …]; clip out-of-bounds
-                        # gracefully so a stray drag doesn't 500.
-                        poly = [(float(p[0]), float(p[1])) for p in pts]
-                        canvas = _PI.new("L", (W, H), 0)
-                        _PID.Draw(canvas).polygon(poly, fill=255)
-                        roi = (np.asarray(canvas, dtype=np.float32) / 255.0)
-                        mask = mask * roi
-                    except HTTPException:
-                        raise
-                    except Exception as exc:
-                        raise HTTPException(
-                            400, f"polygon rasterize failed: {type(exc).__name__}: {exc}"
-                        )
+            # Optional polygon ROI: rasterize the user-drawn polygon to
+            # a binary {0,1} alpha mask and AND it into `mask`. The base
+            # image shows through outside the polygon (mask=0 there);
+            # the colormapped overlay only blends inside.
+            roi = _polygon_to_roi_mask(mask_polygon, mask.shape)
+            if roi is not None:
+                mask = mask * roi
             if blend == "additive":
                 out = np.clip(base_arr + ov_rgb * mask[..., None], 0.0, 1.0)
             elif blend == "screen":
@@ -2222,6 +2262,13 @@ def _mount_api(app: FastAPI) -> None:
         blend: str = Query("alpha", pattern="^(alpha|screen|additive)$"),
         strength: float = Query(0.65, ge=0.0, le=1.0),
         overlay_colormap: str = Query("inferno"),
+        # Optional polygon ROI for render=overlay. JSON-encoded list of
+        # [x, y] image-pixel pairs. When provided, the colormapped
+        # overlay only blends inside the polygon and the base RGB shows
+        # through everywhere else — mirrors the per-frame /overlay.png
+        # route so the exported video matches WYSIWYG with the canvas.
+        # Ignored for render='rgb_composite' / 'channel'.
+        mask_polygon: Optional[str] = Query(None),
     ):
         """Render a frame range as MP4 / GIF / PNG-zip.
 
@@ -2322,6 +2369,10 @@ def _mount_api(app: FastAPI) -> None:
                 ov_rgb = cmap(ov_norm)[..., :3].astype(np.float32)
                 s = float(strength)
                 mask = ov_norm.astype(np.float32) * s
+                # Polygon ROI clip — same behaviour as /overlay.png.
+                roi = _polygon_to_roi_mask(mask_polygon, mask.shape)
+                if roi is not None:
+                    mask = mask * roi
                 if blend == "additive":
                     out = np.clip(base_arr + ov_rgb * mask[..., None], 0.0, 1.0)
                 elif blend == "screen":
@@ -3350,6 +3401,10 @@ def _render_tiled_view_to_rgb(spec: "TiledExportViewSpec", *,
         ov_rgb = cmap(ov_norm)[..., :3].astype(np.float32)
         s = float(spec.strength)
         mask = ov_norm.astype(np.float32) * s
+        # Polygon ROI clip — overlay composites inside the polygon only.
+        roi = _polygon_to_roi_mask(spec.mask_polygon, mask.shape)
+        if roi is not None:
+            mask = mask * roi
         if spec.blend == "additive":
             out = np.clip(
                 base_arr + ov_rgb * mask[..., None], 0.0, 1.0,
@@ -3640,6 +3695,50 @@ def _apply_isp(norm: np.ndarray, *,
     if abs(gamma - 1.0) > 1e-6 and float(gamma) > 0:
         out = np.power(out, 1.0 / float(gamma))
     return out
+
+
+def _polygon_to_roi_mask(
+    points: Optional[Any], shape: Tuple[int, int],
+) -> Optional[np.ndarray]:
+    """Rasterize a user-drawn polygon into a binary {0.0, 1.0} float32
+    mask of ``shape = (H, W)``. Multiplied into the overlay's alpha mask
+    so the colormapped overlay only blends inside the polygon while the
+    base shows through everywhere else.
+
+    Accepts either a JSON-encoded string (query-string callers like
+    ``frame_overlay`` and ``export_video``) or an already-parsed
+    list-of-pairs (Pydantic body callers like ``TiledExportViewSpec``).
+    Returns ``None`` for empty / null / fewer-than-3-vertex inputs so
+    callers can treat "no polygon" as the no-clip path.
+
+    Raises ``HTTPException(400)`` on parse failure to preserve the
+    error contract of the original inline rasterizer at frame_overlay.
+    """
+    if points is None or points == "" or points == []:
+        return None
+    if isinstance(points, str):
+        try:
+            import json as _json
+            points = _json.loads(points)
+        except Exception as exc:
+            raise HTTPException(400, f"invalid mask_polygon JSON: {exc}")
+    if not isinstance(points, list) or len(points) < 3:
+        return None
+    try:
+        from PIL import Image as _PI, ImageDraw as _PID
+        H, W = int(shape[0]), int(shape[1])
+        # Pillow expects [(x, y), …]; clip out-of-bounds gracefully so a
+        # stray drag doesn't 500.
+        poly = [(float(p[0]), float(p[1])) for p in points]
+        canvas = _PI.new("L", (W, H), 0)
+        _PID.Draw(canvas).polygon(poly, fill=255)
+        return np.asarray(canvas, dtype=np.float32) / 255.0
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            400, f"polygon rasterize failed: {type(exc).__name__}: {exc}"
+        )
 
 
 def _apply_pre_norm(image: np.ndarray, *,

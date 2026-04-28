@@ -4,6 +4,71 @@ Append-only log of agent sessions. One bullet per session, newest at top.
 
 ---
 
+**2026-04-28 — TBR /roi-stats applies linear ISP chain; video-export overlay clipped to mask polygon**
+
+Two related Play-mode bug fixes. User reported (1) TBR ratios didn't
+reflect what the canvas was showing — `/roi-stats` ran only `dark +
+black_level` while the canvas chain ran `dark → sharpen/FPN → gain/
+offset → normalize → tone curve → colormap`; sliding gain or sharpen
+left TBR unchanged. (2) Drawing an ROI mask polygon in overlay mode
+clipped the per-frame display correctly but exported videos still
+showed the colormapped overlay covering the whole frame.
+
+Fix shape, both server-side WYSIWYG:
+
+- `mantisanalysis/server.py::frame_channel_roi_stats` — body gained
+  optional `view_config` (gain, offset, sharpen, FPN). When present,
+  the route applies `_apply_analysis_isp` then `_apply_pre_norm` on
+  top of dark + black_level, matching `frame_channel_thumbnail`'s
+  linear chain byte-for-byte. Tone curve / colormap intentionally
+  skipped — TBR stays in physical-DN-scaled-by-gain units. Response
+  carries `pipeline_version: 2` + `view_config_applied: bool`.
+- `mantisanalysis/server.py::_polygon_to_roi_mask` — extracted from
+  the inline rasterize block in `frame_overlay`. Accepts JSON-string
+  or list-of-pairs or None. Now reused by the per-frame display
+  route, the single-view video export, and the tiled video export.
+- `mantisanalysis/server.py::export_video` — new `mask_polygon`
+  Query param honored when `render="overlay"`; ignored otherwise.
+- `mantisanalysis/server.py::TiledExportViewSpec` — new
+  `mask_polygon: Optional[List[List[float]]] = None` field; applied
+  in the tiled renderer's overlay branch.
+- `web/src/playback.tsx::TbrAnalysisPanel` — `computeStats` posts
+  `view_config` built from `view.gain`, `view.offset`, `view.isp`;
+  auto-recompute deps include a stable `viewConfigSig`. Per-kind
+  `reqSeqRef` drops stale responses when the user drags a slider
+  faster than the API round-trip. Committed entries snapshot
+  `viewConfig` + `pipelineVersion`. New per-row Recompute button
+  re-fires `/roi-stats` for stored polygons under the live view's
+  ISP knobs; disabled with explanatory tooltip when the entry's
+  recording differs from the active view's source. v1 chip on
+  legacy entries (committed pre-fix).
+- `web/src/playback.tsx::buildVideoUrl` + `buildTiledViewSpec` —
+  forward `mask_polygon` only for overlay-mode views with ≥3
+  vertices.
+- `web/src/analysis/modes/tbr.tsx` — TbrEntry type extended;
+  per-entry detail row shows the v1 chip for legacy entries.
+
+User-confirmed scope: linear ISP only (no tone curve), overlay-clip
+only (no polygon outlines drawn on exports, no tumor/bg ROIs in
+exports), Recompute-button-per-row for stale entries.
+
+Tests: `tests/unit/test_roi_stats_isp.py` (5) +
+`tests/unit/test_export_overlay_mask.py` (8). All pass.
+Smoke 1+2+3 + scoped pytest (79) green. Live-server end-to-end:
+gain=3, offset=5 yields mean = old_mean × 3 + 5 to 0-precision delta;
+masked vs. unmasked exports differ in zip size as expected.
+
+Reviewer pass (`fastapi-backend-reviewer`, `risk-skeptic`): two P0s
+caught and fixed before close — closure shadow in `recomputeEntry`
+was writing the *draft's* std into the recomputed entry (renamed
+locals to `statsT`/`statsB`/`tStd`/`bStd`); <!-- qt-allowed: documentation reference to the existing build-time Qt-binding exclusion list — not Qt-using code -->tier-0 PyQt5/PySide6<!-- /qt-allowed -->
+documentation drift wrapped in `qt-allowed` markers. P1 race in
+`computeStats` mitigated with a per-kind `reqSeqRef`. Two P3 nits
+(unused `view_config_applied` field; loose `Any` on helper signature)
+documented but not blocking.
+
+---
+
 **2026-04-28 — CI/CD: Linux binary added; release workflow hardened; 2 real bugs caught + fixed by local validation**
 
 User-driven CI/CD audit. The release matrix shipped Windows + macOS

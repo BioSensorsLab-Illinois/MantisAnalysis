@@ -1616,10 +1616,7 @@ export const PlaybackMode = ({
             ...v,
             sourceMode: newMode,
             colormap: v.colormap || newMeta.defaultColormap || 'gray',
-            name:
-              v.name && v.name !== sourceModeMeta(v.sourceMode).label
-                ? v.name
-                : newMeta.label,
+            name: v.name && v.name !== sourceModeMeta(v.sourceMode).label ? v.name : newMeta.label,
           };
         })
       );
@@ -2108,65 +2105,62 @@ export const PlaybackMode = ({
   //   • if there is no surviving source AFTER → walk BACKWARD looking
   //     for the first surviving source before it and jump to ITS START.
   //   • if everything is being removed → globalFrame = 0.
-  const computePostDeleteGlobalFrame = useCallbackPb(
-    (preOrdered, currentGlobalFrame, removed) => {
-      if (!preOrdered || preOrdered.length === 0) return 0;
-      // Find the cursor's pre-removal slot + local-within-that-source.
-      let cursorIdx = -1;
-      let cursorLocal = 0;
-      let cum = 0;
-      for (let i = 0; i < preOrdered.length; i++) {
-        const r = preOrdered[i];
-        const n = r.frame_count || 1;
-        if (currentGlobalFrame < cum + n) {
-          cursorIdx = i;
-          cursorLocal = currentGlobalFrame - cum;
-          break;
-        }
-        cum += n;
+  const computePostDeleteGlobalFrame = useCallbackPb((preOrdered, currentGlobalFrame, removed) => {
+    if (!preOrdered || preOrdered.length === 0) return 0;
+    // Find the cursor's pre-removal slot + local-within-that-source.
+    let cursorIdx = -1;
+    let cursorLocal = 0;
+    let cum = 0;
+    for (let i = 0; i < preOrdered.length; i++) {
+      const r = preOrdered[i];
+      const n = r.frame_count || 1;
+      if (currentGlobalFrame < cum + n) {
+        cursorIdx = i;
+        cursorLocal = currentGlobalFrame - cum;
+        break;
       }
-      if (cursorIdx === -1) {
-        // Cursor was past the end of the stream — fall back to the
-        // last surviving source's last frame, computed below.
-        cursorIdx = preOrdered.length - 1;
-        cursorLocal = (preOrdered[cursorIdx].frame_count || 1) - 1;
+      cum += n;
+    }
+    if (cursorIdx === -1) {
+      // Cursor was past the end of the stream — fall back to the
+      // last surviving source's last frame, computed below.
+      cursorIdx = preOrdered.length - 1;
+      cursorLocal = (preOrdered[cursorIdx].frame_count || 1) - 1;
+    }
+    // Build the surviving ordered list + a per-source new offset.
+    const survivors = preOrdered.filter((r) => !removed.has(r.source_id));
+    if (survivors.length === 0) return 0;
+    const offsetOf = (sid) => {
+      let acc = 0;
+      for (const r of survivors) {
+        if (r.source_id === sid) return acc;
+        acc += r.frame_count || 1;
       }
-      // Build the surviving ordered list + a per-source new offset.
-      const survivors = preOrdered.filter((r) => !removed.has(r.source_id));
-      if (survivors.length === 0) return 0;
-      const offsetOf = (sid) => {
-        let acc = 0;
-        for (const r of survivors) {
-          if (r.source_id === sid) return acc;
-          acc += r.frame_count || 1;
-        }
-        return -1;
-      };
-      const cursorRec = preOrdered[cursorIdx];
-      // Case A: cursor's source survived — same source + same local.
-      if (!removed.has(cursorRec.source_id)) {
-        const off = offsetOf(cursorRec.source_id);
-        if (off >= 0) {
-          const localCap = (cursorRec.frame_count || 1) - 1;
-          return off + Math.max(0, Math.min(localCap, cursorLocal));
-        }
+      return -1;
+    };
+    const cursorRec = preOrdered[cursorIdx];
+    // Case A: cursor's source survived — same source + same local.
+    if (!removed.has(cursorRec.source_id)) {
+      const off = offsetOf(cursorRec.source_id);
+      if (off >= 0) {
+        const localCap = (cursorRec.frame_count || 1) - 1;
+        return off + Math.max(0, Math.min(localCap, cursorLocal));
       }
-      // Case B: walk forward in the ORIGINAL order for the next survivor.
-      for (let j = cursorIdx + 1; j < preOrdered.length; j++) {
-        if (!removed.has(preOrdered[j].source_id)) {
-          return offsetOf(preOrdered[j].source_id);
-        }
+    }
+    // Case B: walk forward in the ORIGINAL order for the next survivor.
+    for (let j = cursorIdx + 1; j < preOrdered.length; j++) {
+      if (!removed.has(preOrdered[j].source_id)) {
+        return offsetOf(preOrdered[j].source_id);
       }
-      // Case C: no survivor after — walk backward.
-      for (let j = cursorIdx - 1; j >= 0; j--) {
-        if (!removed.has(preOrdered[j].source_id)) {
-          return offsetOf(preOrdered[j].source_id);
-        }
+    }
+    // Case C: no survivor after — walk backward.
+    for (let j = cursorIdx - 1; j >= 0; j--) {
+      if (!removed.has(preOrdered[j].source_id)) {
+        return offsetOf(preOrdered[j].source_id);
       }
-      return 0;
-    },
-    []
-  );
+    }
+    return 0;
+  }, []);
 
   const handleRemoveRecording = useCallbackPb(
     async (sid) => {
@@ -2264,10 +2258,9 @@ export const PlaybackMode = ({
         // disk file alone, and the backend default is now also
         // `false`. The bulk-delete confirm modal IS the consent;
         // pass `true` here so the user's file is unlinked.
-        const resp = await apiFetch(
-          `/api/sources/${rec.source_id}?delete_disk_file=true`,
-          { method: 'DELETE' }
-        );
+        const resp = await apiFetch(`/api/sources/${rec.source_id}?delete_disk_file=true`, {
+          method: 'DELETE',
+        });
         // Always drop the source from the session — its frame reader
         // is now closed and STORE has forgotten it; keeping the row
         // in the panel would just confuse the user.
@@ -2304,11 +2297,7 @@ export const PlaybackMode = ({
       // Snapshot the pre-removal ordering + cursor BEFORE state mutation
       // so the relocation math sees the original positions of every
       // removed source.
-      const nextGlobal = computePostDeleteGlobalFrame(
-        orderedRecordings,
-        globalFrame,
-        removedSids
-      );
+      const nextGlobal = computePostDeleteGlobalFrame(orderedRecordings, globalFrame, removedSids);
       setRecordings((prev) => prev.filter((r) => !removedSids.has(r.source_id)));
       setViews((prev) => prev.filter((v) => !removedSids.has(v.sourceId)));
       setSelectedRecId((prev) => (prev && removedSids.has(prev) ? null : prev));
@@ -2793,6 +2782,13 @@ export const PlaybackMode = ({
         overlay_colormap: ov.overlayColormap || v.colormap || meta.defaultColormap || 'inferno',
         blend: ov.blend || 'alpha',
         strength: ov.strength ?? 0.6,
+        // Polygon ROI for the per-tile overlay render. Image-pixel coords;
+        // backend rasterizes against the channel array's native shape so
+        // alignment with what the user drew on the canvas is exact.
+        mask_polygon:
+          meta.kind === 'overlay' && Array.isArray(ov.maskPolygon) && ov.maskPolygon.length >= 3
+            ? ov.maskPolygon
+            : null,
         grading_gain_r: grading.gain_r ?? 1.0,
         grading_gain_g: grading.gain_g ?? 1.0,
         grading_gain_b: grading.gain_b ?? 1.0,
@@ -2863,6 +2859,12 @@ export const PlaybackMode = ({
         q.set('strength', String(ov.strength ?? 0.6));
         if (ov.overlayLow != null) q.set('overlay_low', String(ov.overlayLow));
         if (ov.overlayHigh != null) q.set('overlay_high', String(ov.overlayHigh));
+        // Polygon ROI: when the overlay view carries a drawn mask, the
+        // exported video honors it the same way the per-frame display
+        // does — overlay only inside the polygon, base RGB outside.
+        if (Array.isArray(ov.maskPolygon) && ov.maskPolygon.length >= 3) {
+          q.set('mask_polygon', JSON.stringify(ov.maskPolygon));
+        }
       } else if (meta.kind === 'raw' && v.rawChannel) {
         q.set('render', 'channel');
         q.set('channel', v.rawChannel);
@@ -5306,8 +5308,7 @@ const ViewerCard = ({
           // only when actively drawing an ROI; the grab cursor used to
           // show whenever zoomed in but that was distracting and the
           // pan happens via middle-mouse-drag, not a wheel-click handle.
-          cursor:
-            view.overlayDrawMode || view.tbrDraftRole ? 'crosshair' : 'default',
+          cursor: view.overlayDrawMode || view.tbrDraftRole ? 'crosshair' : 'default',
         }}
         onMouseDown={(e) => {
           // Middle-button drag pans the image. Browsers bind middle-
@@ -5564,8 +5565,7 @@ const ViewerCard = ({
                     view.tbrDraftRole ? ` · drawing ${view.tbrDraftRole.toUpperCase()}` : ''
                   }`
                 : null;
-            const hintAnchor =
-              tumorPts[0] || bgPts[0] || overlayPts[0] || [iw * 0.05, iw * 0.05];
+            const hintAnchor = tumorPts[0] || bgPts[0] || overlayPts[0] || [iw * 0.05, iw * 0.05];
             return (
               <svg
                 ref={svgRef}
@@ -9395,8 +9395,7 @@ const Inspector = ({
                     : Math.max(
                         0,
                         Math.min(
-                          (globalFrame ?? 0) -
-                            (sourceOffsets?.get(selectedView.sourceId) ?? 0),
+                          (globalFrame ?? 0) - (sourceOffsets?.get(selectedView.sourceId) ?? 0),
                           (selectedRecording?.frame_count || 1) - 1
                         )
                       )
@@ -9404,8 +9403,9 @@ const Inspector = ({
                 entries={tbrEntries}
                 onUpdateView={(patch) => onUpdateView(selectedView.id, patch)}
                 onAddEntry={(entry) => setTbrEntries((prev) => [...prev, entry])}
-                onRemoveEntry={(id) =>
-                  setTbrEntries((prev) => prev.filter((e) => e.id !== id))
+                onRemoveEntry={(id) => setTbrEntries((prev) => prev.filter((e) => e.id !== id))}
+                onUpdateEntry={(id, patch) =>
+                  setTbrEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)))
                 }
                 onOpenAnalysis={() => setTbrAnalysisOpen(true)}
               />
@@ -9693,9 +9693,7 @@ const OverlayConfigurator = ({ view, recording, onUpdate, onOpenBuilder }) => {
                 overlayDrawMode: !view.overlayDrawMode,
                 // Starting fresh: clear any previous polygon so the
                 // user always begins on an empty canvas.
-                overlay: view.overlayDrawMode
-                  ? ov
-                  : { ...ov, maskPolygon: [] },
+                overlay: view.overlayDrawMode ? ov : { ...ov, maskPolygon: [] },
               })
             }
             title="Click on the canvas to drop polygon vertices; double-click finishes."
@@ -10124,6 +10122,7 @@ const TbrAnalysisPanel = ({
   onUpdateView,
   onAddEntry,
   onRemoveEntry,
+  onUpdateEntry,
   onOpenAnalysis,
 }) => {
   const t = useTheme();
@@ -10142,13 +10141,42 @@ const TbrAnalysisPanel = ({
         ? view.rawChannel
         : `${gainPrefix}-G`);
   const fmt = (v) => (v == null || !Number.isFinite(v) ? '—' : Number(v).toFixed(2));
-  const setDraft = (patch) =>
-    onUpdateView({ tbrDraft: { ...draft, ...patch } });
+  const setDraft = (patch) => onUpdateView({ tbrDraft: { ...draft, ...patch } });
   const setRole = (role) => onUpdateView({ tbrDraftRole: role });
+  // Snapshot the linear ISP knobs the canvas applies so /roi-stats can
+  // run sharpen/FPN/gain/offset on the same array. Tone curve
+  // (brightness/contrast/gamma) is intentionally omitted — TBR stays
+  // in physical-DN-scaled-by-gain units.
+  const buildViewConfig = (v) => {
+    if (!v) return {};
+    const ip = v.isp || {};
+    return {
+      gain: v.gain ?? 1.0,
+      offset: v.offset ?? 0.0,
+      sharpen_method: ip.sharpen_method || null,
+      sharpen_amount: ip.sharpen_amount ?? 1.0,
+      sharpen_radius: ip.sharpen_radius ?? 2.0,
+      denoise_sigma: ip.denoise_sigma ?? 0.0,
+      median_size: ip.median_size ?? 0,
+      gaussian_sigma: ip.gaussian_sigma ?? 0.0,
+      hot_pixel_thr: ip.hot_pixel_thr ?? 0.0,
+      bilateral: !!ip.bilateral,
+    };
+  };
+  // Stable signature so the auto-recompute effect re-fires whenever any
+  // ISP knob the canvas honors changes. JSON.stringify of view_config is
+  // small (<200 chars) and avoids tracking each field separately.
+  const viewConfigSig = JSON.stringify(buildViewConfig(view));
+  // Monotonic per-kind counter used to drop stale /roi-stats responses.
+  // apiFetch has no AbortSignal plumbing, so a slider drag that triggers
+  // many requests can land out-of-order; we only keep the response from
+  // the *latest* dispatched request per kind ('tumor' / 'background').
+  const reqSeqRef = React.useRef({ tumor: 0, background: 0 });
   const computeStats = async (kind) => {
     if (!recording) return;
     const polygon = kind === 'tumor' ? draft.tumorPolygon : draft.bgPolygon;
     if (!Array.isArray(polygon) || polygon.length < 3) return;
+    const seq = ++reqSeqRef.current[kind];
     try {
       const body = {
         polygon,
@@ -10156,14 +10184,18 @@ const TbrAnalysisPanel = ({
         percentile: draft.percentile ?? 50,
         apply_dark: view?.applyDark !== false,
         black_level: view?.blackLevel ?? 0,
+        view_config: buildViewConfig(view),
       };
       const stats = await apiFetch(
         `/api/sources/${recording.source_id}/frame/${localFrame}/channel/${encodeURIComponent(tbrChannel)}/roi-stats`,
         { method: 'POST', body }
       );
+      // Drop stale response: a newer dispatch has been issued.
+      if (seq !== reqSeqRef.current[kind]) return;
       if (kind === 'tumor') setDraft({ tumorStats: stats });
       else setDraft({ bgStats: stats });
     } catch (err) {
+      if (seq !== reqSeqRef.current[kind]) return;
       const msg = err?.detail || err?.message || String(err);
       if (kind === 'tumor') setDraft({ tumorStats: { __error: msg } });
       else setDraft({ bgStats: { __error: msg } });
@@ -10197,7 +10229,10 @@ const TbrAnalysisPanel = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawRole, draft.tumorPolygon, draft.bgPolygon]);
   // Re-run stats automatically when polygon vertices, method, percentile,
-  // black_level, or apply_dark change AND we have ≥ 3 vertices.
+  // black_level, apply_dark, or any ISP/gain/offset knob honored by the
+  // canvas changes AND we have ≥ 3 vertices. viewConfigSig collapses the
+  // ISP chain into one stable string so a slider drag triggers exactly
+  // one effect fire.
   React.useEffect(() => {
     if (Array.isArray(draft.tumorPolygon) && draft.tumorPolygon.length >= 3) {
       computeStats('tumor');
@@ -10209,6 +10244,7 @@ const TbrAnalysisPanel = ({
     draft.percentile,
     view?.applyDark,
     view?.blackLevel,
+    viewConfigSig,
     tbrChannel,
     recording?.source_id,
     localFrame,
@@ -10224,6 +10260,7 @@ const TbrAnalysisPanel = ({
     draft.percentile,
     view?.applyDark,
     view?.blackLevel,
+    viewConfigSig,
     tbrChannel,
     recording?.source_id,
     localFrame,
@@ -10233,16 +10270,10 @@ const TbrAnalysisPanel = ({
   const bgVal = draft.bgStats?.computed_value;
   const bgStd = draft.bgStats?.std;
   const ratio =
-    tumorVal != null && bgVal && Number.isFinite(bgVal) && bgVal !== 0
-      ? tumorVal / bgVal
-      : null;
+    tumorVal != null && bgVal && Number.isFinite(bgVal) && bgVal !== 0 ? tumorVal / bgVal : null;
   const ratioStd =
     ratio != null && tumorVal && bgVal
-      ? ratio *
-        Math.sqrt(
-          ((tumorStd || 0) / tumorVal) ** 2 +
-            ((bgStd || 0) / bgVal) ** 2
-        )
+      ? ratio * Math.sqrt(((tumorStd || 0) / tumorVal) ** 2 + ((bgStd || 0) / bgVal) ** 2)
       : null;
   const canAdd =
     draft.tumorStats &&
@@ -10252,6 +10283,10 @@ const TbrAnalysisPanel = ({
     ratio != null;
   const commit = () => {
     if (!canAdd || !recording) return;
+    // Pipeline version follows the larger of the two stat responses; if
+    // either stat is missing the field, the entry inherits v1 semantics.
+    const tumorPipe = draft.tumorStats?.pipeline_version ?? 1;
+    const bgPipe = draft.bgStats?.pipeline_version ?? 1;
     const entry = {
       id: `tbr_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
       sourceFile: recording.name,
@@ -10262,6 +10297,11 @@ const TbrAnalysisPanel = ({
       percentile: draft.percentile ?? 50,
       applyDark: view?.applyDark !== false,
       blackLevel: view?.blackLevel ?? 0,
+      // Snapshot of the linear ISP chain that produced these stats so
+      // the analysis modal can show "which ISP was active" and a
+      // Recompute action knows the diff against the live view.
+      viewConfig: buildViewConfig(view),
+      pipelineVersion: Math.min(tumorPipe, bgPipe),
       tumorPolygon: draft.tumorPolygon,
       bgPolygon: draft.bgPolygon,
       tumorValue: tumorVal,
@@ -10294,6 +10334,81 @@ const TbrAnalysisPanel = ({
       },
       tbrDraftRole: null,
     });
+  };
+  // Recompute a committed entry under the current live view_config. Used
+  // to refresh v1 entries (committed before the linear-ISP fix) onto v2
+  // semantics, or to compare a v2 entry against the user's latest knobs.
+  // The entry's polygon, frame, channel, and source stay locked; only
+  // the post-extract math changes.
+  const [recomputingId, setRecomputingId] = React.useState(null);
+  const recomputeEntry = async (entry) => {
+    if (!entry || !entry.sourceId || !onUpdateEntry) return;
+    setRecomputingId(entry.id);
+    try {
+      const baseUrl = `/api/sources/${entry.sourceId}/frame/${entry.frameIndex}/channel/${encodeURIComponent(entry.channel)}/roi-stats`;
+      const cfg = buildViewConfig(view);
+      const baseBody = {
+        method: entry.method || 'mean',
+        percentile: entry.percentile ?? 50,
+        apply_dark: view?.applyDark !== false,
+        black_level: view?.blackLevel ?? 0,
+        view_config: cfg,
+      };
+      // Local names are *T / *B (not tumorStd / bgStd) on purpose: the
+      // outer TbrAnalysisPanel scope already binds `tumorStd` and
+      // `bgStd` to draft.{tumorStats,bgStats}?.std (used for the live
+      // ratioStd display). Using the same names here would silently
+      // shadow and write the *draft's* std into the entry instead of
+      // the recomputed std.
+      const [statsT, statsB] = await Promise.all([
+        apiFetch(baseUrl, {
+          method: 'POST',
+          body: { ...baseBody, polygon: entry.tumorPolygon },
+        }),
+        apiFetch(baseUrl, {
+          method: 'POST',
+          body: { ...baseBody, polygon: entry.bgPolygon },
+        }),
+      ]);
+      const tV = statsT?.computed_value;
+      const bV = statsB?.computed_value;
+      const tStd = statsT?.std ?? 0;
+      const bStd = statsB?.std ?? 0;
+      const newRatio = bV && Number.isFinite(bV) && bV !== 0 && tV != null ? tV / bV : null;
+      const newRatioStd =
+        newRatio != null && tV && bV
+          ? newRatio * Math.sqrt((tStd / tV) ** 2 + (bStd / bV) ** 2)
+          : null;
+      onUpdateEntry(entry.id, {
+        applyDark: view?.applyDark !== false,
+        blackLevel: view?.blackLevel ?? 0,
+        viewConfig: cfg,
+        pipelineVersion: Math.min(statsT?.pipeline_version ?? 1, statsB?.pipeline_version ?? 1),
+        tumorValue: tV,
+        tumorStd: tStd,
+        tumorMean: statsT?.mean,
+        tumorMedian: statsT?.median,
+        tumorMode: statsT?.mode,
+        tumorPercentileValue: statsT?.percentile_value,
+        tumorN: statsT?.n_pixels,
+        bgValue: bV,
+        bgStd: bStd,
+        bgMean: statsB?.mean,
+        bgMedian: statsB?.median,
+        bgMode: statsB?.mode,
+        bgPercentileValue: statsB?.percentile_value,
+        bgN: statsB?.n_pixels,
+        ratio: newRatio,
+        ratioStd: newRatioStd,
+        recomputedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      // Keep the entry untouched on failure; the user can retry.
+      // eslint-disable-next-line no-console
+      console.warn('TBR recompute failed', err);
+    } finally {
+      setRecomputingId(null);
+    }
   };
   if (!view) return <div style={{ fontSize: 11, color: t.textMuted }}>No view selected.</div>;
   // Format helpers per user spec: tumor / bg as integers, ratio as 1
@@ -10439,8 +10554,8 @@ const TbrAnalysisPanel = ({
   return (
     <div data-tbr-panel style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ fontSize: 10.5, color: t.textFaint, lineHeight: 1.45 }}>
-        Stats are computed AFTER the view&rsquo;s Corrections (dark subtract + black
-        level). Channel: <strong>{tbrChannel}</strong>.
+        Stats are computed AFTER the view&rsquo;s Corrections (dark subtract + black level).
+        Channel: <strong>{tbrChannel}</strong>.
       </div>
       <Row label="Method">
         <Select
@@ -10603,6 +10718,62 @@ const TbrAnalysisPanel = ({
                 >
                   ±{fmtRatio(e.ratioStd)}
                 </span>
+                {(e.pipelineVersion ?? 1) < 2 && (
+                  <span
+                    title="Committed under the legacy pipeline (dark + black_level only). Click Recompute to apply sharpen / FPN / gain / offset from the current view."
+                    data-tbr-stale
+                    style={{
+                      fontSize: 9,
+                      fontWeight: 700,
+                      letterSpacing: '0.04em',
+                      color: '#f0a020',
+                      border: '1px solid #f0a020',
+                      borderRadius: 3,
+                      padding: '0 4px',
+                      lineHeight: '14px',
+                    }}
+                  >
+                    v1
+                  </span>
+                )}
+                {(() => {
+                  // Recompute applies the *current view's* ISP knobs to
+                  // the entry. If the entry was committed against a
+                  // different recording (entry.sourceId !== active
+                  // recording's source_id), the live view's knobs
+                  // wouldn't make sense — silently applying them would
+                  // produce a number the user can't reason about.
+                  // Disable + tooltip-explain instead.
+                  const sourceMismatch =
+                    !!recording && !!e.sourceId && e.sourceId !== recording.source_id;
+                  const busy = recomputingId === e.id;
+                  const disabled = busy || !onUpdateEntry || sourceMismatch;
+                  const title = busy
+                    ? 'Recomputing…'
+                    : sourceMismatch
+                      ? 'Switch the active view to this entry’s recording to recompute. The current view’s ISP knobs only apply to its own source.'
+                      : 'Recompute under the current view (gain / offset / sharpen / FPN). Polygon, frame, and channel stay locked.';
+                  return (
+                    <button
+                      onClick={() => !disabled && recomputeEntry(e)}
+                      disabled={disabled}
+                      title={title}
+                      data-tbr-recompute
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        cursor: busy ? 'wait' : disabled ? 'not-allowed' : 'pointer',
+                        color: disabled ? t.textFaint : t.textMuted,
+                        padding: 2,
+                        display: 'flex',
+                        alignItems: 'center',
+                        opacity: disabled ? 0.5 : 1,
+                      }}
+                    >
+                      <Icon name="rotate" size={11} />
+                    </button>
+                  );
+                })()}
                 <button
                   onClick={() => onRemoveEntry(e.id)}
                   title="Remove this entry"
@@ -10672,11 +10843,10 @@ const TbrAnalysisModal = ({ entries, onClose }) => {
     const sum = ratios.reduce((s, x) => s + x, 0);
     const mean = sum / ratios.length;
     const variance =
-      ratios.length > 1
-        ? ratios.reduce((s, x) => s + (x - mean) ** 2, 0) / (ratios.length - 1)
-        : 0;
+      ratios.length > 1 ? ratios.reduce((s, x) => s + (x - mean) ** 2, 0) / (ratios.length - 1) : 0;
     const std = Math.sqrt(variance);
-    const pct = (p) => sorted[Math.max(0, Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * p)))];
+    const pct = (p) =>
+      sorted[Math.max(0, Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * p)))];
     return {
       n: ratios.length,
       mean,
@@ -10753,10 +10923,8 @@ const TbrAnalysisModal = ({ entries, onClose }) => {
   const PAD = { l: 56, r: 24, t: 24, b: 44 };
   const innerW = PLOT_W - PAD.l - PAD.r;
   const innerH = PLOT_H - PAD.t - PAD.b;
-  const tickFormat = (v) =>
-    Math.abs(v) >= 100 ? Math.round(v).toString() : Number(v).toFixed(2);
-  const axisTicks = (n) =>
-    Array.from({ length: n + 1 }, (_, i) => i / n);
+  const tickFormat = (v) => (Math.abs(v) >= 100 ? Math.round(v).toString() : Number(v).toFixed(2));
+  const axisTicks = (n) => Array.from({ length: n + 1 }, (_, i) => i / n);
 
   // ------------------- per-entry ratio bar chart -------------------
   const RatioBarChart = () => {
@@ -10767,13 +10935,26 @@ const TbrAnalysisModal = ({ entries, onClose }) => {
       <svg
         viewBox={`0 0 ${PLOT_W} ${PLOT_H}`}
         data-tbr-bar-chart
-        style={{ background: t.chipBg, borderRadius: 4, border: `1px solid ${t.border}`, width: '100%', height: PLOT_H }}
+        style={{
+          background: t.chipBg,
+          borderRadius: 4,
+          border: `1px solid ${t.border}`,
+          width: '100%',
+          height: PLOT_H,
+        }}
       >
         {axisTicks(5).map((f) => {
           const y = PAD.t + innerH * (1 - f);
           return (
             <g key={f}>
-              <line x1={PAD.l} x2={PLOT_W - PAD.r} y1={y} y2={y} stroke={t.border} strokeDasharray="3,3" />
+              <line
+                x1={PAD.l}
+                x2={PLOT_W - PAD.r}
+                y1={y}
+                y2={y}
+                stroke={t.border}
+                strokeDasharray="3,3"
+              />
               <text x={PAD.l - 6} y={y + 3} textAnchor="end" fontSize="10" fill={t.textFaint}>
                 {tickFormat(ratioMax * f)}
               </text>
@@ -10792,7 +10973,13 @@ const TbrAnalysisModal = ({ entries, onClose }) => {
               strokeDasharray="6,3"
               strokeWidth={1}
             />
-            <text x={PLOT_W - PAD.r - 4} y={yScale(1) - 4} fontSize="9.5" fill={t.warn || '#e5a13a'} textAnchor="end">
+            <text
+              x={PLOT_W - PAD.r - 4}
+              y={yScale(1) - 4}
+              fontSize="9.5"
+              fill={t.warn || '#e5a13a'}
+              textAnchor="end"
+            >
               TBR=1
             </text>
           </g>
@@ -10805,17 +10992,57 @@ const TbrAnalysisModal = ({ entries, onClose }) => {
           const errBot = yScale(Math.max(0, e.ratio - (e.ratioStd || 0)));
           return (
             <g key={e.id}>
-              <rect x={x + barW * 0.15} y={y} width={barW * 0.7} height={Math.max(0, h)} fill={t.accent} opacity={0.85} />
-              <line x1={x + barW * 0.5} x2={x + barW * 0.5} y1={errTop} y2={errBot} stroke={t.text} strokeWidth={1.2} />
-              <line x1={x + barW * 0.35} x2={x + barW * 0.65} y1={errTop} y2={errTop} stroke={t.text} strokeWidth={1.2} />
-              <line x1={x + barW * 0.35} x2={x + barW * 0.65} y1={errBot} y2={errBot} stroke={t.text} strokeWidth={1.2} />
-              <text x={x + barW * 0.5} y={PLOT_H - PAD.b + 14} textAnchor="middle" fontSize="9.5" fill={t.textMuted}>
+              <rect
+                x={x + barW * 0.15}
+                y={y}
+                width={barW * 0.7}
+                height={Math.max(0, h)}
+                fill={t.accent}
+                opacity={0.85}
+              />
+              <line
+                x1={x + barW * 0.5}
+                x2={x + barW * 0.5}
+                y1={errTop}
+                y2={errBot}
+                stroke={t.text}
+                strokeWidth={1.2}
+              />
+              <line
+                x1={x + barW * 0.35}
+                x2={x + barW * 0.65}
+                y1={errTop}
+                y2={errTop}
+                stroke={t.text}
+                strokeWidth={1.2}
+              />
+              <line
+                x1={x + barW * 0.35}
+                x2={x + barW * 0.65}
+                y1={errBot}
+                y2={errBot}
+                stroke={t.text}
+                strokeWidth={1.2}
+              />
+              <text
+                x={x + barW * 0.5}
+                y={PLOT_H - PAD.b + 14}
+                textAnchor="middle"
+                fontSize="9.5"
+                fill={t.textMuted}
+              >
                 {i + 1}
               </text>
             </g>
           );
         })}
-        <text x={PAD.l - 38} y={PAD.t + innerH / 2} fontSize="10.5" fill={t.textMuted} transform={`rotate(-90 ${PAD.l - 38} ${PAD.t + innerH / 2})`}>
+        <text
+          x={PAD.l - 38}
+          y={PAD.t + innerH / 2}
+          fontSize="10.5"
+          fill={t.textMuted}
+          transform={`rotate(-90 ${PAD.l - 38} ${PAD.t + innerH / 2})`}
+        >
           TBR ratio
         </text>
         <text x={PLOT_W / 2} y={PLOT_H - 6} fontSize="10.5" fill={t.textMuted} textAnchor="middle">
@@ -10827,7 +11054,8 @@ const TbrAnalysisModal = ({ entries, onClose }) => {
 
   // ------------------- side-by-side tumor / background bars -------------------
   const TumorVsBgChart = () => {
-    const yMax = Math.max(0.001, ...data.map((e) => Math.max(e.tumorValue || 0, e.bgValue || 0))) * 1.1;
+    const yMax =
+      Math.max(0.001, ...data.map((e) => Math.max(e.tumorValue || 0, e.bgValue || 0))) * 1.1;
     const yScale = (v) => PAD.t + innerH - (v / yMax) * innerH;
     const groupW = innerW / Math.max(1, data.length);
     const subW = groupW * 0.4;
@@ -10835,13 +11063,26 @@ const TbrAnalysisModal = ({ entries, onClose }) => {
       <svg
         viewBox={`0 0 ${PLOT_W} ${PLOT_H}`}
         data-tbr-tumor-bg-chart
-        style={{ background: t.chipBg, borderRadius: 4, border: `1px solid ${t.border}`, width: '100%', height: PLOT_H }}
+        style={{
+          background: t.chipBg,
+          borderRadius: 4,
+          border: `1px solid ${t.border}`,
+          width: '100%',
+          height: PLOT_H,
+        }}
       >
         {axisTicks(5).map((f) => {
           const y = PAD.t + innerH * (1 - f);
           return (
             <g key={f}>
-              <line x1={PAD.l} x2={PLOT_W - PAD.r} y1={y} y2={y} stroke={t.border} strokeDasharray="3,3" />
+              <line
+                x1={PAD.l}
+                x2={PLOT_W - PAD.r}
+                y1={y}
+                y2={y}
+                stroke={t.border}
+                strokeDasharray="3,3"
+              />
               <text x={PAD.l - 6} y={y + 3} textAnchor="end" fontSize="10" fill={t.textFaint}>
                 {tickFormat(yMax * f)}
               </text>
@@ -10866,25 +11107,55 @@ const TbrAnalysisModal = ({ entries, onClose }) => {
           };
           return (
             <g key={e.id}>
-              <rect x={xT} y={yT} width={subW} height={Math.max(0, PAD.t + innerH - yT)} fill={TUMOR_COLOR} opacity={0.9} />
-              <rect x={xB} y={yB} width={subW} height={Math.max(0, PAD.t + innerH - yB)} fill={BG_COLOR} opacity={0.9} />
+              <rect
+                x={xT}
+                y={yT}
+                width={subW}
+                height={Math.max(0, PAD.t + innerH - yT)}
+                fill={TUMOR_COLOR}
+                opacity={0.9}
+              />
+              <rect
+                x={xB}
+                y={yB}
+                width={subW}
+                height={Math.max(0, PAD.t + innerH - yB)}
+                fill={BG_COLOR}
+                opacity={0.9}
+              />
               {errLine(xT + subW / 2, e.tumorValue || 0, e.tumorStd || 0)}
               {errLine(xB + subW / 2, e.bgValue || 0, e.bgStd || 0)}
-              <text x={PAD.l + i * groupW + groupW / 2} y={PLOT_H - PAD.b + 14} textAnchor="middle" fontSize="9.5" fill={t.textMuted}>
+              <text
+                x={PAD.l + i * groupW + groupW / 2}
+                y={PLOT_H - PAD.b + 14}
+                textAnchor="middle"
+                fontSize="9.5"
+                fill={t.textMuted}
+              >
                 {i + 1}
               </text>
             </g>
           );
         })}
-        <text x={PAD.l - 42} y={PAD.t + innerH / 2} fontSize="10.5" fill={t.textMuted} transform={`rotate(-90 ${PAD.l - 42} ${PAD.t + innerH / 2})`}>
+        <text
+          x={PAD.l - 42}
+          y={PAD.t + innerH / 2}
+          fontSize="10.5"
+          fill={t.textMuted}
+          transform={`rotate(-90 ${PAD.l - 42} ${PAD.t + innerH / 2})`}
+        >
           intensity (DN)
         </text>
         {/* Legend */}
         <g>
           <rect x={PLOT_W - PAD.r - 140} y={PAD.t + 4} width={10} height={10} fill={TUMOR_COLOR} />
-          <text x={PLOT_W - PAD.r - 124} y={PAD.t + 13} fontSize="10" fill={t.text}>Tumor</text>
+          <text x={PLOT_W - PAD.r - 124} y={PAD.t + 13} fontSize="10" fill={t.text}>
+            Tumor
+          </text>
           <rect x={PLOT_W - PAD.r - 70} y={PAD.t + 4} width={10} height={10} fill={BG_COLOR} />
-          <text x={PLOT_W - PAD.r - 54} y={PAD.t + 13} fontSize="10" fill={t.text}>Background</text>
+          <text x={PLOT_W - PAD.r - 54} y={PAD.t + 13} fontSize="10" fill={t.text}>
+            Background
+          </text>
         </g>
       </svg>
     );
@@ -10892,29 +11163,52 @@ const TbrAnalysisModal = ({ entries, onClose }) => {
 
   // ------------------- tumor vs background scatter -------------------
   const ScatterChart = () => {
-    const lim = Math.max(
-      0.001,
-      ...data.flatMap((e) => [e.tumorValue || 0, e.bgValue || 0])
-    ) * 1.1;
+    const lim = Math.max(0.001, ...data.flatMap((e) => [e.tumorValue || 0, e.bgValue || 0])) * 1.1;
     const xScale = (v) => PAD.l + (v / lim) * innerW;
     const yScale = (v) => PAD.t + innerH - (v / lim) * innerH;
     return (
       <svg
         viewBox={`0 0 ${PLOT_W} ${PLOT_H}`}
         data-tbr-scatter-chart
-        style={{ background: t.chipBg, borderRadius: 4, border: `1px solid ${t.border}`, width: '100%', height: PLOT_H }}
+        style={{
+          background: t.chipBg,
+          borderRadius: 4,
+          border: `1px solid ${t.border}`,
+          width: '100%',
+          height: PLOT_H,
+        }}
       >
         {axisTicks(5).map((f) => {
           const y = PAD.t + innerH * (1 - f);
           const x = PAD.l + innerW * f;
           return (
             <g key={f}>
-              <line x1={PAD.l} x2={PLOT_W - PAD.r} y1={y} y2={y} stroke={t.border} strokeDasharray="3,3" />
-              <line x1={x} x2={x} y1={PAD.t} y2={PAD.t + innerH} stroke={t.border} strokeDasharray="3,3" />
+              <line
+                x1={PAD.l}
+                x2={PLOT_W - PAD.r}
+                y1={y}
+                y2={y}
+                stroke={t.border}
+                strokeDasharray="3,3"
+              />
+              <line
+                x1={x}
+                x2={x}
+                y1={PAD.t}
+                y2={PAD.t + innerH}
+                stroke={t.border}
+                strokeDasharray="3,3"
+              />
               <text x={PAD.l - 6} y={y + 3} textAnchor="end" fontSize="10" fill={t.textFaint}>
                 {tickFormat(lim * f)}
               </text>
-              <text x={x} y={PLOT_H - PAD.b + 14} textAnchor="middle" fontSize="10" fill={t.textFaint}>
+              <text
+                x={x}
+                y={PLOT_H - PAD.b + 14}
+                textAnchor="middle"
+                fontSize="10"
+                fill={t.textFaint}
+              >
                 {tickFormat(lim * f)}
               </text>
             </g>
@@ -10932,13 +11226,31 @@ const TbrAnalysisModal = ({ entries, onClose }) => {
         />
         {data.map((e, i) => (
           <g key={e.id}>
-            <circle cx={xScale(e.bgValue || 0)} cy={yScale(e.tumorValue || 0)} r={4} fill={t.accent} stroke="#fff" strokeWidth={1} />
-            <text x={xScale(e.bgValue || 0) + 6} y={yScale(e.tumorValue || 0) - 6} fontSize="9" fill={t.textMuted}>
+            <circle
+              cx={xScale(e.bgValue || 0)}
+              cy={yScale(e.tumorValue || 0)}
+              r={4}
+              fill={t.accent}
+              stroke="#fff"
+              strokeWidth={1}
+            />
+            <text
+              x={xScale(e.bgValue || 0) + 6}
+              y={yScale(e.tumorValue || 0) - 6}
+              fontSize="9"
+              fill={t.textMuted}
+            >
               {i + 1}
             </text>
           </g>
         ))}
-        <text x={PAD.l - 42} y={PAD.t + innerH / 2} fontSize="10.5" fill={t.textMuted} transform={`rotate(-90 ${PAD.l - 42} ${PAD.t + innerH / 2})`}>
+        <text
+          x={PAD.l - 42}
+          y={PAD.t + innerH / 2}
+          fontSize="10.5"
+          fill={t.textMuted}
+          transform={`rotate(-90 ${PAD.l - 42} ${PAD.t + innerH / 2})`}
+        >
           tumor intensity
         </text>
         <text x={PLOT_W / 2} y={PLOT_H - 6} fontSize="10.5" fill={t.textMuted} textAnchor="middle">
@@ -10966,13 +11278,26 @@ const TbrAnalysisModal = ({ entries, onClose }) => {
       <svg
         viewBox={`0 0 ${PLOT_W} ${PLOT_H}`}
         data-tbr-hist
-        style={{ background: t.chipBg, borderRadius: 4, border: `1px solid ${t.border}`, width: '100%', height: PLOT_H }}
+        style={{
+          background: t.chipBg,
+          borderRadius: 4,
+          border: `1px solid ${t.border}`,
+          width: '100%',
+          height: PLOT_H,
+        }}
       >
         {axisTicks(5).map((f) => {
           const y = PAD.t + innerH * (1 - f);
           return (
             <g key={f}>
-              <line x1={PAD.l} x2={PLOT_W - PAD.r} y1={y} y2={y} stroke={t.border} strokeDasharray="3,3" />
+              <line
+                x1={PAD.l}
+                x2={PLOT_W - PAD.r}
+                y1={y}
+                y2={y}
+                stroke={t.border}
+                strokeDasharray="3,3"
+              />
               <text x={PAD.l - 6} y={y + 3} textAnchor="end" fontSize="10" fill={t.textFaint}>
                 {Math.round(maxC * f)}
               </text>
@@ -10984,14 +11309,29 @@ const TbrAnalysisModal = ({ entries, onClose }) => {
           const h = (c / maxC) * innerH;
           const y = PAD.t + innerH - h;
           return (
-            <rect key={i} x={x + 1} y={y} width={Math.max(1, barW - 2)} height={h} fill={t.accent} opacity={0.85} />
+            <rect
+              key={i}
+              x={x + 1}
+              y={y}
+              width={Math.max(1, barW - 2)}
+              height={h}
+              fill={t.accent}
+              opacity={0.85}
+            />
           );
         })}
         {/* X axis labels: lo, mid, hi */}
         {[0, 0.25, 0.5, 0.75, 1].map((f) => {
           const x = PAD.l + innerW * f;
           return (
-            <text key={f} x={x} y={PLOT_H - PAD.b + 14} textAnchor="middle" fontSize="10" fill={t.textFaint}>
+            <text
+              key={f}
+              x={x}
+              y={PLOT_H - PAD.b + 14}
+              textAnchor="middle"
+              fontSize="10"
+              fill={t.textFaint}
+            >
               {fmt2(lo + span * f)}
             </text>
           );
@@ -11017,12 +11357,22 @@ const TbrAnalysisModal = ({ entries, onClose }) => {
               strokeWidth={1.5}
             />
             <g>
-              <text x={PLOT_W - PAD.r - 90} y={PAD.t + 12} fontSize="10" fill={t.text}>— mean</text>
-              <text x={PLOT_W - PAD.r - 90} y={PAD.t + 26} fontSize="10" fill={t.warn || '#e5a13a'}>-- median</text>
+              <text x={PLOT_W - PAD.r - 90} y={PAD.t + 12} fontSize="10" fill={t.text}>
+                — mean
+              </text>
+              <text x={PLOT_W - PAD.r - 90} y={PAD.t + 26} fontSize="10" fill={t.warn || '#e5a13a'}>
+                -- median
+              </text>
             </g>
           </>
         )}
-        <text x={PAD.l - 42} y={PAD.t + innerH / 2} fontSize="10.5" fill={t.textMuted} transform={`rotate(-90 ${PAD.l - 42} ${PAD.t + innerH / 2})`}>
+        <text
+          x={PAD.l - 42}
+          y={PAD.t + innerH / 2}
+          fontSize="10.5"
+          fill={t.textMuted}
+          transform={`rotate(-90 ${PAD.l - 42} ${PAD.t + innerH / 2})`}
+        >
           count
         </text>
         <text x={PLOT_W / 2} y={PLOT_H - 6} fontSize="10.5" fill={t.textMuted} textAnchor="middle">
@@ -11045,13 +11395,26 @@ const TbrAnalysisModal = ({ entries, onClose }) => {
       <svg
         viewBox={`0 0 ${PLOT_W} ${PLOT_H}`}
         data-tbr-box-plot
-        style={{ background: t.chipBg, borderRadius: 4, border: `1px solid ${t.border}`, width: '100%', height: PLOT_H }}
+        style={{
+          background: t.chipBg,
+          borderRadius: 4,
+          border: `1px solid ${t.border}`,
+          width: '100%',
+          height: PLOT_H,
+        }}
       >
         {axisTicks(5).map((f) => {
           const y = PAD.t + innerH * (1 - f);
           return (
             <g key={f}>
-              <line x1={PAD.l} x2={PLOT_W - PAD.r} y1={y} y2={y} stroke={t.border} strokeDasharray="3,3" />
+              <line
+                x1={PAD.l}
+                x2={PLOT_W - PAD.r}
+                y1={y}
+                y2={y}
+                stroke={t.border}
+                strokeDasharray="3,3"
+              />
               <text x={PAD.l - 6} y={y + 3} textAnchor="end" fontSize="10" fill={t.textFaint}>
                 {fmt2(yMin + span * f)}
               </text>
@@ -11059,16 +11422,67 @@ const TbrAnalysisModal = ({ entries, onClose }) => {
           );
         })}
         {/* TBR=1 reference */}
-        <line x1={PAD.l} x2={PLOT_W - PAD.r} y1={yScale(1)} y2={yScale(1)} stroke={t.warn || '#e5a13a'} strokeDasharray="6,3" strokeWidth={1} />
+        <line
+          x1={PAD.l}
+          x2={PLOT_W - PAD.r}
+          y1={yScale(1)}
+          y2={yScale(1)}
+          stroke={t.warn || '#e5a13a'}
+          strokeDasharray="6,3"
+          strokeWidth={1}
+        />
         {/* Whiskers */}
-        <line x1={cx} x2={cx} y1={yScale(summary.min)} y2={yScale(summary.q1)} stroke={t.text} strokeWidth={1.5} />
-        <line x1={cx} x2={cx} y1={yScale(summary.q3)} y2={yScale(summary.max)} stroke={t.text} strokeWidth={1.5} />
-        <line x1={cx - 30} x2={cx + 30} y1={yScale(summary.min)} y2={yScale(summary.min)} stroke={t.text} strokeWidth={1.5} />
-        <line x1={cx - 30} x2={cx + 30} y1={yScale(summary.max)} y2={yScale(summary.max)} stroke={t.text} strokeWidth={1.5} />
+        <line
+          x1={cx}
+          x2={cx}
+          y1={yScale(summary.min)}
+          y2={yScale(summary.q1)}
+          stroke={t.text}
+          strokeWidth={1.5}
+        />
+        <line
+          x1={cx}
+          x2={cx}
+          y1={yScale(summary.q3)}
+          y2={yScale(summary.max)}
+          stroke={t.text}
+          strokeWidth={1.5}
+        />
+        <line
+          x1={cx - 30}
+          x2={cx + 30}
+          y1={yScale(summary.min)}
+          y2={yScale(summary.min)}
+          stroke={t.text}
+          strokeWidth={1.5}
+        />
+        <line
+          x1={cx - 30}
+          x2={cx + 30}
+          y1={yScale(summary.max)}
+          y2={yScale(summary.max)}
+          stroke={t.text}
+          strokeWidth={1.5}
+        />
         {/* Box (q1..q3) */}
-        <rect x={cx - halfW} y={yScale(summary.q3)} width={2 * halfW} height={yScale(summary.q1) - yScale(summary.q3)} fill={t.accentSoft} stroke={t.accent} strokeWidth={1.5} />
+        <rect
+          x={cx - halfW}
+          y={yScale(summary.q3)}
+          width={2 * halfW}
+          height={yScale(summary.q1) - yScale(summary.q3)}
+          fill={t.accentSoft}
+          stroke={t.accent}
+          strokeWidth={1.5}
+        />
         {/* Median */}
-        <line x1={cx - halfW} x2={cx + halfW} y1={yScale(summary.median)} y2={yScale(summary.median)} stroke={t.accent} strokeWidth={2.5} />
+        <line
+          x1={cx - halfW}
+          x2={cx + halfW}
+          y1={yScale(summary.median)}
+          y2={yScale(summary.median)}
+          stroke={t.accent}
+          strokeWidth={2.5}
+        />
         {/* Mean (diamond marker) */}
         <polygon
           points={`${cx},${yScale(summary.mean) - 6} ${cx + 6},${yScale(summary.mean)} ${cx},${yScale(summary.mean) + 6} ${cx - 6},${yScale(summary.mean)}`}
@@ -11077,9 +11491,26 @@ const TbrAnalysisModal = ({ entries, onClose }) => {
         {/* Individual points jittered */}
         {ratios.map((r, i) => {
           const jitter = ((i % 7) - 3) * 8;
-          return <circle key={i} cx={cx + jitter} cy={yScale(r)} r={3} fill={t.accent} opacity={0.6} stroke="#fff" strokeWidth={0.6} />;
+          return (
+            <circle
+              key={i}
+              cx={cx + jitter}
+              cy={yScale(r)}
+              r={3}
+              fill={t.accent}
+              opacity={0.6}
+              stroke="#fff"
+              strokeWidth={0.6}
+            />
+          );
         })}
-        <text x={PAD.l - 42} y={PAD.t + innerH / 2} fontSize="10.5" fill={t.textMuted} transform={`rotate(-90 ${PAD.l - 42} ${PAD.t + innerH / 2})`}>
+        <text
+          x={PAD.l - 42}
+          y={PAD.t + innerH / 2}
+          fontSize="10.5"
+          fill={t.textMuted}
+          transform={`rotate(-90 ${PAD.l - 42} ${PAD.t + innerH / 2})`}
+        >
           TBR ratio
         </text>
         <text x={cx} y={PLOT_H - 6} fontSize="10.5" fill={t.textMuted} textAnchor="middle">
@@ -11142,7 +11573,13 @@ const TbrAnalysisModal = ({ entries, onClose }) => {
             TBR Analysis · {data.length} entr{data.length === 1 ? 'y' : 'ies'}
           </div>
           <div style={{ flex: 1 }} />
-          <Button size="sm" variant="subtle" icon="export" onClick={downloadCsv} disabled={data.length === 0}>
+          <Button
+            size="sm"
+            variant="subtle"
+            icon="export"
+            onClick={downloadCsv}
+            disabled={data.length === 0}
+          >
             Export CSV
           </Button>
           <Button size="sm" variant="ghost" onClick={onClose}>
@@ -11151,8 +11588,8 @@ const TbrAnalysisModal = ({ entries, onClose }) => {
         </div>
         {data.length === 0 ? (
           <div style={{ fontSize: 12, color: t.textMuted, padding: 20 }}>
-            No TBR entries yet. Use Inspector → TBR Analysis to draw a Tumor and a
-            Background ROI on a frame, then click Add to table.
+            No TBR entries yet. Use Inspector → TBR Analysis to draw a Tumor and a Background ROI on
+            a frame, then click Add to table.
           </div>
         ) : (
           <>
@@ -11180,11 +11617,27 @@ const TbrAnalysisModal = ({ entries, onClose }) => {
                   ['q3', fmt2(summary.q3), t.text],
                   ['max', fmt2(summary.max), t.text],
                   ['CI95', `${fmt2(summary.ci95Lo)}–${fmt2(summary.ci95Hi)}`, t.textMuted],
-                  ['TBR>1', `${(summary.fracBright * 100).toFixed(0)}%`, summary.fracBright > 0.5 ? '#3ecbe5' : t.textMuted],
+                  [
+                    'TBR>1',
+                    `${(summary.fracBright * 100).toFixed(0)}%`,
+                    summary.fracBright > 0.5 ? '#3ecbe5' : t.textMuted,
+                  ],
                 ].map(([k, v, color]) => (
                   <div key={k} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <span style={{ fontSize: 9.5, letterSpacing: 0.4, color: t.textFaint, fontWeight: 600, textTransform: 'uppercase' }}>{k}</span>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: color || t.text }}>{v}</span>
+                    <span
+                      style={{
+                        fontSize: 9.5,
+                        letterSpacing: 0.4,
+                        color: t.textFaint,
+                        fontWeight: 600,
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      {k}
+                    </span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: color || t.text }}>
+                      {v}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -11200,7 +11653,8 @@ const TbrAnalysisModal = ({ entries, onClose }) => {
             {tab === 'overview' && (
               <div>
                 <div style={{ fontSize: 11.5, color: t.textMuted, marginBottom: 4 }}>
-                  TBR by entry — bars are ratio, error bars are propagated ratio std, dashed amber line marks TBR=1 (no contrast).
+                  TBR by entry — bars are ratio, error bars are propagated ratio std, dashed amber
+                  line marks TBR=1 (no contrast).
                 </div>
                 <RatioBarChart />
               </div>
@@ -11225,7 +11679,8 @@ const TbrAnalysisModal = ({ entries, onClose }) => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div>
                   <div style={{ fontSize: 11.5, color: t.textMuted, marginBottom: 4 }}>
-                    Histogram (Sturges-style auto-binning) — solid line = mean, dashed amber = median.
+                    Histogram (Sturges-style auto-binning) — solid line = mean, dashed amber =
+                    median.
                   </div>
                   <Histogram />
                 </div>
@@ -11240,19 +11695,51 @@ const TbrAnalysisModal = ({ entries, onClose }) => {
             {tab === 'grouping' && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
-                  <div style={{ fontSize: 11.5, color: t.text, fontWeight: 600, marginBottom: 6 }}>By file</div>
+                  <div style={{ fontSize: 11.5, color: t.text, fontWeight: 600, marginBottom: 6 }}>
+                    By file
+                  </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     {byFile.map((g) => {
                       const w = ratios.length > 0 ? (g.mean / Math.max(...ratios)) * 100 : 0;
                       return (
-                        <div key={g.key} style={{ padding: '4px 8px', background: t.chipBg, borderRadius: 4 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5, fontFamily: 'ui-monospace,Menlo,monospace' }}>
-                            <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: t.text }} title={g.key}>{g.key}</span>
+                        <div
+                          key={g.key}
+                          style={{ padding: '4px 8px', background: t.chipBg, borderRadius: 4 }}
+                        >
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              fontSize: 10.5,
+                              fontFamily: 'ui-monospace,Menlo,monospace',
+                            }}
+                          >
+                            <span
+                              style={{
+                                flex: 1,
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                color: t.text,
+                              }}
+                              title={g.key}
+                            >
+                              {g.key}
+                            </span>
                             <span style={{ color: t.textFaint }}>n={g.n}</span>
                             <span style={{ color: t.accent, fontWeight: 700 }}>{fmt2(g.mean)}</span>
                             <span style={{ color: t.textFaint }}>±{fmt2(g.std)}</span>
                           </div>
-                          <div style={{ marginTop: 3, height: 6, background: t.bg, borderRadius: 2, overflow: 'hidden' }}>
+                          <div
+                            style={{
+                              marginTop: 3,
+                              height: 6,
+                              background: t.bg,
+                              borderRadius: 2,
+                              overflow: 'hidden',
+                            }}
+                          >
                             <div style={{ width: `${w}%`, height: '100%', background: t.accent }} />
                           </div>
                         </div>
@@ -11261,19 +11748,40 @@ const TbrAnalysisModal = ({ entries, onClose }) => {
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11.5, color: t.text, fontWeight: 600, marginBottom: 6 }}>By channel</div>
+                  <div style={{ fontSize: 11.5, color: t.text, fontWeight: 600, marginBottom: 6 }}>
+                    By channel
+                  </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     {byChannel.map((g) => {
                       const w = ratios.length > 0 ? (g.mean / Math.max(...ratios)) * 100 : 0;
                       return (
-                        <div key={g.key} style={{ padding: '4px 8px', background: t.chipBg, borderRadius: 4 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5, fontFamily: 'ui-monospace,Menlo,monospace' }}>
+                        <div
+                          key={g.key}
+                          style={{ padding: '4px 8px', background: t.chipBg, borderRadius: 4 }}
+                        >
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              fontSize: 10.5,
+                              fontFamily: 'ui-monospace,Menlo,monospace',
+                            }}
+                          >
                             <span style={{ flex: 1, color: t.text }}>{g.key}</span>
                             <span style={{ color: t.textFaint }}>n={g.n}</span>
                             <span style={{ color: t.accent, fontWeight: 700 }}>{fmt2(g.mean)}</span>
                             <span style={{ color: t.textFaint }}>±{fmt2(g.std)}</span>
                           </div>
-                          <div style={{ marginTop: 3, height: 6, background: t.bg, borderRadius: 2, overflow: 'hidden' }}>
+                          <div
+                            style={{
+                              marginTop: 3,
+                              height: 6,
+                              background: t.bg,
+                              borderRadius: 2,
+                              overflow: 'hidden',
+                            }}
+                          >
                             <div style={{ width: `${w}%`, height: '100%', background: t.accent }} />
                           </div>
                         </div>
@@ -11330,7 +11838,9 @@ const TbrAnalysisModal = ({ entries, onClose }) => {
                     }}
                   >
                     <span style={{ color: t.textFaint }}>{i + 1}</span>
-                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <span
+                      style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                    >
                       {e.sourceFile} · {e.channel}
                     </span>
                     <span style={{ textAlign: 'right' }}>{e.frameIndex}</span>

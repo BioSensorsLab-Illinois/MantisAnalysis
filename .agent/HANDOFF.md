@@ -1,23 +1,34 @@
 # HANDOFF — current live state pointer
 
-Last updated: **2026-04-27**, post-Phase-2 polish sweep on
-**play-tab-recording-inspection-rescue-v1**. Phase 1 (M0–M11) and Phase 2
-(M12–M29) both shipped earlier in the day. The current session is a
-focused user-driven polish + correctness sweep on Play UX (channel
-controls, FPS, overlay reachability, RGB Grading layout, Filter &
-Channel Specification rebrand, multi-source ISP fan-out, gain
-persistence across stream-follow rebinds), file-management (real
-on-disk delete via Chrome File System Access API + backend file
-locator + DELETE that unlinks the user's actual file), cache strategy
-(eager warmer + concurrency semaphore + RAM budget setting + always-on
-cache status bar), and resilience (PlaybackErrorBoundary + bounded
-warm queue + SessionStore.max bumped to 64 so 18-file legacy loads
-don't crash the renderer).
+Last updated: **2026-04-28**, after a CI/CD audit + Linux/Ubuntu binary
+gap fix layered on top of the prior day's Play polish sweep on
+**play-tab-recording-inspection-rescue-v1**. The CI/CD work is
+isolated from the still-uncommitted Play work and touches only
+`.github/workflows/release.yml`, `packaging/README.md`, and these
+agent docs.
 
 ## Current state of the working tree
 
-- Branch: `main` (44 commits ahead of `origin/main`, never pushed —
+- Branch: `main` (45 commits ahead of `origin/main`, never pushed —
   B-0010 still open).
+- **Two layered changes on `main`, both uncommitted**:
+  1. **CI/CD: Linux binary + 2 real bugs caught locally** —
+     `.github/workflows/release.yml` gained a `linux-x86_64` matrix
+     entry on `ubuntu-22.04`, system-deps install, concurrency
+     cancellation, expanded triggers, SHA256SUMS publish.
+     `.github/workflows/smoke.yml` got matching concurrency.
+     `packaging/mantisanalysis.spec` excludes all Qt/Tk/GTK/wx
+     bindings (caught a real "multiple Qt bindings" build crash on
+     the local macOS run). `packaging/smoke_frozen.py` reads the
+     full root response (was truncating at 2 KB and failing the
+     `/assets/` check on legitimately-correct builds).
+     `packaging/README.md` got Linux launch instructions + CI matrix
+     table. **End-to-end build + frozen smoke verified locally on
+     macOS arm64** (`MantisAnalysis-macos-arm64.tar.gz`, 123.7 MB).
+     Linux + Windows can only be validated by pushing.
+  2. **Play polish + delete-from-disk + cache rebuild + 18-file
+     resilience** (from 2026-04-27) — see CHANGELOG_AGENT for the
+     full breakdown.
 - Active initiative: **play-tab-recording-inspection-rescue-v1** (Phase 2
   Group A in flight; M28 + M29 ✓; M30 still next, blocked on M30
   spec — right-click handoff to USAF/FPN/DoF).

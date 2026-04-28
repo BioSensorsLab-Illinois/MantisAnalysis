@@ -36,6 +36,12 @@ interface TbrEntry {
   percentile?: number;
   applyDark?: boolean;
   blackLevel?: number;
+  // v2: snapshot of the linear ISP chain (gain / offset / sharpen / FPN)
+  // active when this entry was committed. Absent on v1 entries.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  viewConfig?: Record<string, any>;
+  pipelineVersion?: number;
+  recomputedAt?: string;
   tumorValue: number;
   tumorStd: number;
   tumorN: number;
@@ -151,9 +157,7 @@ const StatCard: React.FC<{
       >
         {value}
       </span>
-      {hint && (
-        <span style={{ fontSize: 10, color: t.textMuted }}>{hint}</span>
-      )}
+      {hint && <span style={{ fontSize: 10, color: t.textMuted }}>{hint}</span>}
     </div>
   );
 };
@@ -246,7 +250,17 @@ const useTbrModeView = (
   );
 
   // ---- chart components ----
-  const Axis = ({ ticks, vmax, vmin = 0, suffix = '' }: { ticks: number; vmax: number; vmin?: number; suffix?: string }) => (
+  const Axis = ({
+    ticks,
+    vmax,
+    vmin = 0,
+    suffix = '',
+  }: {
+    ticks: number;
+    vmax: number;
+    vmin?: number;
+    suffix?: string;
+  }) => (
     <>
       {Array.from({ length: ticks + 1 }, (_, i) => i / ticks).map((f, i) => {
         const y = PAD.t + innerH * (1 - f);
@@ -306,9 +320,30 @@ const useTbrModeView = (
               opacity={0.9}
               rx={2}
             />
-            <line x1={x + barW * 0.5} x2={x + barW * 0.5} y1={errTop} y2={errBot} stroke={t.text} strokeWidth={1.2} />
-            <line x1={x + barW * 0.35} x2={x + barW * 0.65} y1={errTop} y2={errTop} stroke={t.text} strokeWidth={1.2} />
-            <line x1={x + barW * 0.35} x2={x + barW * 0.65} y1={errBot} y2={errBot} stroke={t.text} strokeWidth={1.2} />
+            <line
+              x1={x + barW * 0.5}
+              x2={x + barW * 0.5}
+              y1={errTop}
+              y2={errBot}
+              stroke={t.text}
+              strokeWidth={1.2}
+            />
+            <line
+              x1={x + barW * 0.35}
+              x2={x + barW * 0.65}
+              y1={errTop}
+              y2={errTop}
+              stroke={t.text}
+              strokeWidth={1.2}
+            />
+            <line
+              x1={x + barW * 0.35}
+              x2={x + barW * 0.65}
+              y1={errBot}
+              y2={errBot}
+              stroke={t.text}
+              strokeWidth={1.2}
+            />
             <text
               x={x + barW * 0.5}
               y={H - PAD.b + 14}
@@ -362,11 +397,33 @@ const useTbrModeView = (
           };
           return (
             <g key={e.id}>
-              <rect x={xT} y={yT} width={subW} height={Math.max(0, PAD.t + innerH - yT)} fill={TUMOR_COLOR} opacity={0.9} rx={2} />
-              <rect x={xB} y={yB} width={subW} height={Math.max(0, PAD.t + innerH - yB)} fill={BG_COLOR} opacity={0.9} rx={2} />
+              <rect
+                x={xT}
+                y={yT}
+                width={subW}
+                height={Math.max(0, PAD.t + innerH - yT)}
+                fill={TUMOR_COLOR}
+                opacity={0.9}
+                rx={2}
+              />
+              <rect
+                x={xB}
+                y={yB}
+                width={subW}
+                height={Math.max(0, PAD.t + innerH - yB)}
+                fill={BG_COLOR}
+                opacity={0.9}
+                rx={2}
+              />
               {errLine(xT + subW / 2, e.tumorValue || 0, e.tumorStd || 0)}
               {errLine(xB + subW / 2, e.bgValue || 0, e.bgStd || 0)}
-              <text x={PAD.l + i * groupW + groupW / 2} y={H - PAD.b + 14} textAnchor="middle" fontSize="9.5" fill={t.textMuted}>
+              <text
+                x={PAD.l + i * groupW + groupW / 2}
+                y={H - PAD.b + 14}
+                textAnchor="middle"
+                fontSize="9.5"
+                fill={t.textMuted}
+              >
                 {i + 1}
               </text>
             </g>
@@ -374,12 +431,29 @@ const useTbrModeView = (
         })}
         {/* Legend */}
         <g>
-          <rect x={W - PAD.r - 160} y={PAD.t + 4} width={12} height={12} fill={TUMOR_COLOR} rx={2} />
-          <text x={W - PAD.r - 142} y={PAD.t + 14} fontSize="11" fill={t.text}>Tumor</text>
+          <rect
+            x={W - PAD.r - 160}
+            y={PAD.t + 4}
+            width={12}
+            height={12}
+            fill={TUMOR_COLOR}
+            rx={2}
+          />
+          <text x={W - PAD.r - 142} y={PAD.t + 14} fontSize="11" fill={t.text}>
+            Tumor
+          </text>
           <rect x={W - PAD.r - 80} y={PAD.t + 4} width={12} height={12} fill={BG_COLOR} rx={2} />
-          <text x={W - PAD.r - 62} y={PAD.t + 14} fontSize="11" fill={t.text}>Background</text>
+          <text x={W - PAD.r - 62} y={PAD.t + 14} fontSize="11" fill={t.text}>
+            Background
+          </text>
         </g>
-        <text x={PAD.l - 44} y={PAD.t + innerH / 2} fontSize="11" fill={t.textMuted} transform={`rotate(-90 ${PAD.l - 44} ${PAD.t + innerH / 2})`}>
+        <text
+          x={PAD.l - 44}
+          y={PAD.t + innerH / 2}
+          fontSize="11"
+          fill={t.textMuted}
+          transform={`rotate(-90 ${PAD.l - 44} ${PAD.t + innerH / 2})`}
+        >
           intensity (DN)
         </text>
       </svg>
@@ -398,8 +472,22 @@ const useTbrModeView = (
           const v = lim * f;
           return (
             <g key={i}>
-              <line x1={PAD.l} x2={W - PAD.r} y1={y} y2={y} stroke={t.border} strokeDasharray="3,3" />
-              <line x1={x} x2={x} y1={PAD.t} y2={PAD.t + innerH} stroke={t.border} strokeDasharray="3,3" />
+              <line
+                x1={PAD.l}
+                x2={W - PAD.r}
+                y1={y}
+                y2={y}
+                stroke={t.border}
+                strokeDasharray="3,3"
+              />
+              <line
+                x1={x}
+                x2={x}
+                y1={PAD.t}
+                y2={PAD.t + innerH}
+                stroke={t.border}
+                strokeDasharray="3,3"
+              />
               <text x={PAD.l - 8} y={y + 3} textAnchor="end" fontSize="10" fill={t.textFaint}>
                 {Math.abs(v) >= 100 ? Math.round(v).toString() : v.toFixed(2)}
               </text>
@@ -409,16 +497,41 @@ const useTbrModeView = (
             </g>
           );
         })}
-        <line x1={xScale(0)} y1={yScale(0)} x2={xScale(lim)} y2={yScale(lim)} stroke={t.warn || '#e5a13a'} strokeDasharray="6,3" />
+        <line
+          x1={xScale(0)}
+          y1={yScale(0)}
+          x2={xScale(lim)}
+          y2={yScale(lim)}
+          stroke={t.warn || '#e5a13a'}
+          strokeDasharray="6,3"
+        />
         {entries.map((e, i) => (
           <g key={e.id}>
-            <circle cx={xScale(e.bgValue || 0)} cy={yScale(e.tumorValue || 0)} r={5} fill={t.accent} stroke="#fff" strokeWidth={1.2} />
-            <text x={xScale(e.bgValue || 0) + 7} y={yScale(e.tumorValue || 0) - 7} fontSize="9.5" fill={t.textMuted}>
+            <circle
+              cx={xScale(e.bgValue || 0)}
+              cy={yScale(e.tumorValue || 0)}
+              r={5}
+              fill={t.accent}
+              stroke="#fff"
+              strokeWidth={1.2}
+            />
+            <text
+              x={xScale(e.bgValue || 0) + 7}
+              y={yScale(e.tumorValue || 0) - 7}
+              fontSize="9.5"
+              fill={t.textMuted}
+            >
               {i + 1}
             </text>
           </g>
         ))}
-        <text x={PAD.l - 44} y={PAD.t + innerH / 2} fontSize="11" fill={t.textMuted} transform={`rotate(-90 ${PAD.l - 44} ${PAD.t + innerH / 2})`}>
+        <text
+          x={PAD.l - 44}
+          y={PAD.t + innerH / 2}
+          fontSize="11"
+          fill={t.textMuted}
+          transform={`rotate(-90 ${PAD.l - 44} ${PAD.t + innerH / 2})`}
+        >
           tumor intensity
         </text>
         <text x={W / 2} y={H - 6} fontSize="11" fill={t.textMuted} textAnchor="middle">
@@ -448,12 +561,30 @@ const useTbrModeView = (
           const x = PAD.l + i * barW;
           const h = (c / maxC) * innerH;
           const y = PAD.t + innerH - h;
-          return <rect key={i} x={x + 1} y={y} width={Math.max(1, barW - 2)} height={h} fill={t.accent} opacity={0.9} rx={2} />;
+          return (
+            <rect
+              key={i}
+              x={x + 1}
+              y={y}
+              width={Math.max(1, barW - 2)}
+              height={h}
+              fill={t.accent}
+              opacity={0.9}
+              rx={2}
+            />
+          );
         })}
         {[0, 0.25, 0.5, 0.75, 1].map((f) => {
           const x = PAD.l + innerW * f;
           return (
-            <text key={f} x={x} y={H - PAD.b + 14} textAnchor="middle" fontSize="10" fill={t.textFaint}>
+            <text
+              key={f}
+              x={x}
+              y={H - PAD.b + 14}
+              textAnchor="middle"
+              fontSize="10"
+              fill={t.textFaint}
+            >
               {fmt2(lo + span * f)}
             </text>
           );
@@ -477,11 +608,21 @@ const useTbrModeView = (
               strokeDasharray="4,3"
               strokeWidth={1.5}
             />
-            <text x={W - PAD.r - 110} y={PAD.t + 14} fontSize="11" fill={t.text}>— mean</text>
-            <text x={W - PAD.r - 110} y={PAD.t + 28} fontSize="11" fill={t.warn || '#e5a13a'}>-- median</text>
+            <text x={W - PAD.r - 110} y={PAD.t + 14} fontSize="11" fill={t.text}>
+              — mean
+            </text>
+            <text x={W - PAD.r - 110} y={PAD.t + 28} fontSize="11" fill={t.warn || '#e5a13a'}>
+              -- median
+            </text>
           </>
         )}
-        <text x={PAD.l - 44} y={PAD.t + innerH / 2} fontSize="11" fill={t.textMuted} transform={`rotate(-90 ${PAD.l - 44} ${PAD.t + innerH / 2})`}>
+        <text
+          x={PAD.l - 44}
+          y={PAD.t + innerH / 2}
+          fontSize="11"
+          fill={t.textMuted}
+          transform={`rotate(-90 ${PAD.l - 44} ${PAD.t + innerH / 2})`}
+        >
           count
         </text>
         <text x={W / 2} y={H - 6} fontSize="11" fill={t.textMuted} textAnchor="middle">
@@ -502,22 +643,90 @@ const useTbrModeView = (
     return (
       <svg viewBox={`0 0 ${W} ${H}`} data-tbr-box-plot style={{ width: '100%', height: H }}>
         <Axis ticks={5} vmax={yMax} vmin={yMin} />
-        <line x1={PAD.l} x2={W - PAD.r} y1={yScale(1)} y2={yScale(1)} stroke={t.warn || '#e5a13a'} strokeDasharray="6,3" />
-        <line x1={cx} x2={cx} y1={yScale(summary.min)} y2={yScale(summary.q1)} stroke={t.text} strokeWidth={1.5} />
-        <line x1={cx} x2={cx} y1={yScale(summary.q3)} y2={yScale(summary.max)} stroke={t.text} strokeWidth={1.5} />
-        <line x1={cx - 30} x2={cx + 30} y1={yScale(summary.min)} y2={yScale(summary.min)} stroke={t.text} strokeWidth={1.5} />
-        <line x1={cx - 30} x2={cx + 30} y1={yScale(summary.max)} y2={yScale(summary.max)} stroke={t.text} strokeWidth={1.5} />
-        <rect x={cx - halfW} y={yScale(summary.q3)} width={2 * halfW} height={yScale(summary.q1) - yScale(summary.q3)} fill={t.accentSoft} stroke={t.accent} strokeWidth={1.5} rx={3} />
-        <line x1={cx - halfW} x2={cx + halfW} y1={yScale(summary.median)} y2={yScale(summary.median)} stroke={t.accent} strokeWidth={2.5} />
+        <line
+          x1={PAD.l}
+          x2={W - PAD.r}
+          y1={yScale(1)}
+          y2={yScale(1)}
+          stroke={t.warn || '#e5a13a'}
+          strokeDasharray="6,3"
+        />
+        <line
+          x1={cx}
+          x2={cx}
+          y1={yScale(summary.min)}
+          y2={yScale(summary.q1)}
+          stroke={t.text}
+          strokeWidth={1.5}
+        />
+        <line
+          x1={cx}
+          x2={cx}
+          y1={yScale(summary.q3)}
+          y2={yScale(summary.max)}
+          stroke={t.text}
+          strokeWidth={1.5}
+        />
+        <line
+          x1={cx - 30}
+          x2={cx + 30}
+          y1={yScale(summary.min)}
+          y2={yScale(summary.min)}
+          stroke={t.text}
+          strokeWidth={1.5}
+        />
+        <line
+          x1={cx - 30}
+          x2={cx + 30}
+          y1={yScale(summary.max)}
+          y2={yScale(summary.max)}
+          stroke={t.text}
+          strokeWidth={1.5}
+        />
+        <rect
+          x={cx - halfW}
+          y={yScale(summary.q3)}
+          width={2 * halfW}
+          height={yScale(summary.q1) - yScale(summary.q3)}
+          fill={t.accentSoft}
+          stroke={t.accent}
+          strokeWidth={1.5}
+          rx={3}
+        />
+        <line
+          x1={cx - halfW}
+          x2={cx + halfW}
+          y1={yScale(summary.median)}
+          y2={yScale(summary.median)}
+          stroke={t.accent}
+          strokeWidth={2.5}
+        />
         <polygon
           points={`${cx},${yScale(summary.mean) - 7} ${cx + 7},${yScale(summary.mean)} ${cx},${yScale(summary.mean) + 7} ${cx - 7},${yScale(summary.mean)}`}
           fill={t.text}
         />
         {ratios.map((r, i) => {
           const jitter = ((i % 9) - 4) * 8;
-          return <circle key={i} cx={cx + jitter} cy={yScale(r)} r={3.5} fill={t.accent} opacity={0.65} stroke="#fff" strokeWidth={0.8} />;
+          return (
+            <circle
+              key={i}
+              cx={cx + jitter}
+              cy={yScale(r)}
+              r={3.5}
+              fill={t.accent}
+              opacity={0.65}
+              stroke="#fff"
+              strokeWidth={0.8}
+            />
+          );
         })}
-        <text x={PAD.l - 44} y={PAD.t + innerH / 2} fontSize="11" fill={t.textMuted} transform={`rotate(-90 ${PAD.l - 44} ${PAD.t + innerH / 2})`}>
+        <text
+          x={PAD.l - 44}
+          y={PAD.t + innerH / 2}
+          fontSize="11"
+          fill={t.textMuted}
+          transform={`rotate(-90 ${PAD.l - 44} ${PAD.t + innerH / 2})`}
+        >
           TBR ratio
         </text>
         <text x={cx} y={H - 6} fontSize="11" fill={t.textMuted} textAnchor="middle">
@@ -532,9 +741,8 @@ const useTbrModeView = (
     if (entries.length === 0) {
       return (
         <div style={{ padding: 24, fontSize: 13, color: t.textMuted }}>
-          No TBR entries match the current channel filter. Use Inspector → TBR
-          Analysis to draw a Tumor and a Background ROI on a frame, then click
-          &ldquo;Add to table&rdquo;.
+          No TBR entries match the current channel filter. Use Inspector → TBR Analysis to draw a
+          Tumor and a Background ROI on a frame, then click &ldquo;Add to table&rdquo;.
         </div>
       );
     }
@@ -550,16 +758,31 @@ const useTbrModeView = (
               }}
             >
               <StatCard label="n entries" value={summary.n} />
-              <StatCard label="mean TBR" value={fmt2(summary.mean)} hint={`±${fmt2(summary.sem)} SEM`} accent />
+              <StatCard
+                label="mean TBR"
+                value={fmt2(summary.mean)}
+                hint={`±${fmt2(summary.sem)} SEM`}
+                accent
+              />
               <StatCard label="median TBR" value={fmt2(summary.median)} />
               <StatCard label="std" value={fmt2(summary.std)} />
-              <StatCard label="CI 95% (mean)" value={`${fmt2(summary.ci95Lo)} – ${fmt2(summary.ci95Hi)}`} />
+              <StatCard
+                label="CI 95% (mean)"
+                value={`${fmt2(summary.ci95Lo)} – ${fmt2(summary.ci95Hi)}`}
+              />
               <StatCard label="IQR" value={`${fmt2(summary.q1)} – ${fmt2(summary.q3)}`} />
               <StatCard label="min – max" value={`${fmt2(summary.min)} – ${fmt2(summary.max)}`} />
-              <StatCard label="TBR > 1" value={`${(summary.fracBright * 100).toFixed(0)}%`} hint="fraction with contrast" />
+              <StatCard
+                label="TBR > 1"
+                value={`${(summary.fracBright * 100).toFixed(0)}%`}
+                hint="fraction with contrast"
+              />
             </div>
           )}
-          <PlotCard title="TBR by entry" subtitle="Bars are ratio, error bars are propagated ratio std, dashed amber line marks TBR=1 (no contrast).">
+          <PlotCard
+            title="TBR by entry"
+            subtitle="Bars are ratio, error bars are propagated ratio std, dashed amber line marks TBR=1 (no contrast)."
+          >
             <RatioBarChart />
           </PlotCard>
         </div>
@@ -567,14 +790,20 @@ const useTbrModeView = (
     }
     if (common.tab === 'tumorvbg') {
       return (
-        <PlotCard title="Tumor vs Background intensity" subtitle="Side-by-side absolute intensities for each entry. Identical heights → no contrast.">
+        <PlotCard
+          title="Tumor vs Background intensity"
+          subtitle="Side-by-side absolute intensities for each entry. Identical heights → no contrast."
+        >
           <TumorVsBgChart />
         </PlotCard>
       );
     }
     if (common.tab === 'scatter') {
       return (
-        <PlotCard title="Scatter — tumor vs background" subtitle="Points above the dashed amber y=x line have TBR > 1.">
+        <PlotCard
+          title="Scatter — tumor vs background"
+          subtitle="Points above the dashed amber y=x line have TBR > 1."
+        >
           <ScatterChart />
         </PlotCard>
       );
@@ -582,18 +811,30 @@ const useTbrModeView = (
     if (common.tab === 'distribution') {
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <PlotCard title="Histogram of TBR ratios" subtitle="Sturges-style binning · solid line = mean · dashed amber = median.">
+          <PlotCard
+            title="Histogram of TBR ratios"
+            subtitle="Sturges-style binning · solid line = mean · dashed amber = median."
+          >
             <Histogram />
           </PlotCard>
-          <PlotCard title="Box plot" subtitle="Q1 / median / Q3 + whiskers + jittered raw points + diamond mean.">
+          <PlotCard
+            title="Box plot"
+            subtitle="Q1 / median / Q3 + whiskers + jittered raw points + diamond mean."
+          >
             <BoxPlot />
           </PlotCard>
         </div>
       );
     }
     if (common.tab === 'grouping') {
-      const renderGroup = (title: string, rows: ReadonlyArray<{ key: string; n: number; mean: number; std: number }>) => (
-        <PlotCard title={title} subtitle="Mean ratio per group · bar width is normalised to the maximum group mean.">
+      const renderGroup = (
+        title: string,
+        rows: ReadonlyArray<{ key: string; n: number; mean: number; std: number }>
+      ) => (
+        <PlotCard
+          title={title}
+          subtitle="Mean ratio per group · bar width is normalised to the maximum group mean."
+        >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {rows.map((g) => {
               const mx = Math.max(0.001, ...rows.map((x) => x.mean));
@@ -609,12 +850,32 @@ const useTbrModeView = (
                       fontSize: 11.5,
                     }}
                   >
-                    <span style={{ flex: 1, color: t.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={g.key}>{g.key}</span>
+                    <span
+                      style={{
+                        flex: 1,
+                        color: t.text,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                      title={g.key}
+                    >
+                      {g.key}
+                    </span>
                     <span style={{ color: t.textFaint }}>n={g.n}</span>
-                    <span style={{ color: t.accent, fontWeight: 700, fontSize: 13 }}>{fmt2(g.mean)}</span>
+                    <span style={{ color: t.accent, fontWeight: 700, fontSize: 13 }}>
+                      {fmt2(g.mean)}
+                    </span>
                     <span style={{ color: t.textFaint }}>±{fmt2(g.std)}</span>
                   </div>
-                  <div style={{ height: 10, background: t.chipBg, borderRadius: 3, overflow: 'hidden' }}>
+                  <div
+                    style={{
+                      height: 10,
+                      background: t.chipBg,
+                      borderRadius: 3,
+                      overflow: 'hidden',
+                    }}
+                  >
                     <div style={{ width: `${w}%`, height: '100%', background: t.accent }} />
                   </div>
                 </div>
@@ -632,7 +893,10 @@ const useTbrModeView = (
     }
     if (common.tab === 'table') {
       return (
-        <PlotCard title="Per-entry detail" subtitle={`${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} after filter.`}>
+        <PlotCard
+          title="Per-entry detail"
+          subtitle={`${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} after filter.`}
+        >
           <div
             style={{
               maxHeight: 480,
@@ -679,8 +943,41 @@ const useTbrModeView = (
                 }}
               >
                 <span style={{ color: t.textFaint }}>{i + 1}</span>
-                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {e.sourceFile} · {e.channel}
+                <span
+                  style={{
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                  title={
+                    (e.pipelineVersion ?? 1) < 2
+                      ? `${e.sourceFile} · ${e.channel} (legacy pipeline — dark + black_level only)`
+                      : `${e.sourceFile} · ${e.channel}`
+                  }
+                >
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {e.sourceFile} · {e.channel}
+                  </span>
+                  {(e.pipelineVersion ?? 1) < 2 && (
+                    <span
+                      data-tbr-stale
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 700,
+                        letterSpacing: '0.04em',
+                        color: '#f0a020',
+                        border: '1px solid #f0a020',
+                        borderRadius: 3,
+                        padding: '0 4px',
+                        flex: '0 0 auto',
+                      }}
+                    >
+                      v1
+                    </span>
+                  )}
                 </span>
                 <span style={{ textAlign: 'right' }}>{e.frameIndex}</span>
                 <span style={{ textAlign: 'right' }}>{e.tumorN}</span>

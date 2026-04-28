@@ -138,12 +138,8 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }: ISPSettingsWindowProps) 
   // them with the mode catalog's defaults for the active mode.
   const [stagedModeId, setStagedModeId] = useStateI<string>(source?.isp_mode_id || 'rgb_nir');
   const [stagedOrigin, setStagedOrigin] = useStateI<Pair>(source?.isp_config?.origin || [0, 0]);
-  const [stagedSubStep, setStagedSubStep] = useStateI<Pair>(
-    source?.isp_config?.sub_step || [1, 1]
-  );
-  const [stagedOuter, setStagedOuter] = useStateI<Pair>(
-    source?.isp_config?.outer_stride || [1, 1]
-  );
+  const [stagedSubStep, setStagedSubStep] = useStateI<Pair>(source?.isp_config?.sub_step || [1, 1]);
+  const [stagedOuter, setStagedOuter] = useStateI<Pair>(source?.isp_config?.outer_stride || [1, 1]);
   const [stagedNames, setStagedNames] = useStateI<Record<string, string>>(
     source?.isp_config?.channel_name_overrides || {}
   );
@@ -195,8 +191,7 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }: ISPSettingsWindowProps) 
       (source.isp_config?.origin as Pair) || (m ? ([...m.default_origin] as Pair) : [0, 0])
     );
     setStagedSubStep(
-      (source.isp_config?.sub_step as Pair) ||
-        (m ? ([...m.default_sub_step] as Pair) : [1, 1])
+      (source.isp_config?.sub_step as Pair) || (m ? ([...m.default_sub_step] as Pair) : [1, 1])
     );
     setStagedOuter(
       (source.isp_config?.outer_stride as Pair) ||
