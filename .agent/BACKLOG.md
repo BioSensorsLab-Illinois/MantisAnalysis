@@ -800,18 +800,19 @@ touches code 5,000+ lines apart.
 
 Extraction candidates, in priority order:
 
-1. `playback/frameCache.ts` — **DONE 2026-04-28**. 210 LOC pulled
-   out; playback.tsx imports the public surface.
-2. `playback/sourceModes.ts` — `SOURCE_MODES` catalog +
-   `sourceModeMeta` + `splitSourceMode` (currently lines 469–818).
-3. `playback/RoiOverlay.tsx` — polygon hit-test math + SVG overlay
-   layer (currently lines 5364–5604).
-4. `playback/tbr/` — TbrAnalysisPanel + TbrAnalysisModal (currently
-   ~1500 lines around 10117–11500).
-5. `playback/modals/` — every `*Modal` component
-   (OverlayBuilderModal, ExportImageModal, ExportVideoModal,
-   WarningCenterModal, StreamBuilderModal, SavePresetModal,
-   DeleteFromDiskConfirmModal).
+1. `playback/frameCache.ts` — **DONE 2026-04-28**. 207 LOC.
+2. `playback/sourceModes.ts` — **DONE 2026-04-28**. 385 LOC.
+3. `playback/RoiOverlay.tsx` — **DONE 2026-04-28**. 165 LOC.
+4. `playback/tbr/` — TbrAnalysisPanel + TbrAnalysisModal
+   (~1500 LOC). Still backlog.
+5. `playback/modals/`:
+   - `WarningCenterModal.tsx` — **DONE 2026-04-28**.
+   - `SmallModals.tsx` (Delete + SavePreset) — **DONE 2026-04-28**.
+   - `OverlayBuilderModal.tsx` — still backlog (~600 LOC).
+   - `ExportImageModal.tsx` — still backlog (~280 LOC).
+   - `ExportVideoModal.tsx` — still backlog (~300 LOC).
+   - `StreamBuilderModal.tsx` — still backlog (largest remaining,
+     5,094 LOC).
 
 Target: under 4,000 lines for the remaining `playback.tsx`. Drives
 B-0038 (drop @ts-nocheck) much easier — module boundaries make the

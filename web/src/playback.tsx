@@ -27,6 +27,24 @@ import {
   isPrefetchInflight as _isPrefetchInflight,
   prefetchFrame as _prefetchFrame,
 } from './playback/frameCache.ts';
+// B-0037 Phase 2-4 module extractions.
+import {
+  SOURCE_MODES,
+  availableSourceModes,
+  defaultSourceModeId,
+  sourceModeMeta,
+  availableGains,
+  splitSourceMode,
+  composeSourceMode,
+  CHANNEL_KIND_OPTIONS,
+  channelKindOptionsForGain,
+} from './playback/sourceModes.ts';
+import {
+  clientToImagePx as _clientToImagePx,
+  RoiOverlaySvg as _RoiOverlaySvg,
+} from './playback/RoiOverlay.tsx';
+import { WarningCenterModal, WARNING_TEMPLATES } from './playback/modals/WarningCenterModal.tsx';
+import { DeleteFromDiskConfirmModal, SavePresetModal } from './playback/modals/SmallModals.tsx';
 import {
   useTheme,
   Icon,
@@ -282,363 +300,7 @@ const formatPath = (p, max = 56) => {
   return p.slice(0, head) + '…' + p.slice(p.length - tail);
 };
 
-// ---------------------------------------------------------------------------
-// Source-mode catalog: maps GUI menu options to backend URL builders.
-// The dropdown a user sees is filtered against the source's actual channel
-// set, so polarization / grayscale-image / image-RGB sources work without
-// special cases. play-tab-recording-inspection-rescue-v1 M4.
-// ---------------------------------------------------------------------------
-
-const SOURCE_MODES = [
-  // ---------- HIGH GAIN ----------
-  {
-    id: 'rgb_hg',
-    label: 'Visible (RGB)',
-    group: 'High Gain',
-    kind: 'rgb',
-    gain: 'hg',
-    requires: ['HG-R', 'HG-G', 'HG-B'],
-    badge: 'RGB',
-  },
-  {
-    id: 'nir_hg',
-    label: 'NIR',
-    group: 'High Gain',
-    kind: 'channel',
-    channel: 'HG-NIR',
-    defaultColormap: 'inferno',
-    badge: 'LUT',
-  },
-  {
-    id: 'gray_hgy',
-    label: 'Chroma (Y)',
-    group: 'High Gain',
-    kind: 'channel',
-    channel: 'HG-Y',
-    defaultColormap: 'gray',
-    badge: 'RAW',
-  },
-  {
-    id: 'raw_hg_r',
-    label: 'Raw — Red',
-    group: 'High Gain',
-    kind: 'channel',
-    channel: 'HG-R',
-    defaultColormap: 'gray',
-    badge: 'RAW',
-  },
-  {
-    id: 'raw_hg_g',
-    label: 'Raw — Green',
-    group: 'High Gain',
-    kind: 'channel',
-    channel: 'HG-G',
-    defaultColormap: 'gray',
-    badge: 'RAW',
-  },
-  {
-    id: 'raw_hg_b',
-    label: 'Raw — Blue',
-    group: 'High Gain',
-    kind: 'channel',
-    channel: 'HG-B',
-    defaultColormap: 'gray',
-    badge: 'RAW',
-  },
-  // ---------- LOW GAIN ----------
-  {
-    id: 'rgb_lg',
-    label: 'Visible (RGB)',
-    group: 'Low Gain',
-    kind: 'rgb',
-    gain: 'lg',
-    requires: ['LG-R', 'LG-G', 'LG-B'],
-    badge: 'RGB',
-  },
-  {
-    id: 'nir_lg',
-    label: 'NIR',
-    group: 'Low Gain',
-    kind: 'channel',
-    channel: 'LG-NIR',
-    defaultColormap: 'inferno',
-    badge: 'LUT',
-  },
-  {
-    id: 'gray_lgy',
-    label: 'Chroma (Y)',
-    group: 'Low Gain',
-    kind: 'channel',
-    channel: 'LG-Y',
-    defaultColormap: 'gray',
-    badge: 'RAW',
-  },
-  {
-    id: 'raw_lg_r',
-    label: 'Raw — Red',
-    group: 'Low Gain',
-    kind: 'channel',
-    channel: 'LG-R',
-    defaultColormap: 'gray',
-    badge: 'RAW',
-  },
-  {
-    id: 'raw_lg_g',
-    label: 'Raw — Green',
-    group: 'Low Gain',
-    kind: 'channel',
-    channel: 'LG-G',
-    defaultColormap: 'gray',
-    badge: 'RAW',
-  },
-  {
-    id: 'raw_lg_b',
-    label: 'Raw — Blue',
-    group: 'Low Gain',
-    kind: 'channel',
-    channel: 'LG-B',
-    defaultColormap: 'gray',
-    badge: 'RAW',
-  },
-  // ---------- HDR ----------  (M25 — saturation-aware fusion of HG+LG)
-  {
-    id: 'rgb_hdr',
-    label: 'Visible (RGB)',
-    group: 'HDR',
-    kind: 'rgb',
-    gain: 'hdr',
-    requires: ['HDR-R', 'HDR-G', 'HDR-B'],
-    badge: 'HDR',
-  },
-  {
-    id: 'nir_hdr',
-    label: 'NIR',
-    group: 'HDR',
-    kind: 'channel',
-    channel: 'HDR-NIR',
-    requires: ['HDR-NIR'],
-    defaultColormap: 'inferno',
-    badge: 'HDR',
-  },
-  {
-    id: 'gray_hdry',
-    label: 'Chroma (Y)',
-    group: 'HDR',
-    kind: 'channel',
-    channel: 'HDR-Y',
-    requires: ['HDR-Y'],
-    defaultColormap: 'gray',
-    badge: 'HDR',
-  },
-  // ---------- IMAGE FALLBACKS ----------
-  {
-    id: 'gray_l',
-    label: 'Grayscale (L)',
-    group: 'Image',
-    kind: 'channel',
-    channel: 'L',
-    defaultColormap: 'gray',
-    badge: 'RAW',
-  },
-  {
-    id: 'rgb_image',
-    label: 'RGB',
-    group: 'Image',
-    kind: 'rgb_image',
-    requires: ['R', 'G', 'B'],
-    badge: 'RGB',
-  },
-  // ---------- OVERLAYS ----------
-  // The pre-baked "NIR over RGB · HG/LG" entries were removed: every overlay
-  // is now configured through the 4-step Overlay Builder. The remaining
-  // entry is the user-driven custom overlay; the builder writes its base /
-  // overlay channel / blend / threshold into `view.overlay`.
-  {
-    id: 'overlay_custom',
-    label: 'Custom overlay…',
-    group: 'Overlay',
-    kind: 'overlay',
-    requires: [],
-    baseGain: 'hg',
-    overlayChannel: null,
-    defaultColormap: 'inferno',
-    badge: 'OVL',
-  },
-  // ---------- ESCAPE HATCH ----------
-  // Manual channel picker for any unrecognized layout.
-  { id: 'raw', label: 'Pick channel…', group: 'Other', kind: 'raw', badge: 'RAW' },
-];
-
-const availableSourceModes = (recording) => {
-  if (!recording || !recording.channels) return [];
-  const chs = new Set(recording.channels);
-  return SOURCE_MODES.filter((m) => {
-    if (m.kind === 'raw') return true;
-    if (m.kind === 'rgb' || m.kind === 'rgb_image') return m.requires.every((c) => chs.has(c));
-    if (m.kind === 'channel') return chs.has(m.channel);
-    if (m.kind === 'overlay') {
-      // Custom-overlay is always available (the Overlay Builder lets the
-      // user pick whatever base + overlay channels exist on the source).
-      return (m.requires || []).every((c) => chs.has(c));
-    }
-    return false;
-  });
-};
-
-const defaultSourceModeId = (recording) => {
-  // Honor the recording's gain preference (set in the Sources panel)
-  // when picking a default for a new view. Visible (RGB) is the most
-  // generally-useful starting point; if the gain doesn't expose RGB,
-  // fall back to the legacy availability ordering.
-  const gainPref = recording?.gainPref || null;
-  if (gainPref) {
-    const preferred = composeSourceMode(gainPref, 'rgb');
-    const avail = new Set(availableSourceModes(recording).map((m) => m.id));
-    if (avail.has(preferred)) return preferred;
-  }
-  const order = [
-    'rgb_hg',
-    'rgb_lg',
-    'rgb_image',
-    'nir_hg',
-    'gray_hgy',
-    'gray_lgy',
-    'gray_l',
-    'nir_lg',
-    'raw',
-  ];
-  const avail = new Set(availableSourceModes(recording).map((m) => m.id));
-  for (const id of order) if (avail.has(id)) return id;
-  return 'raw';
-};
-
-const sourceModeMeta = (id) =>
-  SOURCE_MODES.find((m) => m.id === id) || SOURCE_MODES[SOURCE_MODES.length - 1];
-
-// Gain selector lives outside the channel dropdown for GSense-style
-// recordings. Returns the subset of ('HG', 'LG', 'HDR') the recording
-// actually exposes — driven entirely by the channel set, so non-GSense
-// (image-only, polarization-only) sources naturally show no gain tabs.
-const availableGains = (recording) => {
-  if (!recording || !recording.channels) return [];
-  const chs = new Set(recording.channels);
-  const gains = [];
-  if (['HG-R', 'HG-G', 'HG-B'].some((c) => chs.has(c))) gains.push('HG');
-  if (['LG-R', 'LG-G', 'LG-B'].some((c) => chs.has(c))) gains.push('LG');
-  if (['HDR-R', 'HDR-G', 'HDR-B'].some((c) => chs.has(c))) gains.push('HDR');
-  return gains;
-};
-
-// Decompose a source-mode id into (gain, channelKind). channelKind is
-// stable across gains so a "Visible (RGB)" view stays Visible (RGB)
-// when the user flips HG↔LG↔HDR. Returns nulls for non-gain modes
-// (overlays, image, raw escape hatch) so the title bar can fall back
-// to the legacy flat dropdown for those.
-const _CHANNEL_KIND_BY_ID = {
-  rgb_hg: 'rgb',
-  rgb_lg: 'rgb',
-  rgb_hdr: 'rgb',
-  nir_hg: 'nir',
-  nir_lg: 'nir',
-  nir_hdr: 'nir',
-  gray_hgy: 'chroma',
-  gray_lgy: 'chroma',
-  gray_hdry: 'chroma',
-  raw_hg_r: 'raw_r',
-  raw_lg_r: 'raw_r',
-  raw_hg_g: 'raw_g',
-  raw_lg_g: 'raw_g',
-  raw_hg_b: 'raw_b',
-  raw_lg_b: 'raw_b',
-};
-const _GAIN_BY_ID = {
-  rgb_hg: 'HG',
-  nir_hg: 'HG',
-  gray_hgy: 'HG',
-  raw_hg_r: 'HG',
-  raw_hg_g: 'HG',
-  raw_hg_b: 'HG',
-  rgb_lg: 'LG',
-  nir_lg: 'LG',
-  gray_lgy: 'LG',
-  raw_lg_r: 'LG',
-  raw_lg_g: 'LG',
-  raw_lg_b: 'LG',
-  rgb_hdr: 'HDR',
-  nir_hdr: 'HDR',
-  gray_hdry: 'HDR',
-};
-
-const splitSourceMode = (id) => ({
-  gain: _GAIN_BY_ID[id] || null,
-  channelKind: _CHANNEL_KIND_BY_ID[id] || null,
-});
-
-// Compose (gain, channelKind) → source-mode id. HDR doesn't expose pre-Bayer
-// raw R/G/B, so falls back to `rgb_hdr` if a raw_* was selected and the
-// user switches to HDR.
-const composeSourceMode = (gain, channelKind) => {
-  const g = (gain || '').toUpperCase();
-  const c = channelKind || 'rgb';
-  if (g === 'HDR') {
-    if (c === 'rgb') return 'rgb_hdr';
-    if (c === 'nir') return 'nir_hdr';
-    if (c === 'chroma') return 'gray_hdry';
-    return 'rgb_hdr';
-  }
-  if (g === 'LG') {
-    return (
-      {
-        rgb: 'rgb_lg',
-        nir: 'nir_lg',
-        chroma: 'gray_lgy',
-        raw_r: 'raw_lg_r',
-        raw_g: 'raw_lg_g',
-        raw_b: 'raw_lg_b',
-      }[c] || 'rgb_lg'
-    );
-  }
-  return (
-    {
-      rgb: 'rgb_hg',
-      nir: 'nir_hg',
-      chroma: 'gray_hgy',
-      raw_r: 'raw_hg_r',
-      raw_g: 'raw_hg_g',
-      raw_b: 'raw_hg_b',
-    }[c] || 'rgb_hg'
-  );
-};
-
-// Channel-kind catalog used by the per-gain dropdown. HDR hides the
-// Raw entries because the fused channels don't expose them.
-const CHANNEL_KIND_OPTIONS = [
-  { id: 'rgb', label: 'Visible (RGB)' },
-  { id: 'nir', label: 'NIR' },
-  { id: 'chroma', label: 'Chroma (Y)' },
-  { id: 'raw_r', label: 'Raw — Red' },
-  { id: 'raw_g', label: 'Raw — Green' },
-  { id: 'raw_b', label: 'Raw — Blue' },
-];
-
-const channelKindOptionsForGain = (gain, recording) => {
-  const all =
-    gain === 'HDR'
-      ? CHANNEL_KIND_OPTIONS.filter((o) => !o.id.startsWith('raw_'))
-      : CHANNEL_KIND_OPTIONS;
-  return all.filter((o) => {
-    const id = composeSourceMode(gain, o.id);
-    const meta = SOURCE_MODES.find((m) => m.id === id);
-    if (!meta) return false;
-    if (meta.kind === 'rgb') {
-      return (meta.requires || []).every((c) => (recording?.channels || []).includes(c));
-    }
-    if (meta.kind === 'channel') {
-      return (recording?.channels || []).includes(meta.channel);
-    }
-    return false;
-  });
-};
+// Source-mode catalog + helpers extracted to ./playback/sourceModes.ts (B-0037 Phase 2).
 
 // Stable hash of a recording's source-side ISP state. When ISP geometry
 // changes via reconfigure_isp, this token shifts so URLs change → the
@@ -799,96 +461,7 @@ const buildFrameUrl = (recording, view, frameIdx) => {
 // (W-GAP / W-OVERLAP / W-LOAD / W-DARK) get templates too because the
 // existing emit sites already use them.
 // ---------------------------------------------------------------------------
-
-const WARNING_TEMPLATES = {
-  // Per-file metadata warnings (M16)
-  'W-META-TS': {
-    severity: 'warning',
-    headline: 'Missing per-frame timestamps',
-    action: { kind: 'inspect-file', label: 'Inspect file' },
-  },
-  'W-META-EXP': {
-    severity: 'warning',
-    headline: 'Missing per-frame exposure',
-    action: { kind: 'inspect-file', label: 'Inspect file' },
-  },
-  'W-FRAME-FAIL': {
-    severity: 'warning',
-    headline: 'Per-frame metadata read failed',
-    action: { kind: 'inspect-file', label: 'Inspect file' },
-  },
-  // Stream continuity (M11)
-  'W-GAP': {
-    severity: 'warning',
-    headline: 'Gap between recordings',
-    action: { kind: 'open-stream-builder', label: 'Open Stream Builder' },
-  },
-  'W-OVERLAP': {
-    severity: 'warning',
-    headline: 'Recordings overlap in time',
-    action: { kind: 'open-stream-builder', label: 'Open Stream Builder' },
-  },
-  'W-EXP-MISMATCH': {
-    severity: 'warning',
-    headline: 'Exposure differs across stream',
-    action: { kind: 'open-stream-builder', label: 'Open Stream Builder' },
-  },
-  'W-SHAPE': {
-    severity: 'error',
-    headline: 'Frame dimensions differ across stream',
-    action: { kind: 'open-stream-builder', label: 'Open Stream Builder' },
-  },
-  'W-CHAN': {
-    severity: 'warning',
-    headline: 'Channel layout differs across stream',
-    action: { kind: 'open-stream-builder', label: 'Open Stream Builder' },
-  },
-  // Dark frame (M11 + new)
-  'W-DARK-NONE': {
-    severity: 'info',
-    headline: 'No dark frames loaded',
-    action: { kind: 'dismiss', label: 'Dismiss' },
-  },
-  'W-DARK': {
-    severity: 'error',
-    headline: 'Dark attach failed',
-    action: { kind: 'dismiss', label: 'Dismiss' },
-  },
-  'W-DARK-AMBIG': {
-    severity: 'warning',
-    headline: 'Dark requested but none attached',
-    action: { kind: 'inspect-file', label: 'Inspect file' },
-  },
-  // Overlay (M18)
-  'W-OVL-SRC': {
-    severity: 'warning',
-    headline: 'Overlay source channel is missing',
-    action: { kind: 'open-inspector', label: 'Open Inspector' },
-  },
-  // Export pipeline (M18)
-  'W-EXPORT-LONG': {
-    severity: 'info',
-    headline: 'Export will be long',
-    action: { kind: 'open-export', label: 'Adjust export' },
-  },
-  'W-RANGE-HUGE': {
-    severity: 'warning',
-    headline: 'Range covers many frames',
-    action: { kind: 'clear-range', label: 'Clear range' },
-  },
-  // Processing config (M18)
-  'W-PROC-INVALID': {
-    severity: 'warning',
-    headline: 'Processing config is invalid',
-    action: { kind: 'open-inspector', label: 'Open Inspector' },
-  },
-  // File load (M11)
-  'W-LOAD': {
-    severity: 'error',
-    headline: 'File load failed',
-    action: { kind: 'dismiss', label: 'Dismiss' },
-  },
-};
+// WARNING_TEMPLATES + WarningCenterModal moved to ./playback/modals/WarningCenterModal.tsx (B-0037 Phase 4).
 
 // ---------------------------------------------------------------------------
 // Continuity detection — pure function, used by Stream Builder + stream
@@ -5277,49 +4850,25 @@ const ViewerCard = ({
         }}
         onClick={(e) => {
           // Polygon-vertex picker. Active when overlay-mask or TBR
-          // ROI draw mode is on. Hit-tests via the SVG overlay's
-          // bounding-rect math, NOT getScreenCTM — Chromium's
-          // SVGGraphicsElement.getScreenCTM() does not include CSS
-          // transforms applied to the SVG element itself, so once the
-          // canvas was zoomed (we transform the SVG with `scale()`)
-          // the CTM read became wrong and clicks landed far from the
-          // cursor. getBoundingClientRect DOES include CSS transforms
-          // — combining it with the viewBox aspect-fit math (we use
-          // preserveAspectRatio="xMidYMid meet") gives accurate
-          // image-pixel coords at any zoom + pan.
+          // ROI draw mode is on. Hit-test math + letterbox handling
+          // lives in ./playback/RoiOverlay.tsx so the math has one
+          // owner — see that file's header for why getScreenCTM()
+          // can't be used here.
           if (!url || !recording?.shape || !svgRef.current) return;
           const drawingOverlay = !!view.overlayDrawMode;
           const tbrRole = view.tbrDraftRole;
           if (!drawingOverlay && !tbrRole) return;
-          const svg = svgRef.current;
           const ih = recording.shape[0] || 1;
           const iw = recording.shape[1] || 1;
-          const rect = svg.getBoundingClientRect();
-          if (!rect.width || !rect.height) return;
-          // Compute the actual content rect inside the SVG box,
-          // honoring preserveAspectRatio="xMidYMid meet" letterboxing.
-          const aspectImg = iw / ih;
-          const aspectRect = rect.width / rect.height;
-          let contentW;
-          let contentH;
-          let contentLeft;
-          let contentTop;
-          if (aspectImg > aspectRect) {
-            contentW = rect.width;
-            contentH = rect.width / aspectImg;
-            contentLeft = rect.left;
-            contentTop = rect.top + (rect.height - contentH) / 2;
-          } else {
-            contentH = rect.height;
-            contentW = rect.height * aspectImg;
-            contentLeft = rect.left + (rect.width - contentW) / 2;
-            contentTop = rect.top;
-          }
-          const fx = (e.clientX - contentLeft) / contentW;
-          const fy = (e.clientY - contentTop) / contentH;
-          if (fx < 0 || fy < 0 || fx > 1 || fy > 1) return;
-          const ix = Math.round(fx * iw);
-          const iy = Math.round(fy * ih);
+          const hit = _clientToImagePx({
+            svgEl: svgRef.current,
+            imageW: iw,
+            imageH: ih,
+            clientX: e.clientX,
+            clientY: e.clientY,
+          });
+          if (!hit) return;
+          const { ix, iy } = hit;
           if (drawingOverlay) {
             const ov = view.overlay || {};
             const prev = Array.isArray(ov.maskPolygon) ? ov.maskPolygon : [];
@@ -5423,99 +4972,38 @@ const ViewerCard = ({
           </div>
         )}
         {/* ROI polygon overlay (overlay-mode mask AND TBR Tumor /
-            Background drafts). SVG shares the image's transform so
-            shapes scale+pan with the image. */}
-        {url &&
-          recording?.shape &&
-          (() => {
-            const ih = recording.shape[0] || 1;
-            const iw = recording.shape[1] || 1;
-            const overlayPts =
+            Background drafts). Render delegated to RoiOverlaySvg —
+            see ./playback/RoiOverlay.tsx for the JSX. */}
+        {url && recording?.shape && (
+          <_RoiOverlaySvg
+            ref={svgRef}
+            imageW={recording.shape[1] || 1}
+            imageH={recording.shape[0] || 1}
+            overlayPts={
               meta.kind === 'overlay' && Array.isArray((view.overlay || {}).maskPolygon)
                 ? (view.overlay || {}).maskPolygon
-                : [];
-            const draft = view.tbrDraft || {};
-            const tumorPts = Array.isArray(draft.tumorPolygon) ? draft.tumorPolygon : [];
-            const bgPts = Array.isArray(draft.bgPolygon) ? draft.bgPolygon : [];
-            if (
-              overlayPts.length === 0 &&
-              tumorPts.length === 0 &&
-              bgPts.length === 0 &&
-              !view.overlayDrawMode &&
-              !view.tbrDraftRole
-            )
-              return null;
-            const polyEl = (pts, color, fillAlpha) => {
-              if (pts.length === 0) return null;
-              const polyStr = pts.map(([x, y]) => `${x},${y}`).join(' ');
-              return (
-                <g>
-                  {pts.length >= 2 && (
-                    <polyline
-                      points={polyStr}
-                      fill={pts.length >= 3 ? `${color}${fillAlpha}` : 'none'}
-                      stroke={color}
-                      strokeWidth={Math.max(1, iw / 600)}
-                      strokeLinejoin="round"
-                    />
-                  )}
-                  {pts.map(([x, y], i) => (
-                    <circle
-                      key={i}
-                      cx={x}
-                      cy={y}
-                      r={Math.max(2, iw / 300)}
-                      fill={color}
-                      stroke="#fff"
-                      strokeWidth={Math.max(1, iw / 1200)}
-                    />
-                  ))}
-                </g>
-              );
-            };
-            const hint =
+                : []
+            }
+            tumorPts={
+              Array.isArray((view.tbrDraft || {}).tumorPolygon)
+                ? (view.tbrDraft || {}).tumorPolygon
+                : []
+            }
+            bgPts={
+              Array.isArray((view.tbrDraft || {}).bgPolygon) ? (view.tbrDraft || {}).bgPolygon : []
+            }
+            panX={view.panX}
+            panY={view.panY}
+            zoom={view.zoom}
+            hint={
               view.overlayDrawMode || view.tbrDraftRole
                 ? `click to add vertex · ESC / Enter to finish · Backspace to undo${
                     view.tbrDraftRole ? ` · drawing ${view.tbrDraftRole.toUpperCase()}` : ''
                   }`
-                : null;
-            const hintAnchor = tumorPts[0] || bgPts[0] || overlayPts[0] || [iw * 0.05, iw * 0.05];
-            return (
-              <svg
-                ref={svgRef}
-                data-overlay-roi-svg
-                viewBox={`0 0 ${iw} ${ih}`}
-                preserveAspectRatio="xMidYMid meet"
-                style={{
-                  position: 'absolute',
-                  left: 0,
-                  top: 0,
-                  width: '100%',
-                  height: '100%',
-                  pointerEvents: 'none',
-                  transform: `translate(${view.panX || 0}px, ${view.panY || 0}px) scale(${view.zoom || 1})`,
-                  transformOrigin: 'center center',
-                }}
-              >
-                {polyEl(overlayPts, '#3a82f7', '1A')}
-                {polyEl(tumorPts, '#ff5b5b', '24')}
-                {polyEl(bgPts, '#3ecbe5', '24')}
-                {hint && (
-                  <text
-                    x={hintAnchor[0] + Math.max(4, iw / 200)}
-                    y={hintAnchor[1] - Math.max(4, iw / 200)}
-                    fontSize={Math.max(8, iw / 90)}
-                    fill="#fff"
-                    stroke="#000"
-                    strokeWidth={Math.max(0.5, iw / 1800)}
-                    paintOrder="stroke"
-                  >
-                    {hint}
-                  </text>
-                )}
-              </svg>
-            );
-          })()}
+                : null
+            }
+          />
+        )}
         {/* M20.1 — canvas-overlay histogram (bottom-right of the
             canvas). Off by default; toggled in Inspector Display. */}
         {url && view.showCanvasHistogram && (
@@ -7218,183 +6706,6 @@ const ExportImageModal = ({ views, selectedViewId, onExport, onClose }) => {
             </Button>
           </div>
         </div>
-      </div>
-    </Modal>
-  );
-};
-
-// ---------------------------------------------------------------------------
-// Warning Center modal — aggregates per-source / per-dark / continuity
-// warnings into one inspectable list. play-tab-recording-inspection-
-// rescue-v1 M11.
-// ---------------------------------------------------------------------------
-
-const WarningCenterModal = ({ warnings, onClose, onAction }) => {
-  const t = useTheme();
-  // M18: any per-row severity from the emit site overrides the template
-  // default, but if a row arrives without `severity` (back-compat), the
-  // canonical template value applies.
-  const resolved = warnings.map((w) => {
-    const tpl = WARNING_TEMPLATES[w.code] || null;
-    return {
-      ...w,
-      severity: w.severity || tpl?.severity || 'warning',
-      headline: tpl?.headline || null,
-      action: tpl?.action || null,
-    };
-  });
-  const grouped = {
-    error: resolved.filter((w) => w.severity === 'error'),
-    warning: resolved.filter((w) => w.severity === 'warning'),
-    info: resolved.filter((w) => w.severity === 'info'),
-  };
-  const total = resolved.length;
-  const sevColor = (s) => (s === 'error' ? t.danger : s === 'warning' ? t.warn : t.accent);
-  const sevIcon = (s) => (s === 'error' ? 'close' : s === 'warning' ? 'warning' : 'info');
-  return (
-    <Modal onClose={onClose} width={560}>
-      <div data-warning-center-modal>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            marginBottom: 14,
-            paddingBottom: 10,
-            borderBottom: `1px solid ${t.border}`,
-          }}
-        >
-          <Icon
-            name="warning"
-            size={16}
-            style={{
-              color: total > 0 ? (grouped.error.length > 0 ? t.danger : t.warn) : t.textFaint,
-            }}
-          />
-          <div style={{ fontSize: 14, fontWeight: 600, color: t.text }}>Warnings</div>
-          <span style={{ fontSize: 11, color: t.textMuted }}>
-            {total} active · {grouped.error.length} error{grouped.error.length === 1 ? '' : 's'} ·{' '}
-            {grouped.warning.length} warning{grouped.warning.length === 1 ? '' : 's'} ·{' '}
-            {grouped.info.length} info
-          </span>
-          <div style={{ flex: 1 }} />
-          <Button icon="close" variant="subtle" size="sm" onClick={onClose}>
-            Close
-          </Button>
-        </div>
-        {total === 0 && (
-          <div style={{ fontSize: 12, color: t.textFaint, padding: '24px 0', textAlign: 'center' }}>
-            No active warnings.
-          </div>
-        )}
-        {['error', 'warning', 'info'].map(
-          (sev) =>
-            grouped[sev].length > 0 && (
-              <div key={sev} style={{ marginBottom: 16 }}>
-                <div
-                  style={{
-                    fontSize: 10,
-                    fontWeight: 600,
-                    letterSpacing: 0.4,
-                    textTransform: 'uppercase',
-                    color: sevColor(sev),
-                    marginBottom: 8,
-                  }}
-                >
-                  {sev}s ({grouped[sev].length})
-                </div>
-                {grouped[sev].map((w, i) => (
-                  <div
-                    key={`${sev}-${i}`}
-                    data-warning-row={sev}
-                    data-warning-code={w.code}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 10,
-                      padding: '10px 12px',
-                      background: `${sevColor(sev)}10`,
-                      border: `1px solid ${sevColor(sev)}`,
-                      borderRadius: 5,
-                      marginBottom: 6,
-                    }}
-                  >
-                    <Icon
-                      name={sevIcon(sev)}
-                      size={13}
-                      style={{ color: sevColor(sev), flexShrink: 0, marginTop: 1 }}
-                    />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      {/* M18: canonical headline (template-supplied) +
-                          detail (emit-site supplied). The headline is
-                          what stays consistent between emit sites for
-                          the same code; the detail carries per-event
-                          specifics. */}
-                      <div style={{ fontSize: 11, color: t.text, lineHeight: 1.5 }}>
-                        <span
-                          style={{
-                            fontFamily: 'ui-monospace,Menlo,monospace',
-                            fontSize: 10.5,
-                            color: t.textMuted,
-                            marginRight: 6,
-                          }}
-                        >
-                          {w.code}
-                        </span>
-                        {w.headline && (
-                          <span style={{ fontWeight: 600, color: t.text }}>{w.headline}</span>
-                        )}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: 11,
-                          color: t.textMuted,
-                          lineHeight: 1.5,
-                          marginTop: 2,
-                        }}
-                      >
-                        {w.detail}
-                      </div>
-                      {(w.source || w.file) && (
-                        <div
-                          style={{
-                            fontSize: 10,
-                            color: t.textFaint,
-                            marginTop: 2,
-                            fontFamily: 'ui-monospace,Menlo,monospace',
-                          }}
-                        >
-                          {w.source && <>source: {w.source}</>}
-                          {w.source && w.file && <> · </>}
-                          {w.file && <>file: {w.file}</>}
-                        </div>
-                      )}
-                      {w.action && (
-                        <div style={{ marginTop: 6 }}>
-                          <button
-                            data-warning-action={w.action.kind}
-                            onClick={() => onAction?.(w.action.kind, w)}
-                            style={{
-                              background: 'transparent',
-                              border: `1px solid ${sevColor(sev)}55`,
-                              borderRadius: 3,
-                              color: sevColor(sev),
-                              cursor: 'pointer',
-                              padding: '2px 10px',
-                              fontSize: 10.5,
-                              fontFamily: 'inherit',
-                            }}
-                          >
-                            {w.action.label}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )
-        )}
       </div>
     </Modal>
   );
@@ -12486,208 +11797,6 @@ const PresetsList = ({ view, presets, onSave, onLoad, onDelete }) => {
         </div>
       )}
     </div>
-  );
-};
-
-// ---------------------------------------------------------------------------
-// M28 — Save Preset modal. Single text input for the name. Submits via
-// PlaybackMode's `savePreset` callback.
-// ---------------------------------------------------------------------------
-
-// Confirmation modal for the multi-select "Delete from disk" flow. The
-// user has already ticked recordings in the Sources panel; this modal
-// shows the file list one more time and forces them to type-confirm
-// before the destructive action runs. Per AGENT_RULES, irreversible
-// disk-level deletes always need explicit confirmation.
-const DeleteFromDiskConfirmModal = ({ open, recordings, onClose, onConfirm }) => {
-  const t = useTheme();
-  if (!open) return null;
-  const haveDiskPaths = (recordings || []).filter((r) => !!r.path);
-  const noDiskPaths = (recordings || []).filter((r) => !r.path);
-  const totalToRemove = haveDiskPaths.length + noDiskPaths.length;
-  const canConfirm = totalToRemove > 0;
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={`Delete ${totalToRemove} file${totalToRemove === 1 ? '' : 's'} from your computer?`}
-      width={600}
-      data-delete-from-disk-modal
-    >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div
-          style={{
-            fontSize: 12,
-            color: t.danger,
-            fontWeight: 600,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-          }}
-        >
-          <Icon name="warning" size={14} />
-          The actual file on your computer (e.g. ~/Desktop/...) will be permanently unlinked. Cannot
-          be undone. Recordings whose original disk path can&rsquo;t be resolved will be reported as
-          FAILED — your file will still be there.
-        </div>
-        {haveDiskPaths.length > 0 && (
-          <div
-            data-delete-paths-list
-            style={{
-              maxHeight: 220,
-              overflowY: 'auto',
-              padding: '6px 10px',
-              border: `1px solid ${t.border}`,
-              borderRadius: 4,
-              background: t.chipBg,
-              fontFamily: 'ui-monospace,Menlo,monospace',
-              fontSize: 11,
-              color: t.text,
-              lineHeight: 1.55,
-            }}
-          >
-            {haveDiskPaths.map((r) => (
-              <div
-                key={r.source_id}
-                style={{
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
-                title={r.path}
-              >
-                {r.path}
-              </div>
-            ))}
-          </div>
-        )}
-        {noDiskPaths.length > 0 && (
-          <div
-            style={{
-              fontSize: 11,
-              color: t.textMuted,
-              padding: '6px 10px',
-              borderRadius: 4,
-              background: t.chipBg,
-              border: `1px solid ${t.border}`,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 6,
-            }}
-          >
-            <div>
-              {noDiskPaths.length} uploaded recording
-              {noDiskPaths.length === 1 ? '' : 's'} — the upload tempfile the server is holding for
-              each will be deleted from disk:
-            </div>
-            <div
-              data-delete-uploaded-list
-              style={{
-                fontFamily: 'ui-monospace,Menlo,monospace',
-                fontSize: 11,
-                color: t.text,
-                lineHeight: 1.55,
-                maxHeight: 120,
-                overflowY: 'auto',
-              }}
-            >
-              {noDiskPaths.map((r) => (
-                <div
-                  key={r.source_id}
-                  style={{
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                  title={`${r.name} (uploaded · src ${r.source_id})`}
-                >
-                  {r.name}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            variant="danger"
-            disabled={!canConfirm}
-            onClick={onConfirm}
-            data-delete-confirm-button
-          >
-            {`Delete ${totalToRemove} from my computer`}
-          </Button>
-        </div>
-      </div>
-    </Modal>
-  );
-};
-
-const SavePresetModal = ({ open, onClose, onSave, view }) => {
-  const t = useTheme();
-  const [name, setName] = React.useState('');
-  React.useEffect(() => {
-    if (open) setName('');
-  }, [open]);
-  if (!open) return null;
-  const trimmed = name.trim();
-  return (
-    <Modal open={open} onClose={onClose} title="Save preset" data-save-preset-modal>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <div style={{ fontSize: 12, color: t.textMuted }}>
-          Capture the current view&apos;s display + ISP + grading + label settings as a named
-          preset. The preset is bound to the source-mode{' '}
-          <code style={{ fontFamily: 'ui-monospace,Menlo,monospace' }}>{view?.sourceMode}</code> and
-          only appears under matching views.
-        </div>
-        <Row label="Name">
-          <input
-            autoFocus
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. high-contrast NIR"
-            maxLength={80}
-            data-save-preset-name
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && trimmed) {
-                onSave(trimmed);
-                onClose();
-              }
-            }}
-            style={{
-              flex: 1,
-              padding: '5px 8px',
-              fontSize: 12.5,
-              fontFamily: 'inherit',
-              background: t.inputBg,
-              color: t.text,
-              border: `1px solid ${t.border}`,
-              borderRadius: 4,
-            }}
-          />
-        </Row>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            variant="primary"
-            disabled={!trimmed}
-            onClick={() => {
-              onSave(trimmed);
-              onClose();
-            }}
-            data-save-preset-confirm
-          >
-            Save
-          </Button>
-        </div>
-      </div>
-    </Modal>
   );
 };
 

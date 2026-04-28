@@ -4,6 +4,40 @@ Append-only log of agent sessions. One bullet per session, newest at top.
 
 ---
 
+**2026-04-28 (Late evening) — B-0037 Phase 2-4: sourceModes / RoiOverlay / WarningCenter + SmallModals extracted**
+
+Continuation of the backlog-drain pass. Three more module
+extractions out of `web/src/playback.tsx`:
+
+- **Phase 2** — `web/src/playback/sourceModes.ts` (385 LOC). The
+  `SOURCE_MODES` catalog + every helper that reads it
+  (availableSourceModes, defaultSourceModeId, sourceModeMeta,
+  availableGains, splitSourceMode, composeSourceMode,
+  CHANNEL_KIND_OPTIONS, channelKindOptionsForGain). Pure data + pure
+  helpers — no React, no JSX.
+- **Phase 3** — `web/src/playback/RoiOverlay.tsx` (165 LOC). Pure
+  `clientToImagePx` letterbox-aware hit-test math + a presentational
+  `<RoiOverlaySvg>` component. The PARENT keeps the click handler
+  (it owns the state mutations); this module owns the math and the
+  three duplicate polygon JSX blocks consolidated into one helper.
+- **Phase 4 (partial)** — `web/src/playback/modals/`:
+  - `WarningCenterModal.tsx` (297 LOC, including the WARNING_TEMPLATES
+    catalog that no other module reads).
+  - `SmallModals.tsx` (215 LOC) — `DeleteFromDiskConfirmModal`
+    + `SavePresetModal`.
+
+`playback.tsx` shrunk 13,193 → 12,258 lines this session.
+
+Verification: pytest 290 passed, smoke Tier 0/1/2/3 PASS, Tier 4
+Playwright 4 passed in 21.89s, tsc clean, vite build clean (14.23s),
+live preview confirms Play tab boots with the new module wiring.
+
+Remaining B-0037 extractions (StreamBuilder, ExportImage,
+ExportVideo, OverlayBuilder, TbrAnalysis modals + a TBR panel split)
+still in backlog.
+
+---
+
 **2026-04-28 (Late PM) — Backlog-drain pass: B-0037 / B-0040 / B-0041 / B-0042**
 
 Follow-up to the polish-sweep commit. User asked to "continue with all

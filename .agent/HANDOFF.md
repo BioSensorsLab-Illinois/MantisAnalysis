@@ -15,10 +15,10 @@ backend+frontend coupling exceeded the polish-sweep scope.
 
 ## Current state of the working tree
 
-- Branch: `main` (49 commits ahead of `origin/main`, still never
-  pushed — B-0010 still open). The polish-sweep landed as commit
-  `8a1e056`; the backlog-drain follow-up (B-0037/B-0040/B-0041/B-0042)
-  is the most recent committed change.
+- Branch: `main` (50 commits ahead of `origin/main`, still never
+  pushed — B-0010 still open). Most-recent commit is the B-0037
+  Phase 2-4 module extractions (sourceModes, RoiOverlay,
+  WarningCenter, SmallModals).
 - **Three layered changes on `main`, all uncommitted**:
   0. **Polish-sweep audit fixes** (this session, 2026-04-28 PM) —
      reviewer-driven correctness + hardening pass:
