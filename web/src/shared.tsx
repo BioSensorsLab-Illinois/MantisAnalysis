@@ -1694,6 +1694,48 @@ const ChannelChip = ({ id, selected, onToggle, multi = false, size = 'md' }) => 
   );
 };
 
+// RgbCompositeChip — same visual language as ChannelChip but the swatch
+// is a tri-color R/G/B pie so it reads as "color composite" not a single
+// channel. `gain` is "HG" / "LG" / "" for non-dual-gain sources.
+const RgbCompositeChip = ({ gain = '', selected, onToggle, size = 'md' }) => {
+  const t = useTheme();
+  const compact = size === 'sm';
+  const swatchPx = compact ? 8 : 10;
+  return (
+    <button
+      onClick={onToggle}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: compact ? '3px 6px' : '4px 8px',
+        background: selected ? t.accentSoft : t.chipBg,
+        color: selected ? t.accent : t.text,
+        border: `1px solid ${selected ? t.accent : t.chipBorder}`,
+        borderRadius: 5,
+        cursor: 'pointer',
+        fontSize: compact ? 10.5 : 11,
+        fontWeight: 500,
+        fontFamily: 'ui-monospace,SF Mono,Menlo,monospace',
+        minWidth: 0,
+      }}
+    >
+      <span
+        style={{
+          width: swatchPx,
+          height: swatchPx,
+          borderRadius: '50%',
+          background: `conic-gradient(${CHANNEL_COLORS.R} 0deg 120deg, ${CHANNEL_COLORS.G} 120deg 240deg, ${CHANNEL_COLORS.B} 240deg 360deg)`,
+          boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.15)',
+          flexShrink: 0,
+        }}
+      />
+      {gain && <span style={{ fontSize: compact ? 9 : 9.5, fontWeight: 400 }}>{gain}</span>}
+      <span>RGB</span>
+    </button>
+  );
+};
+
 // ---------------------------------------------------------------------------
 // Segmented control
 // ---------------------------------------------------------------------------
@@ -4498,6 +4540,7 @@ export {
   Select,
   Button,
   ChannelChip,
+  RgbCompositeChip,
   Segmented,
   Checkbox,
   Spinbox,

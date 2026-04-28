@@ -26,6 +26,7 @@ import {
   Select,
   Button,
   ChannelChip,
+  RgbCompositeChip,
   Segmented,
   Checkbox,
   Spinbox,
@@ -100,10 +101,9 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
     'usaf/analysisChannels',
     defaultAnalysisChannels(available)
   );
-  // Read the global "RGB color composite on canvas" toggle that the ISP
-  // settings window writes to. Shared across all modes so the UX stays
-  // consistent when the user flips it once.
-  const [rgbCompositeDisplay] = useLocalStorageState('ispSettings/rgbComposite', false);
+  // RGB composite is now an explicit "RGB" entry inside the Display channel
+  // picker (see `rgbDisplayOptions` below), not a global override. Picking a
+  // single channel like HG-R always renders mono so the colormap applies.
 
   // ---- Picking knobs ------------------------------------------------------
   const [group, setGroup] = useLocalStorageState('usaf/group', 0);
@@ -220,9 +220,38 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
   const [autoRange, setAutoRange] = useLocalStorageState('usaf/autoRange', true);
   const [range, setRange] = useStateU(null); // {min, max, p1, p99, mean, std}
 
+  // Synthetic Display-channel values ('RGB', 'RGB-HG', 'RGB-LG') request
+  // an RGB color composite from whichever gain bank exists. Detection for
+  // dual-gain decides which RGB chip(s) to expose.
+  const isRgbChannel = !!activeChannel && activeChannel.startsWith('RGB');
+  const rgbGainHint =
+    activeChannel === 'RGB-LG'
+      ? 'LG'
+      : activeChannel === 'RGB-HG'
+        ? 'HG'
+        : available.some((c) => c.startsWith('HG-'))
+          ? 'HG'
+          : available.some((c) => c.startsWith('LG-'))
+            ? 'LG'
+            : '';
+  const rgbChannelArg = rgbGainHint ? `${rgbGainHint}-R` : 'R';
+  const rgbDisplayOptions = useMemoU(() => {
+    if (!source?.rgb_composite_available) return [];
+    const hasHG = available.some((c) => c.startsWith('HG-'));
+    const hasLG = available.some((c) => c.startsWith('LG-'));
+    if (hasHG && hasLG) {
+      return [
+        { value: 'RGB-HG', gain: 'HG', tip: 'RGB color composite from high-gain channels' },
+        { value: 'RGB-LG', gain: 'LG', tip: 'RGB color composite from low-gain channels' },
+      ];
+    }
+    return [{ value: 'RGB', gain: '', tip: 'RGB color composite' }];
+  }, [source?.rgb_composite_available, available]);
+
   // Re-fetch range whenever the channel or source (e.g. dark attached) changes.
+  // Skipped for RGB composites — there is no single per-channel DN range.
   useEffectU(() => {
-    if (!source || !activeChannel) {
+    if (!source || !activeChannel || isRgbChannel) {
       setRange(null);
       return;
     }
@@ -247,7 +276,7 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
     return () => {
       cancelled = true;
     };
-  }, [source?.source_id, source?.has_dark, activeChannel, autoRange]);
+  }, [source?.source_id, source?.has_dark, activeChannel, autoRange, isRgbChannel]);
 
   const imgSrc = useMemoU(() => {
     if (!source || !activeChannel) return null;
@@ -261,24 +290,21 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
             black_level: ispBlackLvl,
           }
         : null;
-    // ISP-modes-v1: when the active ISP mode exposes R/G/B and the user
-    // has enabled "RGB color composite" display in the ISP settings
-    // window, ask the server for the composite thumbnail. Falls back to
-    // grayscale server-side if the mode doesn't support it.
-    const rgbComposite = !!(rgbCompositeDisplay && source.rgb_composite_available);
     return channelPngUrl(
       source.source_id,
-      activeChannel,
+      isRgbChannel ? rgbChannelArg : activeChannel,
       1600,
       isp,
-      colormap,
-      autoRange ? null : vmin,
-      autoRange ? null : vmax,
-      rgbComposite
+      isRgbChannel ? 'gray' : colormap,
+      isRgbChannel || autoRange ? null : vmin,
+      isRgbChannel || autoRange ? null : vmax,
+      isRgbChannel
     );
   }, [
     source,
     activeChannel,
+    isRgbChannel,
+    rgbChannelArg,
     colormap,
     ispEnabled,
     ispLive,
@@ -290,7 +316,6 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
     autoRange,
     vmin,
     vmax,
-    rgbCompositeDisplay,
   ]);
 
   const threshold = thresholdPct / 100;
@@ -1306,11 +1331,22 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
     displayChannel: (
       <Card title="Display channel" icon="layers">
         <div style={{ fontSize: 10.5, color: t.textFaint, marginBottom: 6 }}>
-          Sensor readout shown in canvas
+          Sensor readout shown in canvas. Single channels render mono so the colormap applies; pick
+          RGB for a color composite.
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+          {rgbDisplayOptions.map((opt) => (
+            <Tip key={opt.value} title={opt.tip}>
+              <RgbCompositeChip
+                gain={opt.gain}
+                selected={activeChannel === opt.value}
+                onToggle={() => setActiveChannel(opt.value)}
+                size="sm"
+              />
+            </Tip>
+          ))}
           {available.map((c) => (
-            <Tip key={c} title={`View ${c}`}>
+            <Tip key={c} title={`View ${c} as a single-channel image`}>
               <ChannelChip
                 id={chipId(c)}
                 selected={activeChannel === c}

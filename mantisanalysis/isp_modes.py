@@ -171,15 +171,17 @@ LEGACY_GSBSI_RGB_NIR = ISPMode(
     ),
     dual_gain=True,
     channels=(
-        # Same R/G/B/NIR sub-pixel layout as modern RGB_NIR — applies to
-        # both HG and LG halves. The row-interleaved split is what
-        # makes this layout legacy-shaped; the per-slot coordinates stay
-        # identical across HG and LG.
-        ChannelSpec(slot_id="b",   default_name="B",   loc=(0, 0), color_hint=_C_B),
-        ChannelSpec(slot_id="r",   default_name="R",   loc=(0, 1), color_hint=_C_R),
-        ChannelSpec(slot_id="g",   default_name="G",   loc=(1, 0), color_hint=_C_G),
-        ChannelSpec(slot_id="nir", default_name="NIR", loc=(1, 1),
+        # Calibrated layout for the legacy gsbsi-prefix mosaic captured
+        # against the bench-validated origin (0,0) / sub_step (1,1) /
+        # outer_stride (2,2): NIR sits at (0,0), G at (0,1), R at (1,0),
+        # B at (1,1) within each 2×2 super-pixel. Coordinates are shared
+        # by the HG and LG halves (the row-interleaved split walks the
+        # mosaic to produce the gain halves before per-slot extraction).
+        ChannelSpec(slot_id="nir", default_name="NIR", loc=(0, 0),
                     renameable=True, color_hint=_C_NIR),
+        ChannelSpec(slot_id="g",   default_name="G",   loc=(0, 1), color_hint=_C_G),
+        ChannelSpec(slot_id="r",   default_name="R",   loc=(1, 0), color_hint=_C_R),
+        ChannelSpec(slot_id="b",   default_name="B",   loc=(1, 1), color_hint=_C_B),
     ),
     default_origin=(0, 0),
     default_sub_step=(1, 1),

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import io
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -160,6 +161,13 @@ class DarkLoadPathRequest(BaseModel):
 class LoadFromPathRequest(BaseModel):
     path: str
     name: Optional[str] = None
+
+
+class LocateFileRequest(BaseModel):
+    name: str
+    size: Optional[int] = None
+    roots: Optional[List[str]] = None  # extra search roots beyond the defaults
+    max_depth: int = 6
 
 
 class LineSpecIn(BaseModel):
@@ -626,6 +634,145 @@ def _mount_api(app: FastAPI) -> None:
             "sources": len(STORE.list()),
         }
 
+    @app.post("/api/files/locate")
+    def files_locate(req: LocateFileRequest) -> Dict[str, Any]:
+        """Find a file on the local filesystem by name (and optionally size).
+
+        Used by Play to recover the user's ORIGINAL on-disk path after an
+        upload — browsers don't expose file paths from
+        ``<input type='file'>`` for security, but since this server runs
+        locally as the same user, we can scan their HOME for a matching
+        file and surface the path so the delete flow can unlink the
+        actual file (not just the upload tempfile).
+
+        Search roots: HOME, HOME/Desktop, HOME/Downloads, HOME/Documents,
+        plus any extra roots the caller passes. Hard depth cap so we
+        don't walk node_modules / Library / etc. for hours.
+        """
+        from os.path import expanduser
+        home = Path(expanduser("~"))
+        default_roots = [
+            home / "Desktop",
+            home / "Downloads",
+            home / "Documents",
+        ]
+        extra_roots = []
+        for r in (req.roots or []):
+            try:
+                p = Path(r).expanduser().resolve()
+                if p.is_dir():
+                    extra_roots.append(p)
+            except Exception:
+                continue
+        roots = [r for r in (default_roots + extra_roots) if r.exists() and r.is_dir()]
+        # Skip these heavy / system dirs to keep the scan fast.
+        SKIP_NAMES = {
+            "node_modules", ".git", ".cache", ".npm", ".Trash", "Library",
+            ".venv", "venv", "__pycache__", ".idea", ".vscode",
+        }
+        target_name = req.name
+        target_size = req.size
+        max_depth = max(1, min(12, int(req.max_depth or 6)))
+        matches: List[Dict[str, Any]] = []
+        def _walk(root: Path, depth_left: int) -> None:
+            try:
+                with __import__("os").scandir(root) as entries:
+                    for ent in entries:
+                        if ent.name.startswith("."):
+                            continue
+                        if ent.name in SKIP_NAMES:
+                            continue
+                        try:
+                            if ent.is_file(follow_symlinks=False):
+                                if ent.name == target_name:
+                                    try:
+                                        st = ent.stat(follow_symlinks=False)
+                                        if target_size is None or st.st_size == target_size:
+                                            matches.append({
+                                                "path": str(Path(ent.path).resolve()),
+                                                "size": st.st_size,
+                                                "mtime": st.st_mtime,
+                                            })
+                                    except OSError:
+                                        continue
+                            elif ent.is_dir(follow_symlinks=False) and depth_left > 1:
+                                _walk(Path(ent.path), depth_left - 1)
+                        except OSError:
+                            continue
+            except (PermissionError, OSError):
+                return
+        for root in roots:
+            _walk(root, max_depth)
+            if matches:
+                break  # Stop scanning lower-priority roots once we've found a match.
+        # Most-recently-modified first so the user's likely-active copy
+        # ranks above older duplicates.
+        matches.sort(key=lambda m: m.get("mtime", 0), reverse=True)
+        return {"matches": matches[:8]}
+
+    @app.post("/api/sources/{source_id}/attach-path")
+    def attach_disk_path(source_id: str, body: Dict[str, str]):
+        """Bind an absolute disk path to an already-loaded source so the
+        DELETE route can unlink that path (not just the upload tempfile).
+
+        Used after `/api/files/locate` finds the user's original file
+        post-upload. Idempotent — re-attaching with the same path is a
+        no-op.
+        """
+        path_str = (body or {}).get("path")
+        if not path_str:
+            raise HTTPException(400, "missing 'path'")
+        candidate = Path(path_str).expanduser().resolve()
+        if not candidate.exists() or not candidate.is_file():
+            raise HTTPException(404, f"no such file: {candidate}")
+        with STORE._lock:
+            src = STORE._items.get(source_id)
+            if src is None:
+                raise HTTPException(404, "unknown source")
+            src.path = str(candidate)
+        return {"ok": True, "path": str(candidate)}
+
+    @app.get("/api/system/info")
+    def system_info() -> Dict[str, Any]:
+        """Report host capabilities the frontend can't reach itself.
+
+        ``navigator.deviceMemory`` is bucketed AND capped at 8 GB on
+        Chromium/Safari/macOS, so it's useless for sizing the Play
+        frame-cache budget on a 16/32/64 GB workstation. Use this route
+        to feed the real number into the Inspector → Advanced cap.
+        """
+        total_ram_bytes: Optional[int] = None
+        # Prefer psutil when available (cross-platform).
+        try:
+            import psutil  # type: ignore
+            total_ram_bytes = int(psutil.virtual_memory().total)
+        except Exception:
+            # macOS-native fallback via sysctl.
+            try:
+                import subprocess
+                out = subprocess.check_output(
+                    ["sysctl", "-n", "hw.memsize"], text=True, stderr=subprocess.DEVNULL
+                ).strip()
+                total_ram_bytes = int(out)
+            except Exception:
+                total_ram_bytes = None
+        # Final fallback to /proc/meminfo on Linux.
+        if total_ram_bytes is None:
+            try:
+                with open("/proc/meminfo", "r") as f:
+                    for line in f:
+                        if line.startswith("MemTotal:"):
+                            kb = int(line.split()[1])
+                            total_ram_bytes = kb * 1024
+                            break
+            except Exception:
+                pass
+        return {
+            "platform": sys.platform,
+            "total_ram_bytes": total_ram_bytes,
+            "total_ram_mb": (total_ram_bytes // (1024 * 1024)) if total_ram_bytes else None,
+        }
+
     @app.get("/api/sources", response_model=List[SourceSummary])
     def list_sources():
         return STORE.list()
@@ -694,14 +841,61 @@ def _mount_api(app: FastAPI) -> None:
         return _summary(src)
 
     @app.delete("/api/sources/{source_id}")
-    def delete_source(source_id: str):
+    def delete_source(source_id: str, delete_disk_file: bool = Query(False)):
+        """Drop the source from STORE and (when ``delete_disk_file`` is set)
+        unlink any on-disk artifact tied to it.
+
+        On-disk artifact resolution:
+            * If the source was loaded by path (``src.path`` is set), that
+              user-chosen file is unlinked.
+            * If the source is an upload (``src.path`` is None but the
+              backend owns a tempfile via ``_owned_tempfile``), that
+              tempfile is unlinked. Either way the user gets disk-level
+              cleanup, never just a session drop.
+
+        Response carries the deleted-from path so the frontend can show
+        the user exactly what was removed.
+        """
         with STORE._lock:
-            if source_id not in STORE._items:
+            src = STORE._items.get(source_id)
+            if src is None:
                 raise HTTPException(404, "unknown source")
-        # Use STORE.remove so any open Play-mode FrameReader handle
-        # gets closed (play-tab-recording-inspection-rescue-v1 M1).
+            disk_target: Optional[Path] = None
+            if delete_disk_file:
+                if src.path:
+                    candidate = Path(src.path)
+                    if candidate.exists() and candidate.is_file():
+                        disk_target = candidate
+                elif getattr(src, "_owned_tempfile", None) is not None:
+                    candidate = Path(src._owned_tempfile)
+                    if candidate.exists() and candidate.is_file():
+                        disk_target = candidate
+        # close_frame_reader (called inside STORE.remove) auto-unlinks the
+        # _owned_tempfile, so we deliberately resolve `disk_target` BEFORE
+        # the remove so we know whether we're deleting the user's
+        # original on-disk file (src.path) or the upload tempfile.
         STORE.remove(source_id)
-        return {"ok": True}
+        deleted_path: Optional[str] = None
+        deleted_kind: Optional[str] = None
+        delete_error: Optional[str] = None
+        if disk_target is not None:
+            try:
+                disk_target.unlink()
+                deleted_path = str(disk_target)
+                deleted_kind = "user_path" if (src.path and Path(src.path) == disk_target) else "upload_tempfile"
+            except FileNotFoundError:
+                # Already gone (e.g. tempfile cleaned up by close_frame_reader
+                # before we got here). Treat as success.
+                deleted_path = str(disk_target)
+                deleted_kind = "user_path" if (src.path and Path(src.path) == disk_target) else "upload_tempfile"
+            except OSError as exc:
+                delete_error = f"{type(exc).__name__}: {exc}"
+        return {
+            "ok": True,
+            "deleted_path": deleted_path,
+            "deleted_kind": deleted_kind,
+            "delete_error": delete_error,
+        }
 
     @app.get("/api/sources/{source_id}", response_model=SourceSummary)
     def get_source(source_id: str):
@@ -1183,6 +1377,25 @@ def _mount_api(app: FastAPI) -> None:
         channel: str,
         bins: int = Query(64, ge=4, le=1024),
         apply_dark: bool = Query(True),
+        # Same correction params the canvas-render path honors so the
+        # on-screen histogram matches the displayed pixels — without
+        # this the histogram showed pre-correction DN counts and the
+        # vmin/vmax markers landed on the wrong bins after the user
+        # set a black-level / gain / offset.
+        black_level: float = Query(0.0),
+        gain: float = Query(1.0),
+        offset: float = Query(0.0),
+        # Optional ISP chain (sharpen / denoise / median / gaussian) —
+        # mirrors the channel-thumbnail params so the histogram of the
+        # post-ISP frame is a faithful preview of what the user sees.
+        sharpen_method: Optional[str] = Query(None),
+        sharpen_amount: float = Query(1.0),
+        sharpen_radius: float = Query(2.0),
+        denoise_sigma: float = Query(0.0),
+        median_size: int = Query(0),
+        gaussian_sigma: float = Query(0.0),
+        hot_pixel_thr: float = Query(0.0),
+        bilateral: bool = Query(False),
     ):
         """64-bin histogram of one channel of one frame.
 
@@ -1190,6 +1403,10 @@ def _mount_api(app: FastAPI) -> None:
         histogram with vmin/vmax markers (M20). Returns ``counts /
         edges / min / max / p1 / p99`` so the frontend can size its
         own SVG without round-tripping for percentile values.
+
+        Now applies the same correction pipeline as the channel render
+        route — dark subtract, black-level, gain/offset, ISP chain —
+        so the histogram represents the actually-displayed pixels.
         """
         try:
             src = _must_get(source_id)
@@ -1210,7 +1427,28 @@ def _mount_api(app: FastAPI) -> None:
                 dark = src.dark_channels.get(channel)
                 if dark is not None:
                     image = subtract_dark(image, dark)
-            return JSONResponse(channel_histogram(image, bins=int(bins)),
+            # Apply the same chain the canvas uses, in the same order:
+            #   1. non-linear ISP (sharpen / denoise / median / gauss /
+            #      hot-pixel / bilateral) on raw DN values.
+            #   2. linear pre-norm (black_level → gain → offset).
+            # `_isp_chain_from_query` returns None when no stage is
+            # active, which short-circuits the cost.
+            isp_pre_chain = _isp_chain_from_query(
+                sharpen_method=sharpen_method,
+                sharpen_amount=sharpen_amount,
+                sharpen_radius=sharpen_radius,
+                denoise_sigma=denoise_sigma,
+                median_size=median_size,
+                gaussian_sigma=gaussian_sigma,
+                hot_pixel_thr=hot_pixel_thr,
+                bilateral=bilateral,
+            )
+            if isp_pre_chain is not None:
+                image = _apply_analysis_isp(image, isp_pre_chain)
+            arr = _apply_pre_norm(
+                image, black_level=black_level, gain=gain, offset=offset
+            )
+            return JSONResponse(channel_histogram(arr, bins=int(bins)),
                                 headers={"Cache-Control": "no-store"})
         except HTTPException:
             raise
@@ -1220,6 +1458,143 @@ def _mount_api(app: FastAPI) -> None:
             raise HTTPException(
                 500,
                 f"frame {frame_index} histogram failed: "
+                f"{type(e).__name__}: {e}",
+            )
+
+    @app.post(
+        "/api/sources/{source_id}/frame/{frame_index}/channel/{channel}/roi-stats",
+        responses={200: {"content": {"application/json": {}}}},
+    )
+    def frame_channel_roi_stats(
+        source_id: str,
+        frame_index: int,
+        channel: str,
+        body: Dict[str, Any],
+    ):
+        """Compute ROI statistics on one channel of one frame for the
+        TBR Analysis tool in Play mode.
+
+        Body shape:
+            {
+              "polygon": [[x, y], ...],         # ≥ 3 vertices, image-px
+              "method": "mean" | "percentile" | "mode",
+              "percentile": 50,                 # only for method=percentile
+              "apply_dark": true,
+              "black_level": 0
+            }
+
+        Pipeline matches the rest of the Inspector ISP chain:
+        per-frame channel extraction → optional dark subtract →
+        optional black-level subtract → polygon mask → stats. All
+        stats are computed on the post-correction values so the TBR
+        ratio reflects what the user is actually seeing on the canvas.
+        """
+        try:
+            src = _must_get(source_id)
+            try:
+                chs = src.extract_frame(int(frame_index))
+            except IndexError as e:
+                raise HTTPException(404, str(e))
+            except RuntimeError as e:
+                raise HTTPException(409, str(e))
+            if channel not in chs:
+                raise HTTPException(
+                    404,
+                    f"channel {channel!r} not in frame {frame_index} of source {source_id!r}; "
+                    f"available: {sorted(chs)!r}",
+                )
+            polygon = body.get("polygon") or []
+            if not isinstance(polygon, list) or len(polygon) < 3:
+                raise HTTPException(400, "polygon must be a list of >= 3 [x, y] pairs")
+            method = (body.get("method") or "mean").lower()
+            if method not in ("mean", "percentile", "mode"):
+                raise HTTPException(400, "method must be 'mean', 'percentile', or 'mode'")
+            percentile = float(body.get("percentile") or 50.0)
+            if not 0.0 <= percentile <= 100.0:
+                raise HTTPException(400, "percentile must be in [0, 100]")
+            apply_dark = bool(body.get("apply_dark", True))
+            black_level = float(body.get("black_level", 0.0) or 0.0)
+            image = chs[channel]
+            # Apply the same correction pipeline the canvas uses.
+            if apply_dark and src.has_dark and src.dark_channels is not None:
+                d = src.dark_channels.get(channel)
+                if d is not None:
+                    image = subtract_dark(image, d)
+            arr = image.astype(np.float64, copy=True)
+            if abs(black_level) > 1e-9:
+                arr = arr - black_level
+                # Match the channel-render path: hard-clip to >= 0
+                # so wrap-around (uint16 underflow) can't poison TBR.
+                np.clip(arr, 0.0, None, out=arr)
+            # Rasterize polygon → boolean mask (matches the channel
+            # array shape, which is post-Bayer-extraction).
+            try:
+                from PIL import Image as _PI, ImageDraw as _PID
+                H, W = arr.shape
+                poly = [(float(p[0]), float(p[1])) for p in polygon]
+                canvas = _PI.new("L", (W, H), 0)
+                _PID.Draw(canvas).polygon(poly, fill=1)
+                mask = (np.asarray(canvas, dtype=np.uint8) > 0)
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(
+                    400, f"polygon rasterize failed: {type(exc).__name__}: {exc}"
+                )
+            sel = arr[mask]
+            n_pixels = int(sel.size)
+            if n_pixels == 0:
+                raise HTTPException(
+                    400, "polygon contains no pixels (zero-area or fully outside frame)"
+                )
+            mean = float(np.mean(sel))
+            std = float(np.std(sel, ddof=1)) if n_pixels > 1 else 0.0
+            median = float(np.median(sel))
+            pct_value = float(np.percentile(sel, percentile))
+            # Mode: histogram-binned mode is more useful than scipy.stats.mode
+            # on continuous-valued data (most pixels are unique). Bin into
+            # 256 buckets across the selection's [min, max] and pick the
+            # most-populated bucket's centre.
+            mn = float(np.min(sel))
+            mx = float(np.max(sel))
+            if mx > mn:
+                hist, edges = np.histogram(sel, bins=256, range=(mn, mx))
+                k = int(np.argmax(hist))
+                mode_val = float(0.5 * (edges[k] + edges[k + 1]))
+            else:
+                mode_val = mn
+            if method == "mean":
+                computed = mean
+            elif method == "percentile":
+                computed = pct_value
+            else:
+                computed = mode_val
+            return JSONResponse(
+                {
+                    "n_pixels": n_pixels,
+                    "mean": mean,
+                    "std": std,
+                    "median": median,
+                    "percentile_value": pct_value,
+                    "percentile": percentile,
+                    "mode": mode_val,
+                    "min": mn,
+                    "max": mx,
+                    "method": method,
+                    "computed_value": computed,
+                    "apply_dark": apply_dark,
+                    "black_level": black_level,
+                },
+                headers={"Cache-Control": "no-store"},
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(
+                500,
+                f"frame {frame_index} ROI stats failed: "
                 f"{type(e).__name__}: {e}",
             )
 
@@ -1425,6 +1800,13 @@ def _mount_api(app: FastAPI) -> None:
         strength: float = Query(0.65, ge=0.0, le=1.0),
         max_dim: int = Query(1600, ge=64, le=8192),
         apply_dark: bool = Query(True),
+        # Optional polygon ROI (image-pixel coords on the per-channel
+        # array, NOT the raw mosaic). Format: JSON-encoded list of
+        # [x, y] pairs. When present, the overlay is applied ONLY
+        # inside the polygon and the base shows through everywhere
+        # else. Points outside the channel shape are clipped at
+        # rasterization time. Pass an empty list to clear.
+        mask_polygon: Optional[str] = Query(None),
     ):
         """Compose a base view + colormapped overlay channel into one PNG.
 
@@ -1486,6 +1868,33 @@ def _mount_api(app: FastAPI) -> None:
             # Mask: pixels below low threshold are transparent.
             s = float(strength)
             mask = ov_norm.astype(np.float32) * s
+            # Optional polygon ROI: rasterize the user-drawn polygon
+            # to a binary {0,1} alpha mask and AND it into `mask`. The
+            # base image shows through outside the polygon (mask=0
+            # there), the colormapped overlay only blends inside.
+            if mask_polygon:
+                try:
+                    import json as _json
+                    pts = _json.loads(mask_polygon)
+                except Exception as exc:
+                    raise HTTPException(400, f"invalid mask_polygon JSON: {exc}")
+                if isinstance(pts, list) and len(pts) >= 3:
+                    try:
+                        from PIL import Image as _PI, ImageDraw as _PID
+                        H, W = mask.shape
+                        # Pillow expects [(x, y), …]; clip out-of-bounds
+                        # gracefully so a stray drag doesn't 500.
+                        poly = [(float(p[0]), float(p[1])) for p in pts]
+                        canvas = _PI.new("L", (W, H), 0)
+                        _PID.Draw(canvas).polygon(poly, fill=255)
+                        roi = (np.asarray(canvas, dtype=np.float32) / 255.0)
+                        mask = mask * roi
+                    except HTTPException:
+                        raise
+                    except Exception as exc:
+                        raise HTTPException(
+                            400, f"polygon rasterize failed: {type(exc).__name__}: {exc}"
+                        )
             if blend == "additive":
                 out = np.clip(base_arr + ov_rgb * mask[..., None], 0.0, 1.0)
             elif blend == "screen":

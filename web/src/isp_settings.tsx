@@ -22,7 +22,7 @@ import React, { type CSSProperties, type ReactNode } from 'react';
 import * as _shared from './shared.tsx';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const _s = _shared as any;
-const { Icon, Button, Modal, useTheme, useSource, apiFetch, useLocalStorageState } = _s;
+const { Icon, Button, Modal, useTheme, useSource, apiFetch } = _s;
 
 const {
   useState: useStateI,
@@ -132,11 +132,18 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }: ISPSettingsWindowProps) 
 
   // Staged (unapplied) values. When the user switches mode, we seed
   // staging with that mode's defaults; on Revert we re-seed from the
-  // current source's server state.
+  // current source's server state. Initial seeds use Pair-shaped
+  // sentinels (`null`) so we don't bake in modern-mode hardcoded
+  // values for legacy sources — the post-mount effect below replaces
+  // them with the mode catalog's defaults for the active mode.
   const [stagedModeId, setStagedModeId] = useStateI<string>(source?.isp_mode_id || 'rgb_nir');
   const [stagedOrigin, setStagedOrigin] = useStateI<Pair>(source?.isp_config?.origin || [0, 0]);
-  const [stagedSubStep, setStagedSubStep] = useStateI<Pair>(source?.isp_config?.sub_step || [2, 2]);
-  const [stagedOuter, setStagedOuter] = useStateI<Pair>(source?.isp_config?.outer_stride || [4, 4]);
+  const [stagedSubStep, setStagedSubStep] = useStateI<Pair>(
+    source?.isp_config?.sub_step || [1, 1]
+  );
+  const [stagedOuter, setStagedOuter] = useStateI<Pair>(
+    source?.isp_config?.outer_stride || [1, 1]
+  );
   const [stagedNames, setStagedNames] = useStateI<Record<string, string>>(
     source?.isp_config?.channel_name_overrides || {}
   );
@@ -146,10 +153,10 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }: ISPSettingsWindowProps) 
   const [stagedLocs, setStagedLocs] = useStateI<Record<string, Pair>>(
     source?.isp_config?.channel_loc_overrides || {}
   );
-  const [rgbCompositeDisplay, setRgbCompositeDisplay] = useLocalStorageState(
-    'ispSettings/rgbComposite',
-    false
-  );
+  // Note: the legacy global "Show RGB color composite on canvas" toggle was
+  // removed — RGB is now an explicit "RGB" entry in each mode's Display
+  // channel picker (USAF / FPN / DoF). Single channels always render mono
+  // so the colormap applies; pick RGB for a color composite.
 
   const [applying, setApplying] = useStateI(false);
   const [lastError, setLastError] = useStateI<string | null>(null);
@@ -174,17 +181,43 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }: ISPSettingsWindowProps) 
     return modes.find((m) => m.id === stagedModeId) || modes[0] || null;
   }, [modes, stagedModeId]);
 
-  // Revert staging to whatever the server currently says.
+  // Revert staging to whatever the server currently says, falling back
+  // to the active mode's declared defaults (NOT a hardcoded modern
+  // RGB-NIR pair) — that way a legacy gsbsi source whose isp_config
+  // momentarily lacks fields still seeds its (1,1) sub_step + (2,2)
+  // outer_stride correctly.
   const revert = useCallbackI(() => {
     if (!source) return;
-    setStagedModeId(source.isp_mode_id || 'rgb_nir');
-    setStagedOrigin(source.isp_config?.origin || [0, 0]);
-    setStagedSubStep(source.isp_config?.sub_step || [2, 2]);
-    setStagedOuter(source.isp_config?.outer_stride || [4, 4]);
+    const targetModeId = source.isp_mode_id || 'rgb_nir';
+    const m = (modes || []).find((x) => x.id === targetModeId);
+    setStagedModeId(targetModeId);
+    setStagedOrigin(
+      (source.isp_config?.origin as Pair) || (m ? ([...m.default_origin] as Pair) : [0, 0])
+    );
+    setStagedSubStep(
+      (source.isp_config?.sub_step as Pair) ||
+        (m ? ([...m.default_sub_step] as Pair) : [1, 1])
+    );
+    setStagedOuter(
+      (source.isp_config?.outer_stride as Pair) ||
+        (m ? ([...m.default_outer_stride] as Pair) : [1, 1])
+    );
     setStagedNames(source.isp_config?.channel_name_overrides || {});
     setStagedLocs(source.isp_config?.channel_loc_overrides || {});
     setLastError(null);
-  }, [source]);
+  }, [source, modes]);
+
+  // Re-seed staging whenever the source identity OR the loaded mode
+  // catalog changes. Without this, opening the dialog on a legacy
+  // gsbsi recording right after the catalog loads leaves the dialog
+  // showing stale hardcoded modern defaults until the user manually
+  // hits "Revert". The condition guards against clobbering active
+  // user edits on the SAME source.
+  useEffectI(() => {
+    if (!source || !modes) return;
+    revert();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source?.source_id, source?.isp_mode_id, modes]);
 
   // Picking a new mode seeds staging with that mode's declared defaults.
   const pickMode = useCallbackI(
@@ -270,12 +303,12 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }: ISPSettingsWindowProps) 
           },
         })
       );
-      say?.(`ISP mode → ${activeMode?.display_name || stagedModeId}`, 'success');
+      say?.(`Filter & Channel → ${activeMode?.display_name || stagedModeId}`, 'success');
       onClose?.();
     } catch (err) {
       const msg = (err as Error).message;
       setLastError(msg);
-      say?.(`ISP reconfigure failed: ${msg}`, 'danger');
+      say?.(`Filter & Channel reconfigure failed: ${msg}`, 'danger');
     } finally {
       setApplying(false);
     }
@@ -298,20 +331,20 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }: ISPSettingsWindowProps) 
   // ------------------------------------------------------------------
   if (loadErr) {
     return (
-      <Modal onClose={onClose} width={560} label="ISP settings">
+      <Modal onClose={onClose} width={560} label="Filter & Channel Specification">
         <HeaderRow onClose={onClose} />
         <div style={{ padding: '16px 4px', color: t.danger, fontSize: 12 }}>
-          Failed to load ISP modes: {loadErr}
+          Failed to load Filter & Channel modes: {loadErr}
         </div>
       </Modal>
     );
   }
   if (!modes || !activeMode) {
     return (
-      <Modal onClose={onClose} width={560} label="ISP settings">
+      <Modal onClose={onClose} width={560} label="Filter & Channel Specification">
         <HeaderRow onClose={onClose} />
         <div style={{ padding: '16px 4px', color: t.textMuted, fontSize: 12 }}>
-          Loading ISP modes…
+          Loading Filter & Channel modes…
         </div>
       </Modal>
     );
@@ -330,7 +363,7 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }: ISPSettingsWindowProps) 
   };
 
   return (
-    <Modal onClose={onClose} width={600} label="ISP settings">
+    <Modal onClose={onClose} width={600} label="Filter & Channel Specification">
       <HeaderRow onClose={onClose} />
 
       {/* Mode dropdown + description */}
@@ -564,31 +597,6 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }: ISPSettingsWindowProps) 
         </div>
       </Section>
 
-      {/* RGB composite toggle — only for modes that expose R/G/B slots */}
-      {activeMode.supports_rgb_composite && (
-        <Section label="Display">
-          <label
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              cursor: 'pointer',
-              fontSize: 12,
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={!!rgbCompositeDisplay}
-              onChange={(e) => setRgbCompositeDisplay(e.target.checked)}
-            />
-            <span style={{ color: t.text }}>Show RGB color composite on canvas</span>
-            <span style={{ color: t.textFaint, fontSize: 10.5 }}>
-              (picks / ROIs / probes still compute on per-channel data)
-            </span>
-          </label>
-        </Section>
-      )}
-
       {lastError && (
         <div
           style={{
@@ -640,7 +648,9 @@ const HeaderRow = ({ onClose }: HeaderRowProps) => {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
       <Icon name="isp" size={18} />
-      <div style={{ fontSize: 15, fontWeight: 600, color: t.text }}>ISP settings</div>
+      <div style={{ fontSize: 15, fontWeight: 600, color: t.text }}>
+        Filter &amp; Channel Specification
+      </div>
       <div style={{ flex: 1 }} />
       <Button variant="subtle" icon="close" onClick={onClose} />
     </div>

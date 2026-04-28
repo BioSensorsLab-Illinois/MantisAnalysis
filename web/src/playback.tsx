@@ -7,6 +7,7 @@
 // stream header + sources panel + multi-file load. ViewerGrid / Inspector /
 // Timeline are placeholders (M4+).
 import React from 'react';
+import { AnalysisShell } from './analysis/shell.tsx';
 import {
   useTheme,
   Icon,
@@ -47,7 +48,67 @@ const {
 // loads), playback feels continuous even at 30 FPS.
 // ---------------------------------------------------------------------------
 
-const FRAME_CACHE_MAX = 96; // ~96 PNGs at ~150 KB each ≈ 14 MB; cheap
+// User-tunable frame-cache budget. The cap is expressed in MB (RAM)
+// because frame size varies (a 512×512 RGB PNG is ~70 KB; a 2k×2k
+// channel thumbnail can be ~600 KB). Each evict-trim-loop converts the
+// MB budget to an entry count via a conservative per-blob estimate so a
+// pathological burst of huge frames still stays under budget. The cap
+// is read via a getter so the Inspector → Advanced setting can change
+// it at runtime without re-instantiating the cache.
+const _AVG_BLOB_KB_ESTIMATE = 150; // average compressed PNG size we plan around
+// Default budget assumes ≥ 8 GB of RAM (per project guarantee). 1 GB
+// gives ~6.8K cached PNGs, more than enough to hold any reasonable
+// stream end-to-end and survive scrub/replay without re-fetching.
+const _DEFAULT_CACHE_BUDGET_MB = 1024;
+let _frameCacheBudgetMB = _DEFAULT_CACHE_BUDGET_MB;
+const setFrameCacheBudgetMB = (mb) => {
+  const clamped = Math.max(8, Math.min(8192, Math.round(Number(mb) || _DEFAULT_CACHE_BUDGET_MB)));
+  _frameCacheBudgetMB = clamped;
+  _frameCacheTrim();
+};
+const getFrameCacheBudgetMB = () => _frameCacheBudgetMB;
+
+// Returns the soft entry-count cap derived from the current MB budget.
+const _frameCacheMaxEntries = () =>
+  Math.max(8, Math.floor((_frameCacheBudgetMB * 1024) / _AVG_BLOB_KB_ESTIMATE));
+
+// Returns the prefetch look-ahead window per view. Hard-capped at 32
+// regardless of cache budget — the budget controls cache RETENTION
+// (how long evicted frames stay around for replay/scrub), NOT how
+// aggressively we read ahead. Without this hard cap a high-budget
+// session would iterate many thousand prefetch dispatches per tick,
+// stalling the JS event loop AND saturating the server's frame
+// extractor before the user-facing frame request gets a turn.
+const _PREFETCH_WINDOW_HARD_CAP = 32;
+const _frameCachePrefetchWindow = (viewCount) => {
+  const cap = _frameCacheMaxEntries();
+  const denom = Math.max(1, viewCount | 0);
+  const budgetDerived = Math.floor(cap / 2 / denom);
+  return Math.max(4, Math.min(_PREFETCH_WINDOW_HARD_CAP, budgetDerived));
+};
+
+// ---------------------------------------------------------------------------
+// Prefetch concurrency control.
+//
+// The browser caps connections-per-host around 6 by default; flooding it
+// with hundreds of speculative prefetches starves the user-facing per-
+// view fetch (which is what actually drives the canvas update). We keep a
+// strict semaphore — when at capacity, *drop* the prefetch instead of
+// queueing it (a queued prefetch that fires 30 ticks later is useless
+// because by then the playhead has moved past it). The user-facing
+// per-view fetch in `ViewerCard` runs OUTSIDE this semaphore so the
+// canvas always gets bandwidth.
+//
+// `_prefetchInflight` deduplicates: a prefetch for a URL that's
+// currently being fetched (or already cached) is a no-op. This is the
+// single biggest fix for "every tick re-fetches the same frames" — the
+// previous code only checked the *cache*, missing the window between
+// fetch start and cache populate where duplicate dispatches piled up.
+// ---------------------------------------------------------------------------
+const _MAX_CONCURRENT_PREFETCHES = 6;
+const _prefetchInflight = new Set();
+let _prefetchActive = 0;
+
 const _frameBlobCache = new Map(); // url → objectURL (insertion order = recency)
 
 const _frameCacheGet = (url) => {
@@ -60,17 +121,22 @@ const _frameCacheGet = (url) => {
   return v;
 };
 
-const _frameCachePut = (url, objUrl) => {
-  if (_frameBlobCache.has(url)) {
-    _frameBlobCache.delete(url);
-  }
-  _frameBlobCache.set(url, objUrl);
-  while (_frameBlobCache.size > FRAME_CACHE_MAX) {
+const _frameCacheTrim = () => {
+  const cap = _frameCacheMaxEntries();
+  while (_frameBlobCache.size > cap) {
     const oldestKey = _frameBlobCache.keys().next().value;
     const oldestVal = _frameBlobCache.get(oldestKey);
     _frameBlobCache.delete(oldestKey);
     if (oldestVal) URL.revokeObjectURL(oldestVal);
   }
+};
+
+const _frameCachePut = (url, objUrl) => {
+  if (_frameBlobCache.has(url)) {
+    _frameBlobCache.delete(url);
+  }
+  _frameBlobCache.set(url, objUrl);
+  _frameCacheTrim();
 };
 
 // Purge every blob-cache entry whose URL contains a given source id.
@@ -93,10 +159,73 @@ const _frameCachePurgeForSource = (sourceId) => {
   return dropped.length;
 };
 
+// ---------------------------------------------------------------------------
+// Background-fetch progress telemetry.
+//
+// Every fetch (visible per-view fetch + invisible prefetch) bumps
+// `_inflightFrameFetches` on start and decrements on resolve/reject; a
+// running counter of "total finished since the last quiet" feeds a
+// progress-bar percentage so the user sees forward motion even when the
+// queue is large. The custom event `mantis:play:cache-busy` carries the
+// snapshot to React subscribers (see `usePlayCacheStatus`).
+// ---------------------------------------------------------------------------
+let _inflightFrameFetches = 0;
+let _completedSinceQuiet = 0;
+let _peakSinceQuiet = 0;
+
+const _emitCacheBusy = () => {
+  if (typeof window === 'undefined') return;
+  if (_inflightFrameFetches === 0) {
+    // All caught up — emit one final snapshot and reset cumulative counters
+    // so the next burst starts from zero.
+    window.dispatchEvent(
+      new CustomEvent('mantis:play:cache-busy', {
+        detail: { inflight: 0, peak: _peakSinceQuiet, completed: _completedSinceQuiet },
+      })
+    );
+    _completedSinceQuiet = 0;
+    _peakSinceQuiet = 0;
+    return;
+  }
+  if (_inflightFrameFetches > _peakSinceQuiet) _peakSinceQuiet = _inflightFrameFetches;
+  window.dispatchEvent(
+    new CustomEvent('mantis:play:cache-busy', {
+      detail: {
+        inflight: _inflightFrameFetches,
+        peak: _peakSinceQuiet,
+        completed: _completedSinceQuiet,
+      },
+    })
+  );
+};
+
+const _trackFetchStart = () => {
+  _inflightFrameFetches += 1;
+  _emitCacheBusy();
+};
+const _trackFetchEnd = () => {
+  if (_inflightFrameFetches > 0) _inflightFrameFetches -= 1;
+  _completedSinceQuiet += 1;
+  _emitCacheBusy();
+};
+
 // Fire-and-forget prefetch. Used during playback to pre-warm the next
 // frame's blob so the next render is instant.
+//
+// Three guards protect against the per-tick re-fetch storm:
+//   1. cached → no-op (already have the blob)
+//   2. already in flight → no-op (another tick or scrub kicked it off)
+//   3. semaphore at limit → DROP, do not queue (queueing builds an
+//      ever-growing backlog at high lookahead × FPS that will saturate
+//      the server long after the user has scrubbed past those frames).
 const _prefetchFrame = async (url) => {
-  if (!url || _frameBlobCache.has(url)) return;
+  if (!url) return;
+  if (_frameBlobCache.has(url)) return;
+  if (_prefetchInflight.has(url)) return;
+  if (_prefetchActive >= _MAX_CONCURRENT_PREFETCHES) return;
+  _prefetchInflight.add(url);
+  _prefetchActive += 1;
+  _trackFetchStart();
   try {
     const r = await fetch(url);
     if (!r.ok) return;
@@ -106,6 +235,10 @@ const _prefetchFrame = async (url) => {
     _frameCachePut(url, objUrl);
   } catch {
     /* prefetch failures are silent */
+  } finally {
+    _prefetchActive = Math.max(0, _prefetchActive - 1);
+    _prefetchInflight.delete(url);
+    _trackFetchEnd();
   }
 };
 
@@ -286,6 +419,12 @@ const frameOverlayUrl = (sid, frameIdx, opts = {}) => {
   if (opts.overlayHigh != null) q.set('overlay_high', String(opts.overlayHigh));
   if (opts.maxDim) q.set('max_dim', String(opts.maxDim));
   if (opts.applyDark === false) q.set('apply_dark', 'false');
+  // Polygon ROI for the overlay (image-pixel coords). Backend
+  // rasterizes via PIL.ImageDraw.polygon; outside the polygon the
+  // overlay is invisible and the base shows through.
+  if (Array.isArray(opts.maskPolygon) && opts.maskPolygon.length >= 3) {
+    q.set('mask_polygon', JSON.stringify(opts.maskPolygon));
+  }
   // ISP-version cache-buster (overlay route also re-extracts when ISP
   // geometry on the parent source changes).
   if (opts.ispVersion) q.set('_isp_v', String(opts.ispVersion));
@@ -487,36 +626,18 @@ const SOURCE_MODES = [
     badge: 'RGB',
   },
   // ---------- OVERLAYS ----------
-  {
-    id: 'overlay_nir_hg',
-    label: 'NIR over RGB · HG',
-    group: 'Overlay',
-    kind: 'overlay',
-    requires: ['HG-R', 'HG-G', 'HG-B', 'HG-NIR'],
-    baseGain: 'hg',
-    overlayChannel: 'HG-NIR',
-    defaultColormap: 'inferno',
-    badge: 'OVL',
-  },
-  {
-    id: 'overlay_nir_lg',
-    label: 'NIR over RGB · LG',
-    group: 'Overlay',
-    kind: 'overlay',
-    requires: ['LG-R', 'LG-G', 'LG-B', 'LG-NIR'],
-    baseGain: 'lg',
-    overlayChannel: 'LG-NIR',
-    defaultColormap: 'inferno',
-    badge: 'OVL',
-  },
+  // The pre-baked "NIR over RGB · HG/LG" entries were removed: every overlay
+  // is now configured through the 4-step Overlay Builder. The remaining
+  // entry is the user-driven custom overlay; the builder writes its base /
+  // overlay channel / blend / threshold into `view.overlay`.
   {
     id: 'overlay_custom',
     label: 'Custom overlay…',
     group: 'Overlay',
     kind: 'overlay',
-    requires: ['HG-R', 'HG-G', 'HG-B'],
+    requires: [],
     baseGain: 'hg',
-    overlayChannel: 'HG-NIR',
+    overlayChannel: null,
     defaultColormap: 'inferno',
     badge: 'OVL',
   },
@@ -532,7 +653,11 @@ const availableSourceModes = (recording) => {
     if (m.kind === 'raw') return true;
     if (m.kind === 'rgb' || m.kind === 'rgb_image') return m.requires.every((c) => chs.has(c));
     if (m.kind === 'channel') return chs.has(m.channel);
-    if (m.kind === 'overlay') return m.requires.every((c) => chs.has(c));
+    if (m.kind === 'overlay') {
+      // Custom-overlay is always available (the Overlay Builder lets the
+      // user pick whatever base + overlay channels exist on the source).
+      return (m.requires || []).every((c) => chs.has(c));
+    }
     return false;
   });
 };
@@ -811,6 +936,7 @@ const buildFrameUrl = (recording, view, frameIdx) => {
       strength: ov.strength ?? 0.6,
       overlayLow: ov.overlayLow ?? null,
       overlayHigh: ov.overlayHigh ?? null,
+      maskPolygon: Array.isArray(ov.maskPolygon) ? ov.maskPolygon : null,
       maxDim: opts.maxDim,
       applyDark: opts.applyDark,
       ispVersion: opts.ispVersion,
@@ -1063,6 +1189,10 @@ const makeDefaultView = (recording, opts = {}) => {
     isLocked: false,
     lockedFrame: null,
     includedInExport: true,
+    // Per-view zoom + pan (mouse-wheel zoom, double-click resets).
+    zoom: 1,
+    panX: 0,
+    panY: 0,
     // Display grading (CSS filter) — applied to the <img> element directly.
     // Server-side per-channel grading would round-trip the values into
     // /api/sources/{sid}/frame/{i}/... — M9 if backend support is added.
@@ -1119,7 +1249,29 @@ const makeDefaultView = (recording, opts = {}) => {
       strength: 0.6,
       overlayLow: null,
       overlayHigh: null,
+      // ROI polygon for the overlay (image-pixel coords). When
+      // populated with ≥ 3 vertices, the backend renders the
+      // overlay only inside the polygon and lets the base show
+      // through outside.
+      maskPolygon: [],
     },
+    // Per-view "draw the overlay ROI" mode — the canvas turns into
+    // a vertex-picker; click adds vertices, double-click exits.
+    overlayDrawMode: false,
+    // Per-view TBR Analysis draft. The user picks a Tumor ROI then
+    // a Background ROI, sees live stats for each, then commits the
+    // pair into the parent's `tbrEntries` table. tbrDraftRole drives
+    // which polygon the canvas vertex-picker is currently filling.
+    tbrDraft: {
+      tumorPolygon: [],
+      bgPolygon: [],
+      method: 'mean', // 'mean' | 'percentile' | 'mode'
+      percentile: 50,
+      tumorStats: null, // { computed_value, std, mean, n_pixels, ... }
+      bgStats: null,
+      channel: null, // optional override (defaults to current view channel)
+    },
+    tbrDraftRole: null, // null | 'tumor' | 'background'
   };
 };
 
@@ -1191,15 +1343,63 @@ export const PlaybackMode = ({
   // viewer/inspector binds to).
   const [markedRecIds, setMarkedRecIds] = useStatePb(() => new Set());
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useStatePb(false);
-  const toggleMarked = useCallbackPb((sourceId) => {
-    setMarkedRecIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(sourceId)) next.delete(sourceId);
-      else next.add(sourceId);
-      return next;
-    });
+  // Anchor for shift+click range selection — the source_id of the most
+  // recently toggled (non-shift) recording. Shift+click on another
+  // recording selects every entry between the anchor and the click in
+  // current visual order, mirroring Finder/Explorer behaviour.
+  const markAnchorRef = useRefPb(null);
+  const toggleMarked = useCallbackPb(
+    (sourceId, opts = {}) => {
+      const isShift = !!opts.shiftKey;
+      setMarkedRecIds((prev) => {
+        const next = new Set(prev);
+        if (isShift && markAnchorRef.current) {
+          // Range select: walk the *current* recordings list (display
+          // order) from anchor → click and ADD every recording in
+          // between. We add (never remove) so shift+click is purely
+          // additive — matches Finder/Explorer multi-select semantics.
+          const order = recordings.map((r) => r.source_id);
+          const a = order.indexOf(markAnchorRef.current);
+          const b = order.indexOf(sourceId);
+          if (a !== -1 && b !== -1) {
+            const lo = Math.min(a, b);
+            const hi = Math.max(a, b);
+            for (let i = lo; i <= hi; i++) next.add(order[i]);
+            return next;
+          }
+        }
+        if (next.has(sourceId)) next.delete(sourceId);
+        else next.add(sourceId);
+        markAnchorRef.current = sourceId;
+        return next;
+      });
+    },
+    [recordings]
+  );
+  const clearMarked = useCallbackPb(() => {
+    setMarkedRecIds(new Set());
+    markAnchorRef.current = null;
   }, []);
-  const clearMarked = useCallbackPb(() => setMarkedRecIds(new Set()), []);
+  // Prune any source_ids in `markedRecIds` that no longer correspond to a
+  // live recording. Without this, a recording that vanishes by any
+  // route (delete, remove, server eviction) leaves a phantom entry in
+  // the marked-set and the header badge shows "Delete (1)" against an
+  // empty file list. Also reset the anchor when its source disappears.
+  useEffectPb(() => {
+    const live = new Set(recordings.map((r) => r.source_id));
+    setMarkedRecIds((prev) => {
+      let changed = false;
+      const next = new Set();
+      for (const sid of prev) {
+        if (live.has(sid)) next.add(sid);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+    if (markAnchorRef.current && !live.has(markAnchorRef.current)) {
+      markAnchorRef.current = null;
+    }
+  }, [recordings]);
   const [views, setViews] = useStatePb([]); // View[]; ordered by display position
   const [selectedViewId, setSelectedViewId] = useStatePb(null);
   const [layoutPreset, setLayoutPreset] = useStatePb('single'); // single | side | stack | 2x2
@@ -1269,6 +1469,13 @@ export const PlaybackMode = ({
   // configured; null when closed. Same backend as the inline overlay
   // configurator — the modal just gives a more guided UX.
   const [overlayBuilderViewId, setOverlayBuilderViewId] = useStatePb(null);
+  // TBR Analysis (Tumor / Background ratio). Top-level table of
+  // committed entries (sourceFile, frameIndex, channel, tumor stats,
+  // bg stats, ratio). Draft/in-progress measurement lives on the
+  // active view (see view.tbrDraft) so it picks up the per-view ROI
+  // drawing tool.
+  const [tbrEntries, setTbrEntries] = useStatePb([]);
+  const [tbrAnalysisOpen, setTbrAnalysisOpen] = useStatePb(false);
   useEffectPb(() => {
     let cancelled = false;
     apiFetch('/api/playback/presets', { method: 'GET' })
@@ -1382,38 +1589,43 @@ export const PlaybackMode = ({
       return next;
     });
   }, []);
-  // Per-recording gain selector lives in the Sources panel. Switching
-  // gain (HG / LG / HDR) on a recording walks every view bound to it
-  // and rebases its source-mode using the existing channel-kind it had
-  // (Visible / NIR / Chroma / Raw R/G/B). Channel kind is preserved so
-  // the user's intent ("show me the NIR") survives the gain flip; only
-  // the half/fusion the channel is sourced from changes.
-  const setRecordingGain = useCallbackPb((sourceId, gain) => {
-    setRecordings((prev) =>
-      prev.map((r) => (r.source_id === sourceId ? { ...r, gainPref: gain } : r))
-    );
-    setViews((prev) =>
-      prev.map((v) => {
-        if (v.sourceId !== sourceId) return v;
-        const split = splitSourceMode(v.sourceMode);
-        if (!split.channelKind) return v;
-        // HDR has no raw splits. If the user had Raw — Red/Green/Blue
-        // selected and switches to HDR, fall back to Visible (RGB).
-        let kind = split.channelKind;
-        if (gain === 'HDR' && String(kind).startsWith('raw_')) kind = 'rgb';
-        const newMode = composeSourceMode(gain, kind);
-        const newMeta = sourceModeMeta(newMode);
-        return {
-          ...v,
-          sourceMode: newMode,
-          colormap: v.colormap || newMeta.defaultColormap || 'gray',
-          // Only refresh the auto-generated name; user-edited names
-          // stay as-is so a custom "ROI 3 close-up" survives the flip.
-          name: v.name && v.name !== sourceModeMeta(v.sourceMode).label ? v.name : newMeta.label,
-        };
-      })
-    );
-  }, []);
+  // Gain (HG / LG / HDR) is PER-VIEW: clicking a Gain tab in the
+  // Inspector flips ONLY the currently selected view's source-mode.
+  // Each view independently shows HG, LG, or HDR for the same
+  // recording (e.g. side-by-side HG vs LG comparison). The
+  // recording's `gainPref` still tracks the most recent choice on
+  // this source so newly-spawned views default to the same gain,
+  // but per-view edits never propagate to siblings.
+  const setRecordingGain = useCallbackPb(
+    (sourceId, gain) => {
+      setRecordings((prev) =>
+        prev.map((r) => (r.source_id === sourceId ? { ...r, gainPref: gain } : r))
+      );
+      setViews((prev) =>
+        prev.map((v) => {
+          if (v.id !== selectedViewId) return v;
+          if (v.sourceId !== sourceId) return v;
+          if (v.isLocked) return v;
+          const split = splitSourceMode(v.sourceMode);
+          if (!split.channelKind) return v;
+          let kind = split.channelKind;
+          if (gain === 'HDR' && String(kind).startsWith('raw_')) kind = 'rgb';
+          const newMode = composeSourceMode(gain, kind);
+          const newMeta = sourceModeMeta(newMode);
+          return {
+            ...v,
+            sourceMode: newMode,
+            colormap: v.colormap || newMeta.defaultColormap || 'gray',
+            name:
+              v.name && v.name !== sourceModeMeta(v.sourceMode).label
+                ? v.name
+                : newMeta.label,
+          };
+        })
+      );
+    },
+    [selectedViewId]
+  );
   const [continuityThreshold, setContinuityThreshold] = useLocalStorageState(
     'playback/continuityThresholdS',
     1.0
@@ -1518,7 +1730,11 @@ export const PlaybackMode = ({
         const newRec = recordings.find((r) => r.source_id === activeAtGlobal.sourceId);
         if (!newRec) return v;
         // Preserve the user's source-mode choice when valid for the new
-        // source; otherwise fall back to that source's default.
+        // source; otherwise fall back to that source's default. The
+        // spread `...v` carries over every Inspector setting (vmin/vmax,
+        // grading, isp chain, labels, overlay, applyDark, …) so the only
+        // identity that flips on a stream-follow rebind is the source-id
+        // pointer + the source-mode-derived label fallback.
         const avail = new Set(availableSourceModes(newRec).map((m) => m.id));
         const newMode = avail.has(v.sourceMode) ? v.sourceMode : defaultSourceModeId(newRec);
         const meta = sourceModeMeta(newMode);
@@ -1527,7 +1743,9 @@ export const PlaybackMode = ({
           ...v,
           sourceId: newRec.source_id,
           sourceMode: newMode,
-          name: meta.label,
+          // Keep the view's user-typed name when present; only fall back
+          // to the meta label when the user hasn't named the view.
+          name: v.name || meta.label,
           rawChannel: meta.kind === 'raw' ? v.rawChannel : null,
           // Preserve user-chosen colormap across stream-follow rebind.
           colormap: v.colormap || meta.defaultColormap,
@@ -1552,7 +1770,9 @@ export const PlaybackMode = ({
   // --- Multi-file open ----------------------------------------------------
   const fileInputRef = useRefPb(null);
 
-  const handleOpenClick = () => fileInputRef.current?.click();
+  // `handleOpenClick` is declared FURTHER DOWN, after `loadRecordings`,
+  // because the File System Access API path needs to call into it.
+  // Declaring it here would hit a TDZ on every render. See below.
 
   // Shared loader: takes a list of {kind:'file', file} or {kind:'path', path, name}.
   // Powers both the file-picker flow and the programmatic load-by-path hook
@@ -1570,6 +1790,33 @@ export const PlaybackMode = ({
           let summary;
           if (it.kind === 'file') {
             summary = await apiUpload('/api/sources/upload', it.file);
+            // The browser hides the original disk path of an uploaded
+            // file (security), so the server can only see the upload
+            // tempfile. Ask the backend to scan the user's HOME for a
+            // matching name + size and bind that path to the source so
+            // the delete flow unlinks the user's ACTUAL file, not the
+            // tempfile copy.
+            try {
+              const located = await apiFetch('/api/files/locate', {
+                method: 'POST',
+                body: { name: it.file.name, size: it.file.size },
+              });
+              const match = (located?.matches || [])[0];
+              if (match?.path) {
+                try {
+                  const attached = await apiFetch(`/api/sources/${summary.source_id}/attach-path`, {
+                    method: 'POST',
+                    body: { path: match.path },
+                  });
+                  if (attached?.path) summary.path = attached.path;
+                } catch {
+                  // Non-fatal: the source is still loaded, just won't
+                  // get disk-delete capability for the original file.
+                }
+              }
+            } catch {
+              /* locate failure is non-fatal — recording still loads */
+            }
           } else {
             summary = await apiFetch('/api/sources/load-path', {
               method: 'POST',
@@ -1605,6 +1852,11 @@ export const PlaybackMode = ({
             raw_dtype: summary.raw_dtype || 'uint16',
             raw_bit_depth: summary.raw_bit_depth || 16,
             path: summary.path,
+            // FileSystemFileHandle (when the user opened via showOpenFilePicker)
+            // — used by the delete flow to call `.remove()` and actually
+            // unlink the file from the user's filesystem in place. Not
+            // serializable; only present on this in-memory recording.
+            fileHandle: it.handle || null,
             has_dark: !!summary.has_dark,
             dark_name: summary.dark_name,
             isp_mode_id: summary.isp_mode_id,
@@ -1669,6 +1921,53 @@ export const PlaybackMode = ({
     [loadRecordings]
   );
 
+  // Open via the File System Access API so we get FileSystemFileHandle
+  // objects we can later call `.remove()` on — that actually deletes
+  // the user's source file from disk, not just our upload tempfile.
+  // Falls back to the legacy `<input type="file">` (upload-only path)
+  // when the API isn't available (Safari, older Firefox).
+  const handleOpenClick = useCallbackPb(async () => {
+    if (typeof window === 'undefined' || typeof window.showOpenFilePicker !== 'function') {
+      fileInputRef.current?.click();
+      return;
+    }
+    let handles;
+    try {
+      handles = await window.showOpenFilePicker({
+        multiple: true,
+        types: [
+          {
+            description: 'Recording files',
+            accept: {
+              'application/octet-stream': ['.h5', '.hdf5'],
+              'image/png': ['.png'],
+              'image/tiff': ['.tif', '.tiff'],
+              'image/jpeg': ['.jpg', '.jpeg'],
+            },
+          },
+        ],
+      });
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;
+      // Some browsers (Safari, older Firefox) gate the API behind a
+      // user-permission prompt that throws SecurityError; fall back
+      // to the upload input.
+      fileInputRef.current?.click();
+      return;
+    }
+    if (!handles || handles.length === 0) return;
+    const items = [];
+    for (const handle of handles) {
+      try {
+        const file = await handle.getFile();
+        items.push({ kind: 'file', file, handle });
+      } catch {
+        // Permission revoked between picker and getFile — skip.
+      }
+    }
+    if (items.length > 0) loadRecordings(items);
+  }, [loadRecordings]);
+
   // Programmatic load-by-path hook — listens for a custom window event so
   // tests, the future "Load Play sample" command, and a "Load by path"
   // command-palette entry can drive recording loading without the browser
@@ -1691,9 +1990,16 @@ export const PlaybackMode = ({
   // isp_mode_id / isp_config / channels so the Source-mode dropdown
   // reflects the new mode. Subsequent buildFrameUrl(...) calls will
   // miss the cache and re-fetch the freshly-extracted image.
+  // Live-current-recordings ref so the source-reconfigured fan-out can read
+  // the latest list without recreating the listener on every change.
+  const recordingsRef = useRefPb([]);
+  useEffectPb(() => {
+    recordingsRef.current = recordings;
+  }, [recordings]);
+
   useEffectPb(() => {
     if (typeof window === 'undefined') return undefined;
-    const handler = (ev) => {
+    const handler = async (ev) => {
       const detail = ev?.detail || {};
       const sid = detail.source_id;
       if (!sid) return;
@@ -1711,6 +2017,57 @@ export const PlaybackMode = ({
             : r
         )
       );
+      // Fan the same Filter & Channel Specification out to every OTHER
+      // loaded recording so the user doesn't have to re-apply per file.
+      // Triggering recording stays the canonical / authoritative one (its
+      // server-returned summary already updated state above); the others
+      // get the same mode_id + overrides PUT to their own /isp endpoint
+      // serially so we get an atomic per-source rebuild and a meaningful
+      // failure surface if any one source can't accept the config.
+      if (!detail.isp_mode_id || !detail.isp_config) return;
+      const cfg = detail.isp_config || {};
+      const targets = (recordingsRef.current || []).filter(
+        (r) => r && r.source_id && r.source_id !== sid
+      );
+      for (const target of targets) {
+        try {
+          const updated = await apiFetch(`/api/sources/${target.source_id}/isp`, {
+            method: 'PUT',
+            body: {
+              mode_id: detail.isp_mode_id,
+              origin: cfg.origin,
+              sub_step: cfg.sub_step,
+              outer_stride: cfg.outer_stride,
+              channel_name_overrides: cfg.channel_name_overrides || {},
+              channel_loc_overrides: cfg.channel_loc_overrides || {},
+            },
+          });
+          _frameCachePurgeForSource(target.source_id);
+          setRecordings((prev) =>
+            prev.map((r) =>
+              r.source_id === target.source_id
+                ? {
+                    ...r,
+                    isp_mode_id: updated?.isp_mode_id || r.isp_mode_id,
+                    isp_config: updated?.isp_config || r.isp_config,
+                    channels: updated?.channels || r.channels,
+                    shape: updated?.shape || r.shape,
+                  }
+                : r
+            )
+          );
+        } catch (err) {
+          // Non-fatal: log and continue. The user can re-apply manually
+          // from the Filter & Channel Specification dialog if a sibling
+          // file rejected the config (e.g. raw shape mismatch).
+          // eslint-disable-next-line no-console
+          console.warn(
+            'Filter & Channel fan-out failed for',
+            target.source_id,
+            err?.detail || err?.message || err
+          );
+        }
+      }
     };
     window.addEventListener('mantis:source-reconfigured', handler);
     return () => window.removeEventListener('mantis:source-reconfigured', handler);
@@ -1731,16 +2088,104 @@ export const PlaybackMode = ({
   // (Programmatic dark-load-by-path hook is registered below, after the
   // dark callbacks it references — keeps the TDZ at bay.)
 
+  // Per-FilePill ✕ — SESSION-ONLY remove. NEVER touches the user's
+  // disk file. Passes `delete_disk_file=false` so the backend just
+  // drops the source from STORE and (for an upload) cleans up its
+  // own /tmp tempfile, leaving the user's original on-disk file
+  // alone. Disk-level deletion only happens through the Delete
+  // button + confirmation modal.
+  // Given a *snapshot* of the pre-removal orderedRecordings array, the
+  // current globalFrame, and the set of source ids about to disappear,
+  // pick the new globalFrame so the playhead behaves like the user
+  // expects:
+  //
+  //   • if the source the cursor is currently inside SURVIVES → keep
+  //     the cursor's local-within-that-source position and just
+  //     recompute the global index in the post-removal stream.
+  //   • if the cursor's source is being removed → walk FORWARD from
+  //     that source's slot looking for the first surviving source and
+  //     jump to its START.
+  //   • if there is no surviving source AFTER → walk BACKWARD looking
+  //     for the first surviving source before it and jump to ITS START.
+  //   • if everything is being removed → globalFrame = 0.
+  const computePostDeleteGlobalFrame = useCallbackPb(
+    (preOrdered, currentGlobalFrame, removed) => {
+      if (!preOrdered || preOrdered.length === 0) return 0;
+      // Find the cursor's pre-removal slot + local-within-that-source.
+      let cursorIdx = -1;
+      let cursorLocal = 0;
+      let cum = 0;
+      for (let i = 0; i < preOrdered.length; i++) {
+        const r = preOrdered[i];
+        const n = r.frame_count || 1;
+        if (currentGlobalFrame < cum + n) {
+          cursorIdx = i;
+          cursorLocal = currentGlobalFrame - cum;
+          break;
+        }
+        cum += n;
+      }
+      if (cursorIdx === -1) {
+        // Cursor was past the end of the stream — fall back to the
+        // last surviving source's last frame, computed below.
+        cursorIdx = preOrdered.length - 1;
+        cursorLocal = (preOrdered[cursorIdx].frame_count || 1) - 1;
+      }
+      // Build the surviving ordered list + a per-source new offset.
+      const survivors = preOrdered.filter((r) => !removed.has(r.source_id));
+      if (survivors.length === 0) return 0;
+      const offsetOf = (sid) => {
+        let acc = 0;
+        for (const r of survivors) {
+          if (r.source_id === sid) return acc;
+          acc += r.frame_count || 1;
+        }
+        return -1;
+      };
+      const cursorRec = preOrdered[cursorIdx];
+      // Case A: cursor's source survived — same source + same local.
+      if (!removed.has(cursorRec.source_id)) {
+        const off = offsetOf(cursorRec.source_id);
+        if (off >= 0) {
+          const localCap = (cursorRec.frame_count || 1) - 1;
+          return off + Math.max(0, Math.min(localCap, cursorLocal));
+        }
+      }
+      // Case B: walk forward in the ORIGINAL order for the next survivor.
+      for (let j = cursorIdx + 1; j < preOrdered.length; j++) {
+        if (!removed.has(preOrdered[j].source_id)) {
+          return offsetOf(preOrdered[j].source_id);
+        }
+      }
+      // Case C: no survivor after — walk backward.
+      for (let j = cursorIdx - 1; j >= 0; j--) {
+        if (!removed.has(preOrdered[j].source_id)) {
+          return offsetOf(preOrdered[j].source_id);
+        }
+      }
+      return 0;
+    },
+    []
+  );
+
   const handleRemoveRecording = useCallbackPb(
     async (sid) => {
       try {
-        await apiFetch(`/api/sources/${sid}`, { method: 'DELETE' });
+        await apiFetch(`/api/sources/${sid}?delete_disk_file=false`, {
+          method: 'DELETE',
+        });
       } catch (err) {
         // 404 means it was already gone server-side — fine. Log otherwise.
         if (err.status !== 404) {
           say?.(`Could not remove on server: ${err.detail || err.message}`, 'warning');
         }
       }
+      // Snapshot pre-removal ordering so the cursor-relocation math
+      // sees the file's prior position before we mutate state.
+      const preOrdered = orderedRecordings;
+      const preGlobal = globalFrame;
+      const removed = new Set([sid]);
+      const nextGlobal = computePostDeleteGlobalFrame(preOrdered, preGlobal, removed);
       setRecordings((prev) => prev.filter((r) => r.source_id !== sid));
       setSelectedRecId((prev) => (prev === sid ? null : prev));
       // Drop any views bound to this recording — they have no data to show.
@@ -1749,68 +2194,148 @@ export const PlaybackMode = ({
         const stillExists = views.find((v) => v.id === prev && v.sourceId !== sid);
         return stillExists ? prev : null;
       });
+      setGlobalFrame(nextGlobal);
     },
-    [say, views]
+    [say, views, orderedRecordings, globalFrame, computePostDeleteGlobalFrame]
   );
 
-  // Multi-select "Delete from disk" — DESTRUCTIVE. Calls the backend
-  // route which closes the FrameReader handle, drops each recording
-  // from STORE, then `Path.unlink()`s the file. Per-row results so a
-  // permission failure on one file doesn't block the rest.
+  // Multi-select "Delete" — DESTRUCTIVE. Per-recording cleanup:
+  //   1. If the recording carries a FileSystemFileHandle (opened via
+  //      showOpenFilePicker), upgrade to readwrite permission and call
+  //      `handle.remove()` — that actually unlinks the file from the
+  //      user's filesystem at the original picker location.
+  //   2. Then DELETE /api/sources/{sid} so the backend drops the
+  //      source from STORE AND unlinks any tempfile it owns.
+  // The browser-side handle delete is the only path that can reach the
+  // user's original file when the upload pipeline owns a tempfile copy
+  // (browsers don't expose the original disk path for security).
   const handleDeleteMarkedFromDisk = useCallbackPb(async () => {
     const ids = [...markedRecIds];
     if (ids.length === 0) {
       setDeleteConfirmOpen(false);
       return;
     }
-    const paths = ids
-      .map((sid) => recordings.find((r) => r.source_id === sid)?.path)
+    const markedRecs = ids
+      .map((sid) => recordings.find((r) => r.source_id === sid))
       .filter(Boolean);
-    if (paths.length === 0) {
-      say?.(
-        'None of the marked recordings have a known disk path (likely uploaded files).',
-        'warning'
-      );
-      setDeleteConfirmOpen(false);
-      return;
-    }
-    try {
-      const resp = await apiFetch('/api/sources/delete-files', {
-        method: 'POST',
-        body: { paths },
-      });
-      const results = resp?.results || [];
-      const ok = results.filter((r) => r.status === 'deleted').length;
-      const missing = results.filter((r) => r.status === 'missing').length;
-      const failed = results.filter((r) => r.status === 'error');
-      // Drop each successfully-deleted recording from local state.
-      const deletedPaths = new Set(
-        results.filter((r) => r.status === 'deleted').map((r) => r.path)
-      );
-      setRecordings((prev) => prev.filter((r) => !r.path || !deletedPaths.has(r.path)));
-      setViews((prev) => {
-        const stillBound = new Set(
-          recordings.filter((r) => r.path && deletedPaths.has(r.path)).map((r) => r.source_id)
-        );
-        return prev.filter((v) => !stillBound.has(v.sourceId));
-      });
-      setMarkedRecIds(new Set());
-      if (failed.length > 0) {
-        say?.(
-          `Deleted ${ok} file${ok === 1 ? '' : 's'} from disk; ${failed.length} failed.`,
-          'warning'
-        );
-      } else if (missing > 0) {
-        say?.(`Deleted ${ok} file${ok === 1 ? '' : 's'}; ${missing} were already gone.`, 'success');
-      } else {
-        say?.(`Deleted ${ok} file${ok === 1 ? '' : 's'} from disk.`, 'success');
+    const removedSids = new Set();
+    let okUserPath = 0;
+    let okHandle = 0;
+    const failed = [];
+    for (const rec of markedRecs) {
+      // Try the local-disk delete FIRST (browser-side handle, then
+      // backend unlink-by-path). Whatever path actually unlinks the
+      // user's file on their computer counts as success; everything
+      // else (only-tempfile, no-on-disk-artifact, permission denied,
+      // anything) counts as a FAILURE because the user's stated goal
+      // is "delete the file on my computer".
+      let userFileDeleted = false;
+      let userFileErr = null;
+      // Path 1: FileSystemFileHandle.remove() — works on files opened
+      // through showOpenFilePicker.
+      if (!userFileDeleted && rec.fileHandle && typeof rec.fileHandle.remove === 'function') {
+        try {
+          let perm = 'granted';
+          if (typeof rec.fileHandle.requestPermission === 'function') {
+            try {
+              perm = await rec.fileHandle.requestPermission({ mode: 'readwrite' });
+            } catch {
+              perm = 'granted';
+            }
+          }
+          if (perm === 'granted') {
+            await rec.fileHandle.remove();
+            userFileDeleted = true;
+            okHandle += 1;
+          } else {
+            userFileErr = 'permission denied';
+          }
+        } catch (err) {
+          userFileErr = err?.message || String(err);
+        }
       }
-    } catch (err) {
-      say?.(`Delete failed: ${err.detail || err.message}`, 'danger');
-    } finally {
-      setDeleteConfirmOpen(false);
+      // Path 2 / Path 3: server-side unlink. The DELETE route only
+      // counts as a USER-FILE delete when it reports `deleted_kind:
+      // 'user_path'`; tempfile deletes don't count toward the user's
+      // stated goal.
+      try {
+        // Opt INTO disk deletion explicitly — the per-FilePill ✕
+        // route uses `delete_disk_file=false` to leave the user's
+        // disk file alone, and the backend default is now also
+        // `false`. The bulk-delete confirm modal IS the consent;
+        // pass `true` here so the user's file is unlinked.
+        const resp = await apiFetch(
+          `/api/sources/${rec.source_id}?delete_disk_file=true`,
+          { method: 'DELETE' }
+        );
+        // Always drop the source from the session — its frame reader
+        // is now closed and STORE has forgotten it; keeping the row
+        // in the panel would just confuse the user.
+        removedSids.add(rec.source_id);
+        if (!userFileDeleted) {
+          if (resp?.deleted_kind === 'user_path') {
+            userFileDeleted = true;
+            okUserPath += 1;
+          } else {
+            failed.push({
+              name: rec.name,
+              message:
+                resp?.delete_error ||
+                userFileErr ||
+                'no on-disk path is known for this recording (was it loaded via the legacy file picker?)',
+            });
+          }
+        }
+      } catch (err) {
+        if (err.status === 404) {
+          removedSids.add(rec.source_id);
+          if (!userFileDeleted) {
+            failed.push({
+              name: rec.name,
+              message: userFileErr || 'source already gone on the server, no disk file unlinked',
+            });
+          }
+        } else {
+          failed.push({ name: rec.name, message: err.detail || err.message });
+        }
+      }
     }
-  }, [markedRecIds, recordings, say]);
+    if (removedSids.size > 0) {
+      // Snapshot the pre-removal ordering + cursor BEFORE state mutation
+      // so the relocation math sees the original positions of every
+      // removed source.
+      const nextGlobal = computePostDeleteGlobalFrame(
+        orderedRecordings,
+        globalFrame,
+        removedSids
+      );
+      setRecordings((prev) => prev.filter((r) => !removedSids.has(r.source_id)));
+      setViews((prev) => prev.filter((v) => !removedSids.has(v.sourceId)));
+      setSelectedRecId((prev) => (prev && removedSids.has(prev) ? null : prev));
+      setSelectedViewId((prev) => {
+        const stillExists = views.find((v) => v.id === prev && !removedSids.has(v.sourceId));
+        return stillExists ? prev : null;
+      });
+      setMarkedRecIds(new Set([...markedRecIds].filter((sid) => !removedSids.has(sid))));
+      setGlobalFrame(nextGlobal);
+    }
+    const totalUnlinked = okUserPath + okHandle;
+    const summary = [];
+    if (totalUnlinked > 0) summary.push(`${totalUnlinked} deleted from your computer`);
+    if (failed.length > 0) summary.push(`${failed.length} could NOT be deleted from disk`);
+    if (summary.length > 0) {
+      say?.(summary.join(' · '), failed.length > 0 ? 'danger' : 'success');
+    }
+    setDeleteConfirmOpen(false);
+  }, [
+    markedRecIds,
+    recordings,
+    views,
+    say,
+    orderedRecordings,
+    globalFrame,
+    computePostDeleteGlobalFrame,
+  ]);
 
   // ---- View management -------------------------------------------------
   const updateView = useCallbackPb((viewId, patch) => {
@@ -1938,17 +2463,13 @@ export const PlaybackMode = ({
         nextFrame = nxt;
         return nxt;
       });
-      // Prefetch the frame AFTER the one we just advanced to, for every
-      // active view. Browser-side cache hit on the next tick = no flash.
-      if (nextFrame != null) {
-        const lookahead = (nextFrame + 1) % totalFrames;
-        for (const view of views) {
-          const rec = recordings.find((r) => r.source_id === view.sourceId);
-          if (!rec) continue;
-          const url = buildFrameUrl(rec, view, lookahead);
-          if (url) _prefetchFrame(url);
-        }
-      }
+      // No per-tick prefetch — the eager-warmer effect (above) walks
+      // every (view × frame) URL once on recording-load / settings-
+      // change, so the cache is populated end-to-end before the user
+      // hits Play. The previous per-tick lookahead chased the playhead
+      // and bobbed in/out of cache hits at high FPS; centralizing
+      // population in the warmer kills the thrash AND the visual
+      // jumping between cached/uncached frames.
       if (!cancelled) setTimeout(tick, stepMs);
     };
     const id = setTimeout(tick, stepMs);
@@ -1957,6 +2478,124 @@ export const PlaybackMode = ({
       clearTimeout(id);
     };
   }, [playing, fps, loop, totalFrames, views, recordings]);
+
+  // ---- Eager cache warmer ---------------------------------------------
+  // Walk every (view × frame) URL once in the background so the cache
+  // is full before the user hits Play. Re-runs whenever the URL set
+  // changes (new recording, source-mode flip, ISP/grading edit). Honors
+  // the prefetch concurrency semaphore so it never starves the user-
+  // facing per-view fetch. The previous per-tick lookahead approach
+  // chased the playhead and bobbed in and out of cache hits at high
+  // FPS; eager warming guarantees that once the green-bar finishes,
+  // every frame is a hit forever.
+  //
+  // Stable signature key over (view, recording) URL-relevant fields so
+  // we don't restart on benign React re-renders (e.g. selectedViewId
+  // changes, layout flips). When the key is identical to the previous
+  // run, the warmer no-ops; when it changes, we cancel and restart.
+  // CHEAP warmer key — only the fields that actually change the URL
+  // TEMPLATE (mode + display + ISP geometry). The big nested objects
+  // (labels / grading / isp / overlay) are excluded because JSON.
+  // stringify-ing them per render on N views allocates serious memory
+  // (and a stream of 18+ recordings was crashing the renderer on the
+  // recompute). The cache-key already encodes the full URL anyway, so
+  // a stale warmer-key just means the warmer over-walks; not a bug.
+  const warmerKey = useMemoPb(() => {
+    const parts = [];
+    for (const v of views) {
+      const rec = recordings.find((r) => r.source_id === v.sourceId);
+      if (!rec) continue;
+      // Include overlay + grading + isp signatures so the warmer
+      // restarts whenever the URL TEMPLATE changes (otherwise the
+      // pre-warmed blobs go stale the moment the user edits the
+      // overlay polygon / threshold / grading / ISP chain, and
+      // playback grinds to a halt at server speed). We use a tiny
+      // signature, NOT the full struct, to keep this string short
+      // and avoid burning megabytes per render on big sessions.
+      const ov = v.overlay || {};
+      const polyLen = Array.isArray(ov.maskPolygon) ? ov.maskPolygon.length : 0;
+      const ovSig = `${ov.overlayChannel || ''}/${ov.overlayLow ?? ''}/${ov.overlayHigh ?? ''}/${ov.overlayColormap || ''}/${ov.blend || ''}/${ov.strength ?? ''}/p${polyLen}`;
+      const g = v.grading || {};
+      const gSig = `${g.gain_r ?? 1}/${g.gain_g ?? 1}/${g.gain_b ?? 1}/${g.gamma ?? 1}/${g.brightness ?? 0}/${g.contrast ?? 1}/${g.saturation ?? 1}/${g.wb_kelvin ?? ''}`;
+      const ip = v.isp || {};
+      const ipSig = `${ip.sharpen_method || ''}/${ip.sharpen_amount ?? ''}/${ip.denoise_sigma ?? ''}/${ip.median_size ?? ''}/${ip.gaussian_sigma ?? ''}`;
+      parts.push(
+        `${v.id}|${rec.source_id}|${rec.frame_count}|${v.sourceMode}|${v.colormap || ''}|${v.normalize || ''}|${v.vmin ?? ''}|${v.vmax ?? ''}|${v.blackLevel ?? ''}|${ovSig}|${gSig}|${ipSig}|${_ispVersionToken(rec)}`
+      );
+    }
+    return parts.join('||');
+  }, [views, recordings]);
+
+  useEffectPb(() => {
+    if (totalFrames <= 0 || views.length === 0) return undefined;
+    let cancelled = false;
+    // BOUNDED warm queue. With ~150 KB per cached PNG, a 1 GB budget
+    // holds ~6900 entries. Loading 18 legacy H5s × 128 frames × N
+    // views easily blows past that. We cap the queue at HALF the cache
+    // capacity (so the trim loop doesn't immediately evict what we
+    // just warmed) and walk views ROUND-ROBIN, prioritising the first
+    // view's first frames so the active stream is always warm even
+    // when later views/sources never get their turn.
+    const cacheCap = _frameCacheMaxEntries();
+    const queueCap = Math.max(64, Math.floor(cacheCap / 2));
+    const perViewBudget = Math.max(1, Math.floor(queueCap / Math.max(1, views.length)));
+    const warmQueue = [];
+    let stop = false;
+    // Round-robin frame index across views so frame 0 of every view is
+    // queued before frame 1 of the first view — matters when the user
+    // is scrubbing across the multi-view grid.
+    const maxLocal = views.reduce((m, v) => {
+      const rec = recordings.find((r) => r.source_id === v.sourceId);
+      const c = rec?.frame_count || 0;
+      return c > m ? c : m;
+    }, 0);
+    for (let i = 0; i < maxLocal && !stop; i++) {
+      for (const view of views) {
+        if (warmQueue.length >= queueCap) {
+          stop = true;
+          break;
+        }
+        const rec = recordings.find((r) => r.source_id === view.sourceId);
+        if (!rec) continue;
+        const localCount = rec.frame_count || 0;
+        if (localCount <= 0) continue;
+        if (view.isLocked && view.lockedFrame != null) {
+          if (i === 0) warmQueue.push({ rec, view, localFrame: view.lockedFrame });
+          continue;
+        }
+        if (i >= localCount) continue;
+        if (i >= perViewBudget) continue;
+        warmQueue.push({ rec, view, localFrame: i });
+      }
+    }
+    // Walk the queue, dispatching prefetches as the semaphore allows.
+    // Yields aggressively so the React event loop stays responsive
+    // even when the queue is in the thousands.
+    let pos = 0;
+    const tick = async () => {
+      while (!cancelled && pos < warmQueue.length) {
+        if (_prefetchActive >= _MAX_CONCURRENT_PREFETCHES) {
+          await new Promise((r) => setTimeout(r, 25));
+          continue;
+        }
+        const { rec, view, localFrame } = warmQueue[pos++];
+        const url = buildFrameUrl(rec, view, localFrame);
+        if (url && !_frameBlobCache.has(url) && !_prefetchInflight.has(url)) {
+          _prefetchFrame(url);
+        }
+        // Yield to the event loop every few dispatches so React
+        // re-renders + user input don't get blocked on huge streams.
+        if (pos % 4 === 0) {
+          await new Promise((r) => setTimeout(r, 0));
+        }
+      }
+    };
+    tick();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [warmerKey, totalFrames]);
 
   // ---- Keyboard shortcuts (only while Play tab is mounted) -------------
   useEffectPb(() => {
@@ -2724,8 +3363,27 @@ export const PlaybackMode = ({
           // Inspector "Source" section. Writes to recording.gainPref and
           // rebases all views bound to that recording.
           onSetGain={setRecordingGain}
+          // TBR Analysis — table of committed entries lives at this
+          // level so the modal can read the full set in one place.
+          tbrEntries={tbrEntries}
+          setTbrEntries={setTbrEntries}
+          setTbrAnalysisOpen={setTbrAnalysisOpen}
         />
       </div>
+      {tbrAnalysisOpen && (
+        <AnalysisShell
+          run={{
+            mode: 'tbr',
+            response: {
+              channels: Array.from(new Set(tbrEntries.map((e) => e.channel))).sort(),
+              tbr_entries: tbrEntries,
+            },
+          }}
+          onClose={() => setTbrAnalysisOpen(false)}
+          onToast={(msg, level) => say?.(msg, level || 'info')}
+        />
+      )}
+      <PlayCacheStatusBar recordingsLoading={loadingFiles.length} />
       {streamBuilderOpen && (
         <StreamBuilderModal
           orderedRecordings={orderedRecordings}
@@ -2931,7 +3589,17 @@ export const PlaybackMode = ({
             recording={wizardRec}
             onClose={() => setOverlayBuilderViewId(null)}
             onApply={(nextOverlay) => {
-              updateView(wizardView.id, { overlay: nextOverlay });
+              // Apply commits the overlay config AND switches the view to
+              // the custom-overlay render path so the configuration takes
+              // effect immediately even when the user opened the builder
+              // from a non-overlay source mode.
+              const meta = sourceModeMeta('overlay_custom');
+              updateView(wizardView.id, {
+                overlay: nextOverlay,
+                sourceMode: 'overlay_custom',
+                colormap: wizardView.colormap || meta.defaultColormap || 'inferno',
+                name: wizardView.name || meta.label,
+              });
               setOverlayBuilderViewId(null);
             }}
           />
@@ -3088,14 +3756,11 @@ const StreamHeader = ({
       >
         Video…
       </Button>
-      <Button
-        icon="open"
-        size="sm"
-        onClick={onOpen}
-        title="Open recording (multi-select supported)"
-      >
-        Open recording…
-      </Button>
+      {/* The "Open recording…" button used to live here; removed per
+          user request. Files now load through the SourcesPanel (left
+          column) "Open recording…" button on the empty state, the +
+          Add recordings tile, the ⌘K palette, the ⌘O shortcut, or
+          drag-drop into the empty state. */}
     </div>
   );
 };
@@ -3224,7 +3889,60 @@ const SourcesPanel = ({
         </button>
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '8px 8px 24px' }}>
-        <SectionHeader label="Recordings" count={recordings.length} />
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            marginBottom: 8,
+            padding: '0 4px',
+          }}
+        >
+          <SectionHeader label="Recordings" count={recordings.length} />
+          <div style={{ flex: 1 }} />
+          {recordings.length > 0 && (
+            <>
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={() => {
+                  // Mark every recording (or clear all if everything is
+                  // already marked) — convenience for the user who wants
+                  // to delete the entire stream in one shot.
+                  const allMarked = markedRecIds && markedRecIds.size === recordings.length;
+                  if (allMarked) {
+                    onClearMarked?.();
+                  } else {
+                    for (const r of recordings) {
+                      if (!markedRecIds?.has(r.source_id)) {
+                        onToggleMarked?.(r.source_id, { shiftKey: false });
+                      }
+                    }
+                  }
+                }}
+                data-recordings-select-all
+                title="Select all (or clear) for delete"
+              >
+                {markedRecIds && markedRecIds.size === recordings.length ? 'Clear' : 'Select all'}
+              </Button>
+              <Button
+                size="xs"
+                variant="danger"
+                icon="close"
+                disabled={!markedRecIds || markedRecIds.size === 0}
+                onClick={onOpenDeleteConfirm}
+                data-recordings-delete-header
+                title={
+                  markedRecIds && markedRecIds.size > 0
+                    ? `Permanently delete the ${markedRecIds.size} selected file${markedRecIds.size === 1 ? '' : 's'} from your computer`
+                    : 'Tick recordings then click here to delete the actual files from your computer (shift+click for range)'
+                }
+              >
+                Delete{markedRecIds && markedRecIds.size > 0 ? ` (${markedRecIds.size})` : ''}
+              </Button>
+            </>
+          )}
+        </div>
         {recordings.length === 0 && loadingFiles.length === 0 && errorFiles.length === 0 && (
           <EmptySection
             text="No files loaded yet."
@@ -3259,7 +3977,7 @@ const SourcesPanel = ({
             onOpenWarningCenter={onOpenWarningCenter}
             onSetGain={onSetGain}
             marked={markedRecIds?.has(rec.source_id)}
-            onToggleMarked={() => onToggleMarked?.(rec.source_id)}
+            onToggleMarked={(opts) => onToggleMarked?.(rec.source_id, opts)}
             isPlaying={rec.source_id === activeRecId}
           />
         ))}
@@ -3638,8 +4356,16 @@ const FilePill = ({
           type="checkbox"
           checked={!!marked}
           onClick={(e) => e.stopPropagation()}
-          onChange={() => onToggleMarked()}
-          title="Mark for delete-from-disk"
+          onChange={(e) => {
+            // Read the modifier from the synthetic event's nativeEvent.
+            // Shift+click → expand to a contiguous range from the anchor;
+            // plain click → single toggle. Letting the native check
+            // toggle happen first keeps the DOM in sync; the parent
+            // state replaces it on the next render either way.
+            const shift = !!(e.nativeEvent && e.nativeEvent.shiftKey);
+            onToggleMarked({ shiftKey: shift });
+          }}
+          title="Mark for delete (shift+click for range)"
           data-file-pill-mark
           style={{
             width: 14,
@@ -4271,6 +4997,16 @@ const ViewerCard = ({
   const [ctxMenu, setCtxMenu] = useStatePb(null); // null | { x, y }
   const menuAnchorRef = useRefPb(null);
   const imgRef = useRefPb(null);
+  // SVG overlay used for accurate screen-px → image-px hit-testing
+  // (the IMG element's getBoundingClientRect doesn't account for
+  // objectFit:contain letterboxing). The SVG has the same viewBox
+  // as the image, so getScreenCTM().inverse() returns the precise
+  // mapping even at any zoom + pan.
+  const svgRef = useRefPb(null);
+  // Middle-button drag-pan state. Held in a ref so mousemove updates
+  // don't re-render every frame; we commit the new (panX, panY) to
+  // view state on mouseup or on each frame via rAF.
+  const dragRef = useRefPb(null); // { startClientX, startClientY, startPanX, startPanY } | null
   // M11 reviewer P1: track the most recent blob URL so we can revoke it
   // synchronously when the next one is assigned, AND on unmount. The
   // earlier onload-based revoke leaked under fast scrubbing.
@@ -4313,6 +5049,9 @@ const ViewerCard = ({
     setErrDetail(null);
     const ctrl = new AbortController();
     let alive = true;
+    let counted = false;
+    _trackFetchStart();
+    counted = true;
     fetch(url, { signal: ctrl.signal })
       .then(async (r) => {
         if (!r.ok) {
@@ -4360,6 +5099,12 @@ const ViewerCard = ({
               detail: { source_id: recording.source_id, name: recording.name },
             })
           );
+        }
+      })
+      .finally(() => {
+        if (counted) {
+          counted = false;
+          _trackFetchEnd();
         }
       });
     return () => {
@@ -4544,8 +5289,10 @@ const ViewerCard = ({
           onClose={() => setCtxMenu(null)}
         />
       )}
-      {/* Canvas area */}
+      {/* Canvas area — wheel-zoom + middle/space-drag-pan. The zoom +
+          pan are PER-VIEW so each ViewerCard scales independently. */}
       <div
+        data-canvas-area
         style={{
           flex: 1,
           minHeight: 0,
@@ -4555,6 +5302,158 @@ const ViewerCard = ({
           alignItems: 'center',
           justifyContent: 'center',
           overflow: 'hidden',
+          // Default: no special cursor (canvas is for viewing). Crosshair
+          // only when actively drawing an ROI; the grab cursor used to
+          // show whenever zoomed in but that was distracting and the
+          // pan happens via middle-mouse-drag, not a wheel-click handle.
+          cursor:
+            view.overlayDrawMode || view.tbrDraftRole ? 'crosshair' : 'default',
+        }}
+        onMouseDown={(e) => {
+          // Middle-button drag pans the image. Browsers bind middle-
+          // click to autoscroll on Linux/Windows; preventDefault sup-
+          // presses that. We set capture on the canvas-area so the
+          // mousemove/mouseup keep firing even when the cursor leaves
+          // the element mid-drag.
+          if (e.button !== 1 || !url) return;
+          e.preventDefault();
+          dragRef.current = {
+            startClientX: e.clientX,
+            startClientY: e.clientY,
+            startPanX: view.panX || 0,
+            startPanY: view.panY || 0,
+          };
+          try {
+            e.currentTarget.setPointerCapture?.(e.pointerId);
+          } catch {
+            /* ignore */
+          }
+          e.currentTarget.style.cursor = 'grabbing';
+        }}
+        onMouseMove={(e) => {
+          if (!dragRef.current) return;
+          e.preventDefault();
+          const d = dragRef.current;
+          onUpdate({
+            panX: d.startPanX + (e.clientX - d.startClientX),
+            panY: d.startPanY + (e.clientY - d.startClientY),
+          });
+        }}
+        onMouseUp={(e) => {
+          if (e.button !== 1 || !dragRef.current) return;
+          e.preventDefault();
+          dragRef.current = null;
+          e.currentTarget.style.cursor =
+            view.overlayDrawMode || view.tbrDraftRole ? 'crosshair' : 'default';
+        }}
+        onMouseLeave={(e) => {
+          if (!dragRef.current) return;
+          dragRef.current = null;
+          e.currentTarget.style.cursor =
+            view.overlayDrawMode || view.tbrDraftRole ? 'crosshair' : 'default';
+        }}
+        onContextMenu={(e) => {
+          // The native context menu on right-click is already
+          // owned by ViewerCard's right-click → Send-to handler;
+          // suppress here so middle-click on macOS (which Chrome
+          // sometimes maps to right-click on touchpads) doesn't
+          // pop the menu mid-pan.
+          if (dragRef.current) e.preventDefault();
+        }}
+        onClick={(e) => {
+          // Polygon-vertex picker. Active when overlay-mask or TBR
+          // ROI draw mode is on. Hit-tests via the SVG overlay's
+          // bounding-rect math, NOT getScreenCTM — Chromium's
+          // SVGGraphicsElement.getScreenCTM() does not include CSS
+          // transforms applied to the SVG element itself, so once the
+          // canvas was zoomed (we transform the SVG with `scale()`)
+          // the CTM read became wrong and clicks landed far from the
+          // cursor. getBoundingClientRect DOES include CSS transforms
+          // — combining it with the viewBox aspect-fit math (we use
+          // preserveAspectRatio="xMidYMid meet") gives accurate
+          // image-pixel coords at any zoom + pan.
+          if (!url || !recording?.shape || !svgRef.current) return;
+          const drawingOverlay = !!view.overlayDrawMode;
+          const tbrRole = view.tbrDraftRole;
+          if (!drawingOverlay && !tbrRole) return;
+          const svg = svgRef.current;
+          const ih = recording.shape[0] || 1;
+          const iw = recording.shape[1] || 1;
+          const rect = svg.getBoundingClientRect();
+          if (!rect.width || !rect.height) return;
+          // Compute the actual content rect inside the SVG box,
+          // honoring preserveAspectRatio="xMidYMid meet" letterboxing.
+          const aspectImg = iw / ih;
+          const aspectRect = rect.width / rect.height;
+          let contentW;
+          let contentH;
+          let contentLeft;
+          let contentTop;
+          if (aspectImg > aspectRect) {
+            contentW = rect.width;
+            contentH = rect.width / aspectImg;
+            contentLeft = rect.left;
+            contentTop = rect.top + (rect.height - contentH) / 2;
+          } else {
+            contentH = rect.height;
+            contentW = rect.height * aspectImg;
+            contentLeft = rect.left + (rect.width - contentW) / 2;
+            contentTop = rect.top;
+          }
+          const fx = (e.clientX - contentLeft) / contentW;
+          const fy = (e.clientY - contentTop) / contentH;
+          if (fx < 0 || fy < 0 || fx > 1 || fy > 1) return;
+          const ix = Math.round(fx * iw);
+          const iy = Math.round(fy * ih);
+          if (drawingOverlay) {
+            const ov = view.overlay || {};
+            const prev = Array.isArray(ov.maskPolygon) ? ov.maskPolygon : [];
+            onUpdate({ overlay: { ...ov, maskPolygon: [...prev, [ix, iy]] } });
+          } else if (tbrRole === 'tumor' || tbrRole === 'background') {
+            const draft = view.tbrDraft || {};
+            const key = tbrRole === 'tumor' ? 'tumorPolygon' : 'bgPolygon';
+            const prev = Array.isArray(draft[key]) ? draft[key] : [];
+            onUpdate({ tbrDraft: { ...draft, [key]: [...prev, [ix, iy]] } });
+          }
+          e.stopPropagation();
+        }}
+        onWheel={(e) => {
+          // Mouse-wheel zoom centred on the cursor. preventDefault
+          // stops the browser from scrolling the inspector when the
+          // wheel hits the canvas. Step is ±10% per notch — clamped
+          // to [0.1, 32]× so the user can zoom WAY in on a USAF bar
+          // and back out without losing the image.
+          if (!url) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const cur = view.zoom || 1;
+          const factor = Math.exp(-e.deltaY * 0.0015);
+          const next = Math.max(0.1, Math.min(32, cur * factor));
+          if (Math.abs(next - cur) < 1e-4) return;
+          // Pivot zoom around the cursor: shift pan so the point
+          // under the mouse stays under the mouse after the scale.
+          const rect = e.currentTarget.getBoundingClientRect();
+          const cx = e.clientX - rect.left - rect.width / 2;
+          const cy = e.clientY - rect.top - rect.height / 2;
+          const ratio = next / cur;
+          const px = view.panX || 0;
+          const py = view.panY || 0;
+          const nextPanX = cx - (cx - px) * ratio;
+          const nextPanY = cy - (cy - py) * ratio;
+          onUpdate({ zoom: next, panX: nextPanX, panY: nextPanY });
+        }}
+        onDoubleClick={(e) => {
+          // Double-click resets zoom + pan to fit-to-canvas. While
+          // drawing an ROI, double-click does NOTHING (the legacy
+          // double-click-to-finish behaviour was removed in favour
+          // of an explicit Done button in the Inspector — accidental
+          // double-clicks were committing half-finished polygons).
+          if (!url) return;
+          if (view.overlayDrawMode || view.tbrDraftRole) return;
+          e.preventDefault();
+          e.stopPropagation();
+          if ((view.zoom || 1) === 1 && !view.panX && !view.panY) return;
+          onUpdate({ zoom: 1, panX: 0, panY: 0 });
         }}
       >
         {!recording && <div style={{ color: t.textFaint, fontSize: 11 }}>No recording bound</div>}
@@ -4578,13 +5477,131 @@ const ViewerCard = ({
               // arrives. No more black flash during playback.
               display: imgState === 'error' ? 'none' : 'block',
               imageRendering: 'pixelated',
+              // Pan + zoom transform applied via CSS so the image
+              // stays GPU-composited (no JS reflow per wheel notch).
+              transform: `translate(${view.panX || 0}px, ${view.panY || 0}px) scale(${view.zoom || 1})`,
+              transformOrigin: 'center center',
               filter: view.showRaw
                 ? 'none'
                 : `brightness(${view.brightness}) contrast(${view.contrast}) saturate(${view.saturation})${view.invert ? ' invert(1)' : ''}`,
               transition: 'filter 0.1s linear',
+              willChange: 'transform',
             }}
           />
         )}
+        {url && (view.zoom || 1) > 1.001 && (
+          <div
+            style={{
+              position: 'absolute',
+              left: 8,
+              bottom: 8,
+              padding: '2px 6px',
+              fontSize: 10,
+              fontFamily: 'ui-monospace,Menlo,monospace',
+              background: 'rgba(0,0,0,0.55)',
+              color: '#fff',
+              borderRadius: 3,
+              pointerEvents: 'none',
+            }}
+          >
+            {(view.zoom || 1).toFixed(2)}×
+          </div>
+        )}
+        {/* ROI polygon overlay (overlay-mode mask AND TBR Tumor /
+            Background drafts). SVG shares the image's transform so
+            shapes scale+pan with the image. */}
+        {url &&
+          recording?.shape &&
+          (() => {
+            const ih = recording.shape[0] || 1;
+            const iw = recording.shape[1] || 1;
+            const overlayPts =
+              meta.kind === 'overlay' && Array.isArray((view.overlay || {}).maskPolygon)
+                ? (view.overlay || {}).maskPolygon
+                : [];
+            const draft = view.tbrDraft || {};
+            const tumorPts = Array.isArray(draft.tumorPolygon) ? draft.tumorPolygon : [];
+            const bgPts = Array.isArray(draft.bgPolygon) ? draft.bgPolygon : [];
+            if (
+              overlayPts.length === 0 &&
+              tumorPts.length === 0 &&
+              bgPts.length === 0 &&
+              !view.overlayDrawMode &&
+              !view.tbrDraftRole
+            )
+              return null;
+            const polyEl = (pts, color, fillAlpha) => {
+              if (pts.length === 0) return null;
+              const polyStr = pts.map(([x, y]) => `${x},${y}`).join(' ');
+              return (
+                <g>
+                  {pts.length >= 2 && (
+                    <polyline
+                      points={polyStr}
+                      fill={pts.length >= 3 ? `${color}${fillAlpha}` : 'none'}
+                      stroke={color}
+                      strokeWidth={Math.max(1, iw / 600)}
+                      strokeLinejoin="round"
+                    />
+                  )}
+                  {pts.map(([x, y], i) => (
+                    <circle
+                      key={i}
+                      cx={x}
+                      cy={y}
+                      r={Math.max(2, iw / 300)}
+                      fill={color}
+                      stroke="#fff"
+                      strokeWidth={Math.max(1, iw / 1200)}
+                    />
+                  ))}
+                </g>
+              );
+            };
+            const hint =
+              view.overlayDrawMode || view.tbrDraftRole
+                ? `click to add vertex · ESC / Enter to finish · Backspace to undo${
+                    view.tbrDraftRole ? ` · drawing ${view.tbrDraftRole.toUpperCase()}` : ''
+                  }`
+                : null;
+            const hintAnchor =
+              tumorPts[0] || bgPts[0] || overlayPts[0] || [iw * 0.05, iw * 0.05];
+            return (
+              <svg
+                ref={svgRef}
+                data-overlay-roi-svg
+                viewBox={`0 0 ${iw} ${ih}`}
+                preserveAspectRatio="xMidYMid meet"
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  top: 0,
+                  width: '100%',
+                  height: '100%',
+                  pointerEvents: 'none',
+                  transform: `translate(${view.panX || 0}px, ${view.panY || 0}px) scale(${view.zoom || 1})`,
+                  transformOrigin: 'center center',
+                }}
+              >
+                {polyEl(overlayPts, '#3a82f7', '1A')}
+                {polyEl(tumorPts, '#ff5b5b', '24')}
+                {polyEl(bgPts, '#3ecbe5', '24')}
+                {hint && (
+                  <text
+                    x={hintAnchor[0] + Math.max(4, iw / 200)}
+                    y={hintAnchor[1] - Math.max(4, iw / 200)}
+                    fontSize={Math.max(8, iw / 90)}
+                    fill="#fff"
+                    stroke="#000"
+                    strokeWidth={Math.max(0.5, iw / 1800)}
+                    paintOrder="stroke"
+                  >
+                    {hint}
+                  </text>
+                )}
+              </svg>
+            );
+          })()}
         {/* M20.1 — canvas-overlay histogram (bottom-right of the
             canvas). Off by default; toggled in Inspector Display. */}
         {url && view.showCanvasHistogram && (
@@ -5211,7 +6228,7 @@ const ProcessingBadge = ({ code, tone = 'neutral', tip }) => {
 // play-tab-recording-inspection-rescue-v1 M5
 // ---------------------------------------------------------------------------
 
-const FPS_PRESETS = [1, 5, 10, 15, 30, 60];
+const FPS_PRESETS = [1, 2, 5, 10, 15, 24, 30, 48, 60, 90, 120, 240];
 // Stable color seed for stream segments — same source always gets the same color.
 const STREAM_COLORS = ['#5d8aa8', '#8aa05d', '#a8745d', '#5da890', '#a85d8a', '#8a5da8'];
 
@@ -5939,9 +6956,9 @@ const ExportVideoModal = ({
           <Row label="FPS">
             <Spinbox
               value={outFps}
-              onChange={(v) => setOutFps(Math.max(0.1, Math.min(120, Number(v) || 10)))}
+              onChange={(v) => setOutFps(Math.max(0.1, Math.min(240, Number(v) || 10)))}
               min={0.1}
-              max={120}
+              max={240}
               step={1}
               data-out-fps
             />
@@ -7132,22 +8149,66 @@ const histogramTracesFor = (view, recording) => {
 // Shared fetch helper: pull one or more channel histograms in parallel
 // for a given recording + frame. Each trace returns ``{channel, color,
 // hist}``; failed individual fetches are silently dropped.
-const useChannelHistograms = (recording, traces, localFrame) => {
+//
+// Forwards the active view's ISP corrections (black_level, gain,
+// offset, sharpen / denoise / median / gauss / hot-pixel / bilateral)
+// so the histogram represents the post-ISP frame the user is actually
+// looking at on the canvas — without this the on-screen histogram
+// showed pre-correction DN counts and the vmin/vmax markers landed
+// on the wrong bins after any Corrections edit.
+const useChannelHistograms = (recording, traces, localFrame, view) => {
   const [data, setData] = useStatePb([]);
-  // Memoize the trace key so the effect's dep array uses a stable
-  // primitive; otherwise the inline array recreates each render.
   const tracesKey = (traces || []).map((tr) => tr.channel).join('|');
+  // Build a stable signature of the post-ISP-relevant view fields so
+  // the effect re-fires when (and only when) the rendered pixels
+  // actually change.
+  const ispSig = useMemoPb(() => {
+    if (!view) return '';
+    const ip = view.isp || {};
+    return [
+      view.applyDark === false ? '0' : '1',
+      view.blackLevel ?? 0,
+      view.gain ?? 1,
+      view.offset ?? 0,
+      ip.sharpen_method || '',
+      ip.sharpen_amount ?? '',
+      ip.sharpen_radius ?? '',
+      ip.denoise_sigma ?? '',
+      ip.median_size ?? '',
+      ip.gaussian_sigma ?? '',
+      ip.hot_pixel_thr ?? '',
+      ip.bilateral ? '1' : '0',
+    ].join('|');
+  }, [view]);
   useEffectPb(() => {
     if (!recording || !traces || traces.length === 0 || localFrame == null) {
       setData([]);
       return undefined;
     }
+    const v = view || {};
+    const ip = v.isp || {};
+    const buildUrl = (ch) => {
+      const q = new URLSearchParams({ bins: '64' });
+      if (v.applyDark === false) q.set('apply_dark', 'false');
+      if (v.blackLevel != null && v.blackLevel !== 0) q.set('black_level', String(v.blackLevel));
+      if (v.gain != null && Math.abs(v.gain - 1) > 1e-6) q.set('gain', String(v.gain));
+      if (v.offset != null && v.offset !== 0) q.set('offset', String(v.offset));
+      if (ip.sharpen_method && ip.sharpen_method !== 'None') {
+        q.set('sharpen_method', ip.sharpen_method);
+        if (ip.sharpen_amount != null) q.set('sharpen_amount', String(ip.sharpen_amount));
+        if (ip.sharpen_radius != null) q.set('sharpen_radius', String(ip.sharpen_radius));
+      }
+      if (ip.denoise_sigma) q.set('denoise_sigma', String(ip.denoise_sigma));
+      if (ip.median_size) q.set('median_size', String(ip.median_size));
+      if (ip.gaussian_sigma) q.set('gaussian_sigma', String(ip.gaussian_sigma));
+      if (ip.hot_pixel_thr) q.set('hot_pixel_thr', String(ip.hot_pixel_thr));
+      if (ip.bilateral) q.set('bilateral', 'true');
+      return `/api/sources/${recording.source_id}/frame/${localFrame}/channel/${encodeURIComponent(ch)}/histogram?${q.toString()}`;
+    };
     let alive = true;
     Promise.all(
       traces.map((tr) =>
-        apiFetch(
-          `/api/sources/${recording.source_id}/frame/${localFrame}/channel/${encodeURIComponent(tr.channel)}/histogram?bins=64`
-        )
+        apiFetch(buildUrl(tr.channel))
           .then((d) => ({ channel: tr.channel, color: tr.color, hist: d }))
           .catch(() => null)
       )
@@ -7157,7 +8218,7 @@ const useChannelHistograms = (recording, traces, localFrame) => {
     return () => {
       alive = false;
     };
-  }, [recording?.source_id, tracesKey, localFrame]);
+  }, [recording?.source_id, tracesKey, localFrame, ispSig]);
   return data;
 };
 
@@ -7184,9 +8245,11 @@ const _polylinePoints = (counts, peak, W, H) => {
 // views, renders a single trace in neutral grey. Toggled by
 // `view.showCanvasHistogram`.
 const CanvasHistogramOverlay = ({ recording, view, localFrame, vmin, vmax }) => {
+  // (forwards `view` into useChannelHistograms below so the overlay
+  // histogram reflects the post-ISP frame)
   const t = useTheme();
   const traces = histogramTracesFor(view, recording);
-  const histRows = useChannelHistograms(recording, traces, localFrame);
+  const histRows = useChannelHistograms(recording, traces, localFrame, view);
   if (!recording || histRows.length === 0) return null;
   const W = 200;
   const H = 60;
@@ -7314,7 +8377,7 @@ const CanvasHistogramOverlay = ({ recording, view, localFrame, vmin, vmax }) => 
 const HistogramPanel = ({ recording, view, localFrame, vmin, vmax }) => {
   const t = useTheme();
   const traces = histogramTracesFor(view, recording);
-  const histRows = useChannelHistograms(recording, traces, localFrame);
+  const histRows = useChannelHistograms(recording, traces, localFrame, view);
   if (!recording || !view) return null;
   if (traces.length === 0) {
     return (
@@ -7511,6 +8574,11 @@ const Inspector = ({
   onDeletePreset,
   // M29 — overlay builder
   onOpenOverlayBuilder,
+  // TBR Analysis — table state lives at PlaybackMode level so the
+  // analysis modal can read every committed entry.
+  tbrEntries = [],
+  setTbrEntries,
+  setTbrAnalysisOpen,
 }) => {
   const t = useTheme();
   if (collapsed) {
@@ -7718,36 +8786,36 @@ const Inspector = ({
                   data-inspector-normalize
                 />
               </Row>
-              <Row label="Black level">
-                <Spinbox
-                  value={selectedView.blackLevel ?? 0}
-                  onChange={(v) => onUpdateView(selectedView.id, { blackLevel: Number(v) })}
-                  min={0}
-                  max={65535}
-                  step={10}
-                  data-inspector-black-level
-                />
-              </Row>
-              <Row label="Gain">
-                <Spinbox
-                  value={selectedView.gain ?? 1.0}
-                  onChange={(v) => onUpdateView(selectedView.id, { gain: Number(v) })}
-                  min={0}
-                  max={64}
-                  step={0.1}
-                  data-inspector-gain
-                />
-              </Row>
-              <Row label="Offset">
-                <Spinbox
-                  value={selectedView.offset ?? 0}
-                  onChange={(v) => onUpdateView(selectedView.id, { offset: Number(v) })}
-                  min={-65535}
-                  max={65535}
-                  step={10}
-                  data-inspector-offset
-                />
-              </Row>
+              <GradeRow
+                label="Black level"
+                value={selectedView.blackLevel ?? 0}
+                onChange={(v) => onUpdateView(selectedView.id, { blackLevel: Number(v) })}
+                min={0}
+                max={65535}
+                step={1}
+                format={(v) => Math.round(Number(v)).toString()}
+                testId="inspector-black-level"
+              />
+              <GradeRow
+                label="Gain"
+                value={selectedView.gain ?? 1.0}
+                onChange={(v) => onUpdateView(selectedView.id, { gain: Number(v) })}
+                min={0}
+                max={64}
+                step={0.05}
+                format={(v) => Number(v).toFixed(2)}
+                testId="inspector-gain"
+              />
+              <GradeRow
+                label="Offset"
+                value={selectedView.offset ?? 0}
+                onChange={(v) => onUpdateView(selectedView.id, { offset: Number(v) })}
+                min={-65535}
+                max={65535}
+                step={1}
+                format={(v) => Math.round(Number(v)).toString()}
+                testId="inspector-offset"
+              />
               {/* M22 hotfix — Brightness / Contrast / Gamma moved
                   exclusively to the RGB Grading section (where they
                   apply to per-channel R/G/B grading). The earlier
@@ -7876,34 +8944,57 @@ const Inspector = ({
                 // channel / raw / overlay views — full Display surface.
                 return (
                   <>
-                    <Row label="Low threshold">
-                      <Spinbox
-                        value={selectedView.vmin ?? 0}
-                        onChange={(v) => onUpdateView(selectedView.id, { vmin: Number(v) })}
-                        min={0}
-                        max={65535}
-                        step={1}
-                        data-inspector-vmin
-                      />
-                    </Row>
-                    <Row label="High threshold">
-                      <Spinbox
-                        value={selectedView.vmax ?? 65535}
-                        onChange={(v) => onUpdateView(selectedView.id, { vmax: Number(v) })}
-                        min={0}
-                        max={65535}
-                        step={1}
-                        data-inspector-vmax
-                      />
-                    </Row>
+                    <GradeRow
+                      label="Low threshold"
+                      value={selectedView.vmin ?? 0}
+                      onChange={(v) => onUpdateView(selectedView.id, { vmin: Number(v) })}
+                      min={0}
+                      max={65535}
+                      step={1}
+                      format={(v) => Math.round(Number(v)).toString()}
+                      testId="inspector-vmin"
+                    />
+                    <GradeRow
+                      label="High threshold"
+                      value={selectedView.vmax ?? 65535}
+                      onChange={(v) => onUpdateView(selectedView.id, { vmax: Number(v) })}
+                      min={0}
+                      max={65535}
+                      step={1}
+                      format={(v) => Math.round(Number(v)).toString()}
+                      testId="inspector-vmax"
+                    />
                     <Row label="Auto thresholds">
                       <Button
                         size="sm"
                         variant="subtle"
-                        onClick={() => onUpdateView(selectedView.id, { vmin: null, vmax: null })}
-                        title="Clear vmin/vmax — fall back to mode default (dtype-max for none, percentile for auto)"
+                        onClick={async () => {
+                          // Snap vmin/vmax to the channel's 1st / 99th
+                          // percentile so the slider numbers reflect
+                          // what the canvas actually clips at.
+                          const ch =
+                            sourceModeMeta(selectedView.sourceMode).kind === 'channel'
+                              ? sourceModeMeta(selectedView.sourceMode).channel
+                              : selectedView.rawChannel;
+                          if (!selectedRecording || !ch) {
+                            onUpdateView(selectedView.id, { vmin: null, vmax: null });
+                            return;
+                          }
+                          try {
+                            const r = await apiFetch(
+                              `/api/sources/${selectedRecording.source_id}/channel/${encodeURIComponent(ch)}/range`
+                            );
+                            onUpdateView(selectedView.id, {
+                              vmin: Math.round(r?.p1 ?? r?.min ?? 0),
+                              vmax: Math.round(r?.p99 ?? r?.max ?? 65535),
+                            });
+                          } catch {
+                            onUpdateView(selectedView.id, { vmin: null, vmax: null });
+                          }
+                        }}
+                        title="Snap to 1st / 99th percentile of the active channel"
                       >
-                        Reset
+                        Auto
                       </Button>
                     </Row>
                     <Row label="Colormap">
@@ -8012,140 +9103,147 @@ const Inspector = ({
                       console.warn('Auto-WB failed:', err);
                     }
                   };
+                  const fmt2 = (v) => Number(v).toFixed(2);
+                  const fmtKelvin = (v) => `${Math.round(Number(v))} K`;
                   return (
                     <>
-                      <Row label="Gain R">
-                        <Slider
-                          value={g.gain_r ?? 1.0}
-                          onChange={(v) => setG({ gain_r: Number(v) })}
-                          min={0}
-                          max={4}
-                          step={0.02}
-                          data-inspector-gain-r
-                        />
-                      </Row>
-                      <Row label="Gain G">
-                        <Slider
-                          value={g.gain_g ?? 1.0}
-                          onChange={(v) => setG({ gain_g: Number(v) })}
-                          min={0}
-                          max={4}
-                          step={0.02}
-                          data-inspector-gain-g
-                        />
-                      </Row>
-                      <Row label="Gain B">
-                        <Slider
-                          value={g.gain_b ?? 1.0}
-                          onChange={(v) => setG({ gain_b: Number(v) })}
-                          min={0}
-                          max={4}
-                          step={0.02}
-                          data-inspector-gain-b
-                        />
-                      </Row>
-                      <Row label="Offset R">
-                        <Slider
-                          value={g.offset_r ?? 0}
-                          onChange={(v) => setG({ offset_r: Number(v) })}
-                          min={-0.5}
-                          max={0.5}
-                          step={0.01}
-                          data-inspector-offset-r
-                        />
-                      </Row>
-                      <Row label="Offset G">
-                        <Slider
-                          value={g.offset_g ?? 0}
-                          onChange={(v) => setG({ offset_g: Number(v) })}
-                          min={-0.5}
-                          max={0.5}
-                          step={0.01}
-                          data-inspector-offset-g
-                        />
-                      </Row>
-                      <Row label="Offset B">
-                        <Slider
-                          value={g.offset_b ?? 0}
-                          onChange={(v) => setG({ offset_b: Number(v) })}
-                          min={-0.5}
-                          max={0.5}
-                          step={0.01}
-                          data-inspector-offset-b
-                        />
-                      </Row>
-                      <Row label="WB Kelvin">
-                        <Slider
-                          value={g.wb_kelvin ?? 6500}
-                          onChange={(v) => setG({ wb_kelvin: Number(v) })}
-                          min={3000}
-                          max={10000}
-                          step={50}
-                          data-inspector-wb-kelvin
-                        />
-                      </Row>
-                      <Row label="Gamma">
-                        <Slider
-                          value={g.gamma ?? 1.0}
-                          onChange={(v) => setG({ gamma: Number(v) })}
-                          min={0.2}
-                          max={3.0}
-                          step={0.02}
-                          data-inspector-grading-gamma
-                        />
-                      </Row>
-                      <Row label="Brightness">
-                        <Slider
-                          value={g.brightness ?? 0}
-                          onChange={(v) => setG({ brightness: Number(v) })}
-                          min={-0.5}
-                          max={0.5}
-                          step={0.01}
-                          data-inspector-grading-brightness
-                        />
-                      </Row>
-                      <Row label="Contrast">
-                        <Slider
-                          value={g.contrast ?? 1.0}
-                          onChange={(v) => setG({ contrast: Number(v) })}
-                          min={0.2}
-                          max={3.0}
-                          step={0.02}
-                          data-inspector-grading-contrast
-                        />
-                      </Row>
-                      <Row label="Saturation">
-                        <Slider
-                          value={g.saturation ?? 1.0}
-                          onChange={(v) => setG({ saturation: Number(v) })}
-                          min={0}
-                          max={3.0}
-                          step={0.02}
-                          data-inspector-grading-saturation
-                        />
-                      </Row>
-                      <Row label="White balance">
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <Button
-                            size="sm"
-                            variant="subtle"
-                            onClick={autoWb}
-                            data-inspector-auto-wb
-                            title="Auto white balance (gray-world)"
-                          >
-                            Auto
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="subtle"
-                            onClick={() => setG({ wb_kelvin: null })}
-                            title="Clear WB shift"
-                          >
-                            Clear
-                          </Button>
-                        </div>
-                      </Row>
-                      <Row label="Reset">
+                      <GradeRow
+                        label="Gain R"
+                        value={g.gain_r ?? 1.0}
+                        onChange={(v) => setG({ gain_r: Number(v) })}
+                        min={0}
+                        max={4}
+                        step={0.02}
+                        format={fmt2}
+                        testId="inspector-gain-r"
+                      />
+                      <GradeRow
+                        label="Gain G"
+                        value={g.gain_g ?? 1.0}
+                        onChange={(v) => setG({ gain_g: Number(v) })}
+                        min={0}
+                        max={4}
+                        step={0.02}
+                        format={fmt2}
+                        testId="inspector-gain-g"
+                      />
+                      <GradeRow
+                        label="Gain B"
+                        value={g.gain_b ?? 1.0}
+                        onChange={(v) => setG({ gain_b: Number(v) })}
+                        min={0}
+                        max={4}
+                        step={0.02}
+                        format={fmt2}
+                        testId="inspector-gain-b"
+                      />
+                      <GradeRow
+                        label="Offset R"
+                        value={g.offset_r ?? 0}
+                        onChange={(v) => setG({ offset_r: Number(v) })}
+                        min={-0.5}
+                        max={0.5}
+                        step={0.01}
+                        format={fmt2}
+                        testId="inspector-offset-r"
+                      />
+                      <GradeRow
+                        label="Offset G"
+                        value={g.offset_g ?? 0}
+                        onChange={(v) => setG({ offset_g: Number(v) })}
+                        min={-0.5}
+                        max={0.5}
+                        step={0.01}
+                        format={fmt2}
+                        testId="inspector-offset-g"
+                      />
+                      <GradeRow
+                        label="Offset B"
+                        value={g.offset_b ?? 0}
+                        onChange={(v) => setG({ offset_b: Number(v) })}
+                        min={-0.5}
+                        max={0.5}
+                        step={0.01}
+                        format={fmt2}
+                        testId="inspector-offset-b"
+                      />
+                      <GradeRow
+                        label="WB Kelvin"
+                        value={g.wb_kelvin ?? 6500}
+                        onChange={(v) => setG({ wb_kelvin: Number(v) })}
+                        min={3000}
+                        max={10000}
+                        step={50}
+                        format={fmtKelvin}
+                        testId="inspector-wb-kelvin"
+                      />
+                      <GradeRow
+                        label="Gamma"
+                        value={g.gamma ?? 1.0}
+                        onChange={(v) => setG({ gamma: Number(v) })}
+                        min={0.2}
+                        max={3.0}
+                        step={0.02}
+                        format={fmt2}
+                        testId="inspector-grading-gamma"
+                      />
+                      <GradeRow
+                        label="Brightness"
+                        value={g.brightness ?? 0}
+                        onChange={(v) => setG({ brightness: Number(v) })}
+                        min={-0.5}
+                        max={0.5}
+                        step={0.01}
+                        format={fmt2}
+                        testId="inspector-grading-brightness"
+                      />
+                      <GradeRow
+                        label="Contrast"
+                        value={g.contrast ?? 1.0}
+                        onChange={(v) => setG({ contrast: Number(v) })}
+                        min={0.2}
+                        max={3.0}
+                        step={0.02}
+                        format={fmt2}
+                        testId="inspector-grading-contrast"
+                      />
+                      <GradeRow
+                        label="Saturation"
+                        value={g.saturation ?? 1.0}
+                        onChange={(v) => setG({ saturation: Number(v) })}
+                        min={0}
+                        max={3.0}
+                        step={0.02}
+                        format={fmt2}
+                        testId="inspector-grading-saturation"
+                      />
+                      <div
+                        style={{
+                          display: 'flex',
+                          gap: 6,
+                          marginTop: 8,
+                          flexWrap: 'wrap',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <Button
+                          size="sm"
+                          variant="subtle"
+                          onClick={autoWb}
+                          data-inspector-auto-wb
+                          title="Auto white balance (gray-world)"
+                        >
+                          Auto WB
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="subtle"
+                          onClick={() => setG({ wb_kelvin: null })}
+                          title="Clear WB shift"
+                        >
+                          Clear WB
+                        </Button>
+                        <div style={{ flex: 1 }} />
                         <Button
                           size="sm"
                           variant="subtle"
@@ -8168,9 +9266,9 @@ const Inspector = ({
                         >
                           Defaults
                         </Button>
-                      </Row>
+                      </div>
                       <div
-                        style={{ fontSize: 10, color: t.textFaint, marginTop: 4, lineHeight: 1.5 }}
+                        style={{ fontSize: 10, color: t.textFaint, marginTop: 6, lineHeight: 1.5 }}
                       >
                         Server-rendered — colors burn into export.
                       </div>
@@ -8282,13 +9380,46 @@ const Inspector = ({
               />
             </InspectorSection>
 
+            <InspectorSection
+              title="TBR Analysis"
+              icon="grid"
+              viewType={selectedView.sourceMode}
+              defaultOpen={false}
+            >
+              <TbrAnalysisPanel
+                view={selectedView}
+                recording={selectedRecording}
+                localFrame={
+                  selectedView.isLocked && selectedView.lockedFrame != null
+                    ? selectedView.lockedFrame
+                    : Math.max(
+                        0,
+                        Math.min(
+                          (globalFrame ?? 0) -
+                            (sourceOffsets?.get(selectedView.sourceId) ?? 0),
+                          (selectedRecording?.frame_count || 1) - 1
+                        )
+                      )
+                }
+                entries={tbrEntries}
+                onUpdateView={(patch) => onUpdateView(selectedView.id, patch)}
+                onAddEntry={(entry) => setTbrEntries((prev) => [...prev, entry])}
+                onRemoveEntry={(id) =>
+                  setTbrEntries((prev) => prev.filter((e) => e.id !== id))
+                }
+                onOpenAnalysis={() => setTbrAnalysisOpen(true)}
+              />
+            </InspectorSection>
+
             <InspectorSection title="Advanced" icon="info" viewType={selectedView.sourceMode}>
+              <FrameCacheBudgetControl />
               <div
                 style={{
                   fontSize: 10,
                   color: t.textMuted,
                   fontFamily: 'ui-monospace,Menlo,monospace',
                   lineHeight: 1.6,
+                  marginTop: 10,
                 }}
               >
                 <KV k="View ID" v={selectedView.id} />
@@ -8386,20 +9517,24 @@ const OverlayConfigurator = ({ view, recording, onUpdate, onOpenBuilder }) => {
   if (!isOverlayMode) {
     return (
       <div style={{ fontSize: 11, color: t.textMuted, padding: '4px 0', lineHeight: 1.55 }}>
-        Switch the view&apos;s source mode to <em>NIR-HG over RGB-HG</em>,{' '}
-        <em>NIR-LG over RGB-LG</em>, or <em>Custom overlay…</em> to enable per-view overlay
-        controls. The overlay endpoint is live —{' '}
-        <code
-          style={{
-            background: t.chipBg,
-            padding: '0 4px',
-            borderRadius: 3,
-            fontFamily: 'ui-monospace,Menlo,monospace',
-          }}
-        >
-          /frame/{'{i}'}/overlay.png
-        </code>
-        .
+        Every overlay is configured through the 4-step Overlay Builder. Click below to pick the base
+        layer, the overlay channel, the blend mode, and the thresholds; on Apply, this view switches
+        to the custom-overlay render path.
+        {onOpenBuilder && (
+          <div style={{ marginTop: 8 }}>
+            <Button
+              size="sm"
+              variant="primary"
+              icon="layers"
+              onClick={onOpenBuilder}
+              fullWidth
+              data-overlay-open-builder
+              title="Open the 4-step Overlay Builder wizard"
+            >
+              Open Overlay Builder…
+            </Button>
+          </div>
+        )}
       </div>
     );
   }
@@ -8493,35 +9628,99 @@ const OverlayConfigurator = ({ view, recording, onUpdate, onOpenBuilder }) => {
           data-overlay-strength
         />
       </Row>
-      <Row label="Overlay low">
-        <Spinbox
-          value={ov.overlayLow ?? 0}
-          onChange={(v) => setOv({ overlayLow: v === '' || v == null ? null : Number(v) })}
-          min={0}
-          max={65535}
-          step={1}
-          data-overlay-low
-        />
-      </Row>
-      <Row label="Overlay high">
-        <Spinbox
-          value={ov.overlayHigh ?? 65535}
-          onChange={(v) => setOv({ overlayHigh: v === '' || v == null ? null : Number(v) })}
-          min={0}
-          max={65535}
-          step={1}
-          data-overlay-high
-        />
-      </Row>
-      <Row label="Reset thresholds">
+      <GradeRow
+        label="Overlay low"
+        value={ov.overlayLow ?? 0}
+        onChange={(v) => setOv({ overlayLow: Number(v) })}
+        min={0}
+        max={65535}
+        step={1}
+        format={(v) => Math.round(Number(v)).toString()}
+        testId="overlay-low"
+      />
+      <GradeRow
+        label="Overlay high"
+        value={ov.overlayHigh ?? 65535}
+        onChange={(v) => setOv({ overlayHigh: Number(v) })}
+        min={0}
+        max={65535}
+        step={1}
+        format={(v) => Math.round(Number(v)).toString()}
+        testId="overlay-high"
+      />
+      <Row label="Auto thresholds">
         <Button
           size="sm"
           variant="subtle"
-          onClick={() => setOv({ overlayLow: null, overlayHigh: null })}
-          title="Use 1st / 99.5th percentile auto-clip"
+          onClick={async () => {
+            // Fetch 1st / 99.5th percentile defaults from the actual
+            // overlay channel + write them into the slider state so
+            // the user SEES the numbers they're now using (the old
+            // behaviour set both fields to null and rendered with the
+            // server-side default — confusing because the inputs went
+            // blank-zero).
+            const ch = ov.overlayChannel;
+            if (!recording || !ch) {
+              setOv({ overlayLow: null, overlayHigh: null });
+              return;
+            }
+            try {
+              const r = await apiFetch(
+                `/api/sources/${recording.source_id}/channel/${encodeURIComponent(ch)}/range`
+              );
+              const lo = r?.p1 ?? r?.min ?? 0;
+              const hi = r?.p99 ?? r?.max ?? 65535;
+              setOv({
+                overlayLow: Math.round(lo),
+                overlayHigh: Math.round(hi),
+              });
+            } catch {
+              setOv({ overlayLow: null, overlayHigh: null });
+            }
+          }}
+          title="Snap low/high to the 1st / 99th percentile of the overlay channel"
         >
           Auto
         </Button>
+      </Row>
+      <Row label="ROI polygon">
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <Button
+            size="sm"
+            variant={view.overlayDrawMode ? 'primary' : 'subtle'}
+            onClick={() =>
+              onUpdate({
+                overlayDrawMode: !view.overlayDrawMode,
+                // Starting fresh: clear any previous polygon so the
+                // user always begins on an empty canvas.
+                overlay: view.overlayDrawMode
+                  ? ov
+                  : { ...ov, maskPolygon: [] },
+              })
+            }
+            title="Click on the canvas to drop polygon vertices; double-click finishes."
+            data-overlay-draw-toggle
+          >
+            {view.overlayDrawMode ? 'Finish' : 'Draw ROI…'}
+          </Button>
+          <Button
+            size="sm"
+            variant="subtle"
+            disabled={!Array.isArray(ov.maskPolygon) || ov.maskPolygon.length === 0}
+            onClick={() => {
+              setOv({ maskPolygon: [] });
+              if (view.overlayDrawMode) onUpdate({ overlayDrawMode: false });
+            }}
+            title="Remove the polygon ROI; overlay applies to the whole frame."
+          >
+            Clear
+          </Button>
+          <span style={{ fontSize: 10.5, color: t.textFaint }}>
+            {Array.isArray(ov.maskPolygon) && ov.maskPolygon.length > 0
+              ? `${ov.maskPolygon.length} pts · overlay only inside`
+              : 'no ROI · overlay everywhere'}
+          </span>
+        </div>
       </Row>
       <div
         style={{
@@ -8560,9 +9759,19 @@ const SourceSectionBody = ({ view, recording, onUpdateView, onSetGain }) => {
   const t = useTheme();
   if (!view) return null;
   const gains = availableGains(recording);
-  const activeGain = recording?.gainPref || (gains[0] ?? null);
   const meta = sourceModeMeta(view.sourceMode);
   const split = splitSourceMode(view.sourceMode);
+  // The view's own sourceMode is the canonical source of truth for what is
+  // ACTUALLY rendered on the canvas. The recording's `gainPref` is just a
+  // hint for picking a default when a fresh view spawns. Reading view first
+  // keeps the Inspector Gain segmented control in sync with the rendered
+  // image after stream-follow rebinds across file boundaries — without
+  // this, crossing into a recording whose `gainPref` is null (or a stale
+  // default) would snap the Gain UI back to HG even though the view is
+  // still rendering LG / HDR per its preserved sourceMode.
+  const viewGain = (split.gain || '').toUpperCase();
+  const activeGain =
+    viewGain && gains.includes(viewGain) ? viewGain : recording?.gainPref || (gains[0] ?? null);
   // Top-level channel category. The Source section exposes:
   //   visible (Visible RGB) · nir (NIR) · raw (Red/Green/Blue/Chroma Y)
   //   plus overlay / image / other for non-GSense sources.
@@ -8776,6 +9985,1678 @@ const SourceSectionBody = ({ view, recording, onUpdateView, onSetGain }) => {
         </span>
       </Row>
     </>
+  );
+};
+
+// GradeRow — single-row label / slider / numeric for the RGB Grading panel.
+// The shared `Slider` primitive stacks label-row + track on two lines, and
+// wrapping it in a `Row` adds a third for the section's own label column,
+// which left the grading panel with 3 visual rows per parameter. This puts
+// label, slider, and click-to-edit numeric on a single line.
+const GradeRow = ({ label, value, onChange, min, max, step, format, testId }) => {
+  const t = useTheme();
+  const [editing, setEditing] = React.useState(false);
+  const safeFormat = format || ((v) => Number(v).toFixed(2));
+  const numericText = safeFormat(value);
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        marginTop: 4,
+        minHeight: 22,
+        minWidth: 0,
+      }}
+    >
+      <span
+        style={{
+          flex: '0 0 auto',
+          minWidth: 64,
+          maxWidth: 88,
+          fontSize: 11,
+          color: t.textMuted,
+          lineHeight: 1.2,
+        }}
+        title={typeof label === 'string' ? label : undefined}
+      >
+        {label}
+      </span>
+      <input
+        type="range"
+        aria-label={typeof label === 'string' ? label : 'value slider'}
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="rgbnir-slider"
+        data-testid={testId}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          height: 18,
+          appearance: 'none',
+          WebkitAppearance: 'none',
+          background: 'transparent',
+          cursor: 'pointer',
+          margin: 0,
+        }}
+      />
+      {editing ? (
+        <input
+          type="number"
+          autoFocus
+          defaultValue={value}
+          min={min}
+          max={max}
+          step={step}
+          onBlur={(e) => {
+            const v = parseFloat(e.target.value);
+            if (!isNaN(v)) onChange(Math.max(min, Math.min(max, v)));
+            setEditing(false);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.target.blur();
+            if (e.key === 'Escape') setEditing(false);
+          }}
+          style={{
+            flex: '0 0 auto',
+            width: 56,
+            fontSize: 11,
+            padding: '1px 4px',
+            background: t.inputBg,
+            color: t.text,
+            border: `1px solid ${t.accent}`,
+            borderRadius: 3,
+            fontFamily: 'ui-monospace,Menlo,monospace',
+            textAlign: 'right',
+          }}
+        />
+      ) : (
+        <span
+          onClick={() => setEditing(true)}
+          style={{
+            flex: '0 0 auto',
+            minWidth: 44,
+            fontFamily: 'ui-monospace,SF Mono,Menlo,monospace',
+            fontSize: 10.5,
+            color: t.text,
+            textAlign: 'right',
+            cursor: 'text',
+            padding: '1px 4px',
+            borderRadius: 3,
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = t.chipBg)}
+          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+          title="Click to type a value"
+        >
+          {numericText}
+        </span>
+      )}
+    </div>
+  );
+};
+
+// FrameCacheBudgetControl — Inspector → Advanced setting that lets the
+// user pick how much RAM the frame blob cache may consume. The ceiling
+// is fetched from /api/system/info (which reads the host OS via psutil
+// or sysctl on macOS), capped at 80% of physical RAM. Falls back to
+// `navigator.deviceMemory` (bucketed/capped at 8 GB on Chromium) only
+// if the API call fails. The value persists in localStorage and
+// applies live (the LRU trim runs immediately when shrunk). Default
+// of 64 MB matches the prior implicit budget (~384 entries × 150 KB).
+// TbrAnalysisPanel — Inspector section. Owns the per-view drafting
+// flow for tumor + background ROIs and the entry-commit button. The
+// committed entries themselves live at PlaybackMode level so they
+// survive view switches and feed the TBR analysis modal.
+//
+// Pipeline matches the rest of the inspector ISP chain: the backend
+// /roi-stats route applies dark subtraction + black_level BEFORE
+// computing the requested statistic (mean / percentile / mode). TBR
+// = tumor_value / background_value; ratio std uses standard error
+// propagation σ_R/R = sqrt((σ_T/T)² + (σ_B/B)²).
+const TbrAnalysisPanel = ({
+  view,
+  recording,
+  localFrame,
+  entries,
+  onUpdateView,
+  onAddEntry,
+  onRemoveEntry,
+  onOpenAnalysis,
+}) => {
+  const t = useTheme();
+  const draft = view?.tbrDraft || {};
+  const drawRole = view?.tbrDraftRole || null;
+  // The TBR is computed on the channel the user is viewing. RGB views
+  // fall back to the green channel (strongest tissue signal in vis).
+  const meta = view ? sourceModeMeta(view.sourceMode) : null;
+  const split = view ? splitSourceMode(view.sourceMode) : { gain: '', channelKind: '' };
+  const gainPrefix = (split.gain || 'HG').toUpperCase();
+  const tbrChannel =
+    draft.channel ||
+    (meta?.kind === 'channel'
+      ? meta.channel
+      : meta?.kind === 'raw' && view?.rawChannel
+        ? view.rawChannel
+        : `${gainPrefix}-G`);
+  const fmt = (v) => (v == null || !Number.isFinite(v) ? '—' : Number(v).toFixed(2));
+  const setDraft = (patch) =>
+    onUpdateView({ tbrDraft: { ...draft, ...patch } });
+  const setRole = (role) => onUpdateView({ tbrDraftRole: role });
+  const computeStats = async (kind) => {
+    if (!recording) return;
+    const polygon = kind === 'tumor' ? draft.tumorPolygon : draft.bgPolygon;
+    if (!Array.isArray(polygon) || polygon.length < 3) return;
+    try {
+      const body = {
+        polygon,
+        method: draft.method || 'mean',
+        percentile: draft.percentile ?? 50,
+        apply_dark: view?.applyDark !== false,
+        black_level: view?.blackLevel ?? 0,
+      };
+      const stats = await apiFetch(
+        `/api/sources/${recording.source_id}/frame/${localFrame}/channel/${encodeURIComponent(tbrChannel)}/roi-stats`,
+        { method: 'POST', body }
+      );
+      if (kind === 'tumor') setDraft({ tumorStats: stats });
+      else setDraft({ bgStats: stats });
+    } catch (err) {
+      const msg = err?.detail || err?.message || String(err);
+      if (kind === 'tumor') setDraft({ tumorStats: { __error: msg } });
+      else setDraft({ bgStats: { __error: msg } });
+    }
+  };
+  // ESC / Enter while drawing exits draw mode (alternative to clicking
+  // Done). ESC + Backspace can also pop the last vertex (matches the
+  // Undo button). Listener is bound at window level + only acts when
+  // an ROI is being drawn — typing in another input is unaffected.
+  React.useEffect(() => {
+    if (!drawRole) return undefined;
+    const onKey = (e) => {
+      const tgt = e.target;
+      const typing =
+        tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.isContentEditable);
+      if (typing && e.key !== 'Escape') return;
+      if (e.key === 'Escape' || e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        setRole(null);
+      } else if (e.key === 'Backspace' && !typing) {
+        e.preventDefault();
+        e.stopPropagation();
+        const polyKey = drawRole === 'tumor' ? 'tumorPolygon' : 'bgPolygon';
+        const cur = draft[polyKey] || [];
+        if (cur.length > 0) setDraft({ [polyKey]: cur.slice(0, -1) });
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawRole, draft.tumorPolygon, draft.bgPolygon]);
+  // Re-run stats automatically when polygon vertices, method, percentile,
+  // black_level, or apply_dark change AND we have ≥ 3 vertices.
+  React.useEffect(() => {
+    if (Array.isArray(draft.tumorPolygon) && draft.tumorPolygon.length >= 3) {
+      computeStats('tumor');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    JSON.stringify(draft.tumorPolygon || []),
+    draft.method,
+    draft.percentile,
+    view?.applyDark,
+    view?.blackLevel,
+    tbrChannel,
+    recording?.source_id,
+    localFrame,
+  ]);
+  React.useEffect(() => {
+    if (Array.isArray(draft.bgPolygon) && draft.bgPolygon.length >= 3) {
+      computeStats('background');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    JSON.stringify(draft.bgPolygon || []),
+    draft.method,
+    draft.percentile,
+    view?.applyDark,
+    view?.blackLevel,
+    tbrChannel,
+    recording?.source_id,
+    localFrame,
+  ]);
+  const tumorVal = draft.tumorStats?.computed_value;
+  const tumorStd = draft.tumorStats?.std;
+  const bgVal = draft.bgStats?.computed_value;
+  const bgStd = draft.bgStats?.std;
+  const ratio =
+    tumorVal != null && bgVal && Number.isFinite(bgVal) && bgVal !== 0
+      ? tumorVal / bgVal
+      : null;
+  const ratioStd =
+    ratio != null && tumorVal && bgVal
+      ? ratio *
+        Math.sqrt(
+          ((tumorStd || 0) / tumorVal) ** 2 +
+            ((bgStd || 0) / bgVal) ** 2
+        )
+      : null;
+  const canAdd =
+    draft.tumorStats &&
+    !draft.tumorStats.__error &&
+    draft.bgStats &&
+    !draft.bgStats.__error &&
+    ratio != null;
+  const commit = () => {
+    if (!canAdd || !recording) return;
+    const entry = {
+      id: `tbr_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+      sourceFile: recording.name,
+      sourceId: recording.source_id,
+      frameIndex: localFrame,
+      channel: tbrChannel,
+      method: draft.method || 'mean',
+      percentile: draft.percentile ?? 50,
+      applyDark: view?.applyDark !== false,
+      blackLevel: view?.blackLevel ?? 0,
+      tumorPolygon: draft.tumorPolygon,
+      bgPolygon: draft.bgPolygon,
+      tumorValue: tumorVal,
+      tumorStd: tumorStd,
+      tumorMean: draft.tumorStats?.mean,
+      tumorMedian: draft.tumorStats?.median,
+      tumorMode: draft.tumorStats?.mode,
+      tumorPercentileValue: draft.tumorStats?.percentile_value,
+      tumorN: draft.tumorStats?.n_pixels,
+      bgValue: bgVal,
+      bgStd: bgStd,
+      bgMean: draft.bgStats?.mean,
+      bgMedian: draft.bgStats?.median,
+      bgMode: draft.bgStats?.mode,
+      bgPercentileValue: draft.bgStats?.percentile_value,
+      bgN: draft.bgStats?.n_pixels,
+      ratio,
+      ratioStd,
+      createdAt: new Date().toISOString(),
+    };
+    onAddEntry(entry);
+    // Reset draft so the user can immediately measure another pair.
+    onUpdateView({
+      tbrDraft: {
+        ...draft,
+        tumorPolygon: [],
+        bgPolygon: [],
+        tumorStats: null,
+        bgStats: null,
+      },
+      tbrDraftRole: null,
+    });
+  };
+  if (!view) return <div style={{ fontSize: 11, color: t.textMuted }}>No view selected.</div>;
+  // Format helpers per user spec: tumor / bg as integers, ratio as 1
+  // decimal place. NaN / null fall back to em-dash.
+  const fmtInt = (v) => (v == null || !Number.isFinite(v) ? '—' : String(Math.round(Number(v))));
+  const fmtRatio = (v) => (v == null || !Number.isFinite(v) ? '—' : Number(v).toFixed(1));
+  const TUMOR_COLOR = '#ff5b5b';
+  const BG_COLOR = '#3ecbe5';
+  // Coloured ROI buttons. The default Button component uses muted
+  // chrome that visually disappears on the dark inspector — so the
+  // Tumor / Background actions render as native <button> with the
+  // ROI tint, white text, and a clear active state.
+  const roiBtnBase = {
+    fontSize: 11,
+    fontWeight: 600,
+    padding: '4px 12px',
+    borderRadius: 4,
+    border: 'none',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    minWidth: 64,
+    color: '#fff',
+    boxShadow: '0 1px 0 rgba(0,0,0,0.25)',
+  };
+  // Idle Draw button: still tinted but much brighter so the user can
+  // see at a glance that the action is enabled. Active state pulses
+  // with a thicker outline so the user knows the canvas is now armed.
+  const roiBtnFor = (color, active) => ({
+    ...roiBtnBase,
+    background: color,
+    opacity: active ? 1 : 0.92,
+    outline: active ? `2px solid ${color}` : 'none',
+    outlineOffset: 2,
+    boxShadow: active
+      ? `0 0 0 2px ${color}66, 0 1px 0 rgba(0,0,0,0.25)`
+      : '0 1px 0 rgba(0,0,0,0.25)',
+  });
+  const ghostBtn = {
+    ...roiBtnBase,
+    background: 'transparent',
+    color: t.textMuted,
+    border: `1px solid ${t.border}`,
+  };
+  const roiRow = (kind, color, polyKey, statsKey, label) => {
+    const polygon = draft[polyKey] || [];
+    const stats = draft[statsKey];
+    const drawing = drawRole === kind;
+    return (
+      <div
+        data-tbr-roi-row={kind}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 4,
+          padding: '6px 8px',
+          background: t.chipBg,
+          border: `1px solid ${drawing ? color : t.border}`,
+          borderRadius: 4,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: '50%',
+              background: color,
+              flexShrink: 0,
+            }}
+          />
+          <span style={{ fontSize: 11.5, fontWeight: 600, color: t.text }}>{label}</span>
+          <div style={{ flex: 1 }} />
+          <span style={{ fontSize: 10.5, color: t.textFaint }}>
+            {polygon.length} pt{polygon.length === 1 ? '' : 's'}
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {drawing ? (
+            <>
+              <button
+                style={roiBtnFor(color, true)}
+                onClick={() => setRole(null)}
+                data-tbr-done={kind}
+                title="Stop drawing — keep the current polygon"
+              >
+                Done
+              </button>
+              <button
+                style={ghostBtn}
+                onClick={() => {
+                  setDraft({ [polyKey]: [], [statsKey]: null });
+                  setRole(null);
+                }}
+                data-tbr-cancel={kind}
+                title="Discard the in-progress polygon"
+              >
+                Cancel
+              </button>
+              <button
+                style={ghostBtn}
+                disabled={polygon.length === 0}
+                onClick={() => setDraft({ [polyKey]: polygon.slice(0, -1) })}
+                title="Remove the last vertex"
+              >
+                Undo
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                style={roiBtnFor(color, false)}
+                onClick={() => setRole(kind)}
+                data-tbr-draw={kind}
+              >
+                {polygon.length >= 3 ? 'Re-draw' : 'Draw ROI'}
+              </button>
+              <button
+                style={ghostBtn}
+                disabled={polygon.length === 0}
+                onClick={() => setDraft({ [polyKey]: [], [statsKey]: null })}
+              >
+                Clear
+              </button>
+            </>
+          )}
+        </div>
+        <div
+          style={{
+            fontSize: 11,
+            color: stats?.__error ? t.danger : t.text,
+            fontFamily: 'ui-monospace,Menlo,monospace',
+          }}
+        >
+          {stats?.__error
+            ? stats.__error
+            : stats?.computed_value != null
+              ? `${fmtInt(stats.computed_value)} ± ${fmtInt(stats.std)} · n=${stats.n_pixels}`
+              : 'draw ≥ 3 vertices to compute'}
+        </div>
+      </div>
+    );
+  };
+  return (
+    <div data-tbr-panel style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ fontSize: 10.5, color: t.textFaint, lineHeight: 1.45 }}>
+        Stats are computed AFTER the view&rsquo;s Corrections (dark subtract + black
+        level). Channel: <strong>{tbrChannel}</strong>.
+      </div>
+      <Row label="Method">
+        <Select
+          value={draft.method || 'mean'}
+          onChange={(v) => setDraft({ method: v })}
+          options={[
+            { value: 'mean', label: 'Mean' },
+            { value: 'percentile', label: 'Percentile' },
+            { value: 'mode', label: 'Mode' },
+          ]}
+        />
+      </Row>
+      {draft.method === 'percentile' && (
+        <Row label="Percentile">
+          <Spinbox
+            value={draft.percentile ?? 50}
+            min={0}
+            max={100}
+            step={1}
+            onChange={(v) => setDraft({ percentile: Math.max(0, Math.min(100, Number(v) || 0)) })}
+          />
+        </Row>
+      )}
+      {roiRow('tumor', TUMOR_COLOR, 'tumorPolygon', 'tumorStats', 'Tumor ROI')}
+      {roiRow('background', BG_COLOR, 'bgPolygon', 'bgStats', 'Background ROI')}
+      <div
+        style={{
+          fontSize: 12,
+          color: t.text,
+          fontFamily: 'ui-monospace,Menlo,monospace',
+          padding: '6px 10px',
+          background: ratio != null ? t.accentSoft : t.chipBg,
+          border: `1px solid ${ratio != null ? t.accent : t.border}`,
+          borderRadius: 4,
+          textAlign: 'center',
+          fontWeight: 600,
+          letterSpacing: 0.4,
+        }}
+      >
+        TBR ={' '}
+        {ratio != null ? (
+          <>
+            <span style={{ fontSize: 14 }}>{fmtRatio(ratio)}</span>
+            <span style={{ color: t.textMuted, fontWeight: 400 }}> ± {fmtRatio(ratioStd)}</span>
+          </>
+        ) : (
+          '—'
+        )}
+      </div>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <button
+          disabled={!canAdd}
+          onClick={commit}
+          data-tbr-add
+          title="Append the (tumor, background, ratio) measurement to the TBR table."
+          style={{
+            ...roiBtnBase,
+            background: canAdd ? t.accent : t.chipBg,
+            color: canAdd ? '#fff' : t.textFaint,
+            cursor: canAdd ? 'pointer' : 'not-allowed',
+            flex: 1,
+          }}
+        >
+          Add to table
+        </button>
+        <button
+          disabled={!entries || entries.length === 0}
+          onClick={onOpenAnalysis}
+          data-tbr-analysis
+          style={{
+            ...ghostBtn,
+            cursor: entries && entries.length > 0 ? 'pointer' : 'not-allowed',
+            opacity: entries && entries.length > 0 ? 1 : 0.4,
+          }}
+        >
+          Open Analysis…
+        </button>
+      </div>
+      {entries && entries.length > 0 && (
+        <div
+          data-tbr-table
+          style={{
+            marginTop: 4,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 10,
+              color: t.textMuted,
+              fontWeight: 600,
+              letterSpacing: 0.4,
+              textTransform: 'uppercase',
+              padding: '0 2px',
+            }}
+          >
+            <span>Entries</span>
+            <span style={{ color: t.textFaint, fontWeight: 400 }}>({entries.length})</span>
+          </div>
+          {entries.map((e, i) => (
+            <div
+              key={e.id}
+              data-tbr-entry={e.id}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4,
+                padding: '6px 8px',
+                border: `1px solid ${t.border}`,
+                borderRadius: 4,
+                background: t.panel,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span
+                  style={{
+                    fontSize: 9.5,
+                    fontFamily: 'ui-monospace,Menlo,monospace',
+                    color: t.textFaint,
+                    minWidth: 18,
+                  }}
+                >
+                  #{i + 1}
+                </span>
+                <span
+                  style={{
+                    fontSize: 11.5,
+                    color: t.text,
+                    fontWeight: 500,
+                    flex: 1,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                  title={`${e.sourceFile}\nframe ${e.frameIndex} · channel ${e.channel} · ${e.method}${e.method === 'percentile' ? `(${e.percentile})` : ''}`}
+                >
+                  {e.sourceFile}
+                </span>
+                <span
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 700,
+                    color: t.accent,
+                    fontFamily: 'ui-monospace,Menlo,monospace',
+                  }}
+                >
+                  {fmtRatio(e.ratio)}
+                </span>
+                <span
+                  style={{
+                    fontSize: 10,
+                    color: t.textFaint,
+                    fontFamily: 'ui-monospace,Menlo,monospace',
+                  }}
+                >
+                  ±{fmtRatio(e.ratioStd)}
+                </span>
+                <button
+                  onClick={() => onRemoveEntry(e.id)}
+                  title="Remove this entry"
+                  data-tbr-remove
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: t.textFaint,
+                    padding: 2,
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Icon name="close" size={11} />
+                </button>
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 12,
+                  fontSize: 10.5,
+                  fontFamily: 'ui-monospace,Menlo,monospace',
+                  color: t.textMuted,
+                }}
+              >
+                <span>
+                  <span style={{ color: TUMOR_COLOR }}>● </span>T:{' '}
+                  <span style={{ color: t.text }}>
+                    {fmtInt(e.tumorValue)}±{fmtInt(e.tumorStd)}
+                  </span>
+                </span>
+                <span>
+                  <span style={{ color: BG_COLOR }}>● </span>B:{' '}
+                  <span style={{ color: t.text }}>
+                    {fmtInt(e.bgValue)}±{fmtInt(e.bgStd)}
+                  </span>
+                </span>
+                <span>frame {e.frameIndex}</span>
+                <span>{e.channel}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// TbrAnalysisModal — research-style report for the committed TBR
+// entries. Tabbed interface with a per-entry bar chart, a TBR
+// distribution histogram + box plot, a tumor-vs-background scatter,
+// and a per-file / per-channel grouping view. All charts are inline
+// SVG so we don't pay the 4.8 MB Plotly bundle.
+const TbrAnalysisModal = ({ entries, onClose }) => {
+  const t = useTheme();
+  const data = entries || [];
+  const TUMOR_COLOR = '#ff5b5b';
+  const BG_COLOR = '#3ecbe5';
+  const ratios = data.map((e) => e.ratio).filter((v) => Number.isFinite(v));
+  const fmt2 = (v) => (v == null || !Number.isFinite(v) ? '—' : Number(v).toFixed(2));
+  const fmt1 = (v) => (v == null || !Number.isFinite(v) ? '—' : Number(v).toFixed(1));
+  const fmtInt = (v) => (v == null || !Number.isFinite(v) ? '—' : String(Math.round(Number(v))));
+  const summary = React.useMemo(() => {
+    if (ratios.length === 0) return null;
+    const sorted = [...ratios].sort((a, b) => a - b);
+    const sum = ratios.reduce((s, x) => s + x, 0);
+    const mean = sum / ratios.length;
+    const variance =
+      ratios.length > 1
+        ? ratios.reduce((s, x) => s + (x - mean) ** 2, 0) / (ratios.length - 1)
+        : 0;
+    const std = Math.sqrt(variance);
+    const pct = (p) => sorted[Math.max(0, Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * p)))];
+    return {
+      n: ratios.length,
+      mean,
+      std,
+      sem: std / Math.sqrt(ratios.length),
+      median: pct(0.5),
+      q1: pct(0.25),
+      q3: pct(0.75),
+      min: sorted[0],
+      max: sorted[sorted.length - 1],
+      // CI95 of the mean (normal approximation; honest enough for n ≥ 5).
+      ci95Lo: mean - 1.96 * (std / Math.sqrt(Math.max(1, ratios.length))),
+      ci95Hi: mean + 1.96 * (std / Math.sqrt(Math.max(1, ratios.length))),
+      // Fraction of entries with ratio > 1 (clinically: tumor brighter).
+      fracBright: ratios.filter((r) => r > 1).length / ratios.length,
+    };
+  }, [ratios]);
+
+  const [tab, setTab] = React.useState('overview');
+
+  const downloadCsv = () => {
+    const header = [
+      '#',
+      'file',
+      'frame',
+      'channel',
+      'method',
+      'percentile',
+      'apply_dark',
+      'black_level',
+      'tumor_value',
+      'tumor_std',
+      'tumor_n',
+      'bg_value',
+      'bg_std',
+      'bg_n',
+      'ratio',
+      'ratio_std',
+      'created_at',
+    ];
+    const rows = data.map((e, i) =>
+      [
+        i + 1,
+        JSON.stringify(e.sourceFile || ''),
+        e.frameIndex,
+        e.channel,
+        e.method,
+        e.method === 'percentile' ? e.percentile : '',
+        e.applyDark ? '1' : '0',
+        e.blackLevel,
+        e.tumorValue,
+        e.tumorStd,
+        e.tumorN,
+        e.bgValue,
+        e.bgStd,
+        e.bgN,
+        e.ratio,
+        e.ratioStd,
+        e.createdAt,
+      ].join(',')
+    );
+    const csv = [header.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `tbr_analysis_${Date.now()}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+
+  // ------------------- shared chart helpers -------------------
+  const PLOT_W = 800;
+  const PLOT_H = 320;
+  const PAD = { l: 56, r: 24, t: 24, b: 44 };
+  const innerW = PLOT_W - PAD.l - PAD.r;
+  const innerH = PLOT_H - PAD.t - PAD.b;
+  const tickFormat = (v) =>
+    Math.abs(v) >= 100 ? Math.round(v).toString() : Number(v).toFixed(2);
+  const axisTicks = (n) =>
+    Array.from({ length: n + 1 }, (_, i) => i / n);
+
+  // ------------------- per-entry ratio bar chart -------------------
+  const RatioBarChart = () => {
+    const ratioMax = Math.max(0.001, ...ratios.map((r, i) => r + (data[i].ratioStd || 0))) * 1.1;
+    const yScale = (v) => PAD.t + innerH - (v / ratioMax) * innerH;
+    const barW = innerW / Math.max(1, data.length);
+    return (
+      <svg
+        viewBox={`0 0 ${PLOT_W} ${PLOT_H}`}
+        data-tbr-bar-chart
+        style={{ background: t.chipBg, borderRadius: 4, border: `1px solid ${t.border}`, width: '100%', height: PLOT_H }}
+      >
+        {axisTicks(5).map((f) => {
+          const y = PAD.t + innerH * (1 - f);
+          return (
+            <g key={f}>
+              <line x1={PAD.l} x2={PLOT_W - PAD.r} y1={y} y2={y} stroke={t.border} strokeDasharray="3,3" />
+              <text x={PAD.l - 6} y={y + 3} textAnchor="end" fontSize="10" fill={t.textFaint}>
+                {tickFormat(ratioMax * f)}
+              </text>
+            </g>
+          );
+        })}
+        {/* TBR=1 reference line (no contrast). */}
+        {ratioMax > 1 && (
+          <g>
+            <line
+              x1={PAD.l}
+              x2={PLOT_W - PAD.r}
+              y1={yScale(1)}
+              y2={yScale(1)}
+              stroke={t.warn || '#e5a13a'}
+              strokeDasharray="6,3"
+              strokeWidth={1}
+            />
+            <text x={PLOT_W - PAD.r - 4} y={yScale(1) - 4} fontSize="9.5" fill={t.warn || '#e5a13a'} textAnchor="end">
+              TBR=1
+            </text>
+          </g>
+        )}
+        {data.map((e, i) => {
+          const x = PAD.l + i * barW;
+          const y = yScale(e.ratio);
+          const h = PAD.t + innerH - y;
+          const errTop = yScale(e.ratio + (e.ratioStd || 0));
+          const errBot = yScale(Math.max(0, e.ratio - (e.ratioStd || 0)));
+          return (
+            <g key={e.id}>
+              <rect x={x + barW * 0.15} y={y} width={barW * 0.7} height={Math.max(0, h)} fill={t.accent} opacity={0.85} />
+              <line x1={x + barW * 0.5} x2={x + barW * 0.5} y1={errTop} y2={errBot} stroke={t.text} strokeWidth={1.2} />
+              <line x1={x + barW * 0.35} x2={x + barW * 0.65} y1={errTop} y2={errTop} stroke={t.text} strokeWidth={1.2} />
+              <line x1={x + barW * 0.35} x2={x + barW * 0.65} y1={errBot} y2={errBot} stroke={t.text} strokeWidth={1.2} />
+              <text x={x + barW * 0.5} y={PLOT_H - PAD.b + 14} textAnchor="middle" fontSize="9.5" fill={t.textMuted}>
+                {i + 1}
+              </text>
+            </g>
+          );
+        })}
+        <text x={PAD.l - 38} y={PAD.t + innerH / 2} fontSize="10.5" fill={t.textMuted} transform={`rotate(-90 ${PAD.l - 38} ${PAD.t + innerH / 2})`}>
+          TBR ratio
+        </text>
+        <text x={PLOT_W / 2} y={PLOT_H - 6} fontSize="10.5" fill={t.textMuted} textAnchor="middle">
+          entry #
+        </text>
+      </svg>
+    );
+  };
+
+  // ------------------- side-by-side tumor / background bars -------------------
+  const TumorVsBgChart = () => {
+    const yMax = Math.max(0.001, ...data.map((e) => Math.max(e.tumorValue || 0, e.bgValue || 0))) * 1.1;
+    const yScale = (v) => PAD.t + innerH - (v / yMax) * innerH;
+    const groupW = innerW / Math.max(1, data.length);
+    const subW = groupW * 0.4;
+    return (
+      <svg
+        viewBox={`0 0 ${PLOT_W} ${PLOT_H}`}
+        data-tbr-tumor-bg-chart
+        style={{ background: t.chipBg, borderRadius: 4, border: `1px solid ${t.border}`, width: '100%', height: PLOT_H }}
+      >
+        {axisTicks(5).map((f) => {
+          const y = PAD.t + innerH * (1 - f);
+          return (
+            <g key={f}>
+              <line x1={PAD.l} x2={PLOT_W - PAD.r} y1={y} y2={y} stroke={t.border} strokeDasharray="3,3" />
+              <text x={PAD.l - 6} y={y + 3} textAnchor="end" fontSize="10" fill={t.textFaint}>
+                {tickFormat(yMax * f)}
+              </text>
+            </g>
+          );
+        })}
+        {data.map((e, i) => {
+          const xT = PAD.l + i * groupW + groupW * 0.1;
+          const xB = xT + subW + 4;
+          const yT = yScale(e.tumorValue || 0);
+          const yB = yScale(e.bgValue || 0);
+          const errLine = (cx, val, std) => {
+            const top = yScale(val + (std || 0));
+            const bot = yScale(Math.max(0, val - (std || 0)));
+            return (
+              <g>
+                <line x1={cx} x2={cx} y1={top} y2={bot} stroke={t.text} strokeWidth={1} />
+                <line x1={cx - 3} x2={cx + 3} y1={top} y2={top} stroke={t.text} strokeWidth={1} />
+                <line x1={cx - 3} x2={cx + 3} y1={bot} y2={bot} stroke={t.text} strokeWidth={1} />
+              </g>
+            );
+          };
+          return (
+            <g key={e.id}>
+              <rect x={xT} y={yT} width={subW} height={Math.max(0, PAD.t + innerH - yT)} fill={TUMOR_COLOR} opacity={0.9} />
+              <rect x={xB} y={yB} width={subW} height={Math.max(0, PAD.t + innerH - yB)} fill={BG_COLOR} opacity={0.9} />
+              {errLine(xT + subW / 2, e.tumorValue || 0, e.tumorStd || 0)}
+              {errLine(xB + subW / 2, e.bgValue || 0, e.bgStd || 0)}
+              <text x={PAD.l + i * groupW + groupW / 2} y={PLOT_H - PAD.b + 14} textAnchor="middle" fontSize="9.5" fill={t.textMuted}>
+                {i + 1}
+              </text>
+            </g>
+          );
+        })}
+        <text x={PAD.l - 42} y={PAD.t + innerH / 2} fontSize="10.5" fill={t.textMuted} transform={`rotate(-90 ${PAD.l - 42} ${PAD.t + innerH / 2})`}>
+          intensity (DN)
+        </text>
+        {/* Legend */}
+        <g>
+          <rect x={PLOT_W - PAD.r - 140} y={PAD.t + 4} width={10} height={10} fill={TUMOR_COLOR} />
+          <text x={PLOT_W - PAD.r - 124} y={PAD.t + 13} fontSize="10" fill={t.text}>Tumor</text>
+          <rect x={PLOT_W - PAD.r - 70} y={PAD.t + 4} width={10} height={10} fill={BG_COLOR} />
+          <text x={PLOT_W - PAD.r - 54} y={PAD.t + 13} fontSize="10" fill={t.text}>Background</text>
+        </g>
+      </svg>
+    );
+  };
+
+  // ------------------- tumor vs background scatter -------------------
+  const ScatterChart = () => {
+    const lim = Math.max(
+      0.001,
+      ...data.flatMap((e) => [e.tumorValue || 0, e.bgValue || 0])
+    ) * 1.1;
+    const xScale = (v) => PAD.l + (v / lim) * innerW;
+    const yScale = (v) => PAD.t + innerH - (v / lim) * innerH;
+    return (
+      <svg
+        viewBox={`0 0 ${PLOT_W} ${PLOT_H}`}
+        data-tbr-scatter-chart
+        style={{ background: t.chipBg, borderRadius: 4, border: `1px solid ${t.border}`, width: '100%', height: PLOT_H }}
+      >
+        {axisTicks(5).map((f) => {
+          const y = PAD.t + innerH * (1 - f);
+          const x = PAD.l + innerW * f;
+          return (
+            <g key={f}>
+              <line x1={PAD.l} x2={PLOT_W - PAD.r} y1={y} y2={y} stroke={t.border} strokeDasharray="3,3" />
+              <line x1={x} x2={x} y1={PAD.t} y2={PAD.t + innerH} stroke={t.border} strokeDasharray="3,3" />
+              <text x={PAD.l - 6} y={y + 3} textAnchor="end" fontSize="10" fill={t.textFaint}>
+                {tickFormat(lim * f)}
+              </text>
+              <text x={x} y={PLOT_H - PAD.b + 14} textAnchor="middle" fontSize="10" fill={t.textFaint}>
+                {tickFormat(lim * f)}
+              </text>
+            </g>
+          );
+        })}
+        {/* y = x reference (TBR=1) */}
+        <line
+          x1={xScale(0)}
+          y1={yScale(0)}
+          x2={xScale(lim)}
+          y2={yScale(lim)}
+          stroke={t.warn || '#e5a13a'}
+          strokeDasharray="6,3"
+          strokeWidth={1}
+        />
+        {data.map((e, i) => (
+          <g key={e.id}>
+            <circle cx={xScale(e.bgValue || 0)} cy={yScale(e.tumorValue || 0)} r={4} fill={t.accent} stroke="#fff" strokeWidth={1} />
+            <text x={xScale(e.bgValue || 0) + 6} y={yScale(e.tumorValue || 0) - 6} fontSize="9" fill={t.textMuted}>
+              {i + 1}
+            </text>
+          </g>
+        ))}
+        <text x={PAD.l - 42} y={PAD.t + innerH / 2} fontSize="10.5" fill={t.textMuted} transform={`rotate(-90 ${PAD.l - 42} ${PAD.t + innerH / 2})`}>
+          tumor intensity
+        </text>
+        <text x={PLOT_W / 2} y={PLOT_H - 6} fontSize="10.5" fill={t.textMuted} textAnchor="middle">
+          background intensity
+        </text>
+      </svg>
+    );
+  };
+
+  // ------------------- ratio histogram -------------------
+  const Histogram = () => {
+    if (ratios.length === 0) return null;
+    const lo = Math.min(...ratios);
+    const hi = Math.max(...ratios);
+    const span = Math.max(1e-6, hi - lo);
+    const N = Math.min(20, Math.max(5, Math.ceil(Math.sqrt(ratios.length) * 2)));
+    const bins = new Array(N).fill(0);
+    for (const r of ratios) {
+      const k = Math.min(N - 1, Math.max(0, Math.floor(((r - lo) / span) * N)));
+      bins[k] += 1;
+    }
+    const maxC = Math.max(1, ...bins);
+    const barW = innerW / N;
+    return (
+      <svg
+        viewBox={`0 0 ${PLOT_W} ${PLOT_H}`}
+        data-tbr-hist
+        style={{ background: t.chipBg, borderRadius: 4, border: `1px solid ${t.border}`, width: '100%', height: PLOT_H }}
+      >
+        {axisTicks(5).map((f) => {
+          const y = PAD.t + innerH * (1 - f);
+          return (
+            <g key={f}>
+              <line x1={PAD.l} x2={PLOT_W - PAD.r} y1={y} y2={y} stroke={t.border} strokeDasharray="3,3" />
+              <text x={PAD.l - 6} y={y + 3} textAnchor="end" fontSize="10" fill={t.textFaint}>
+                {Math.round(maxC * f)}
+              </text>
+            </g>
+          );
+        })}
+        {bins.map((c, i) => {
+          const x = PAD.l + i * barW;
+          const h = (c / maxC) * innerH;
+          const y = PAD.t + innerH - h;
+          return (
+            <rect key={i} x={x + 1} y={y} width={Math.max(1, barW - 2)} height={h} fill={t.accent} opacity={0.85} />
+          );
+        })}
+        {/* X axis labels: lo, mid, hi */}
+        {[0, 0.25, 0.5, 0.75, 1].map((f) => {
+          const x = PAD.l + innerW * f;
+          return (
+            <text key={f} x={x} y={PLOT_H - PAD.b + 14} textAnchor="middle" fontSize="10" fill={t.textFaint}>
+              {fmt2(lo + span * f)}
+            </text>
+          );
+        })}
+        {/* Mean + median markers */}
+        {summary && (
+          <>
+            <line
+              x1={PAD.l + ((summary.mean - lo) / span) * innerW}
+              x2={PAD.l + ((summary.mean - lo) / span) * innerW}
+              y1={PAD.t}
+              y2={PAD.t + innerH}
+              stroke={t.text}
+              strokeWidth={1.5}
+            />
+            <line
+              x1={PAD.l + ((summary.median - lo) / span) * innerW}
+              x2={PAD.l + ((summary.median - lo) / span) * innerW}
+              y1={PAD.t}
+              y2={PAD.t + innerH}
+              stroke={t.warn || '#e5a13a'}
+              strokeDasharray="4,3"
+              strokeWidth={1.5}
+            />
+            <g>
+              <text x={PLOT_W - PAD.r - 90} y={PAD.t + 12} fontSize="10" fill={t.text}>— mean</text>
+              <text x={PLOT_W - PAD.r - 90} y={PAD.t + 26} fontSize="10" fill={t.warn || '#e5a13a'}>-- median</text>
+            </g>
+          </>
+        )}
+        <text x={PAD.l - 42} y={PAD.t + innerH / 2} fontSize="10.5" fill={t.textMuted} transform={`rotate(-90 ${PAD.l - 42} ${PAD.t + innerH / 2})`}>
+          count
+        </text>
+        <text x={PLOT_W / 2} y={PLOT_H - 6} fontSize="10.5" fill={t.textMuted} textAnchor="middle">
+          TBR ratio
+        </text>
+      </svg>
+    );
+  };
+
+  // ------------------- box plot (single ratio distribution) -------------------
+  const BoxPlot = () => {
+    if (!summary) return null;
+    const yMin = Math.min(0, summary.min - (summary.std || 0));
+    const yMax = Math.max(summary.max + (summary.std || 0), 1.1);
+    const span = Math.max(1e-6, yMax - yMin);
+    const yScale = (v) => PAD.t + innerH - ((v - yMin) / span) * innerH;
+    const cx = PAD.l + innerW * 0.5;
+    const halfW = 80;
+    return (
+      <svg
+        viewBox={`0 0 ${PLOT_W} ${PLOT_H}`}
+        data-tbr-box-plot
+        style={{ background: t.chipBg, borderRadius: 4, border: `1px solid ${t.border}`, width: '100%', height: PLOT_H }}
+      >
+        {axisTicks(5).map((f) => {
+          const y = PAD.t + innerH * (1 - f);
+          return (
+            <g key={f}>
+              <line x1={PAD.l} x2={PLOT_W - PAD.r} y1={y} y2={y} stroke={t.border} strokeDasharray="3,3" />
+              <text x={PAD.l - 6} y={y + 3} textAnchor="end" fontSize="10" fill={t.textFaint}>
+                {fmt2(yMin + span * f)}
+              </text>
+            </g>
+          );
+        })}
+        {/* TBR=1 reference */}
+        <line x1={PAD.l} x2={PLOT_W - PAD.r} y1={yScale(1)} y2={yScale(1)} stroke={t.warn || '#e5a13a'} strokeDasharray="6,3" strokeWidth={1} />
+        {/* Whiskers */}
+        <line x1={cx} x2={cx} y1={yScale(summary.min)} y2={yScale(summary.q1)} stroke={t.text} strokeWidth={1.5} />
+        <line x1={cx} x2={cx} y1={yScale(summary.q3)} y2={yScale(summary.max)} stroke={t.text} strokeWidth={1.5} />
+        <line x1={cx - 30} x2={cx + 30} y1={yScale(summary.min)} y2={yScale(summary.min)} stroke={t.text} strokeWidth={1.5} />
+        <line x1={cx - 30} x2={cx + 30} y1={yScale(summary.max)} y2={yScale(summary.max)} stroke={t.text} strokeWidth={1.5} />
+        {/* Box (q1..q3) */}
+        <rect x={cx - halfW} y={yScale(summary.q3)} width={2 * halfW} height={yScale(summary.q1) - yScale(summary.q3)} fill={t.accentSoft} stroke={t.accent} strokeWidth={1.5} />
+        {/* Median */}
+        <line x1={cx - halfW} x2={cx + halfW} y1={yScale(summary.median)} y2={yScale(summary.median)} stroke={t.accent} strokeWidth={2.5} />
+        {/* Mean (diamond marker) */}
+        <polygon
+          points={`${cx},${yScale(summary.mean) - 6} ${cx + 6},${yScale(summary.mean)} ${cx},${yScale(summary.mean) + 6} ${cx - 6},${yScale(summary.mean)}`}
+          fill={t.text}
+        />
+        {/* Individual points jittered */}
+        {ratios.map((r, i) => {
+          const jitter = ((i % 7) - 3) * 8;
+          return <circle key={i} cx={cx + jitter} cy={yScale(r)} r={3} fill={t.accent} opacity={0.6} stroke="#fff" strokeWidth={0.6} />;
+        })}
+        <text x={PAD.l - 42} y={PAD.t + innerH / 2} fontSize="10.5" fill={t.textMuted} transform={`rotate(-90 ${PAD.l - 42} ${PAD.t + innerH / 2})`}>
+          TBR ratio
+        </text>
+        <text x={cx} y={PLOT_H - 6} fontSize="10.5" fill={t.textMuted} textAnchor="middle">
+          all entries (n={summary.n})
+        </text>
+      </svg>
+    );
+  };
+
+  // ------------------- grouping aggregations -------------------
+  const groupBy = (keyFn) => {
+    const m = new Map();
+    for (const e of data) {
+      const k = keyFn(e);
+      if (!m.has(k)) m.set(k, []);
+      m.get(k).push(e);
+    }
+    return [...m.entries()]
+      .map(([key, arr]) => {
+        const rs = arr.map((x) => x.ratio).filter(Number.isFinite);
+        if (rs.length === 0) return null;
+        const mean = rs.reduce((s, x) => s + x, 0) / rs.length;
+        const std =
+          rs.length > 1
+            ? Math.sqrt(rs.reduce((s, x) => s + (x - mean) ** 2, 0) / (rs.length - 1))
+            : 0;
+        return { key, n: rs.length, mean, std };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.mean - a.mean);
+  };
+  const byFile = React.useMemo(() => groupBy((e) => e.sourceFile || '?'), [data]);
+  const byChannel = React.useMemo(() => groupBy((e) => e.channel || '?'), [data]);
+
+  const TabBtn = ({ id, children }) => (
+    <button
+      onClick={() => setTab(id)}
+      style={{
+        padding: '6px 14px',
+        fontSize: 12,
+        fontWeight: 600,
+        background: tab === id ? t.accent : 'transparent',
+        color: tab === id ? '#fff' : t.text,
+        border: 'none',
+        borderBottom: tab === id ? `2px solid ${t.accent}` : '2px solid transparent',
+        cursor: 'pointer',
+        fontFamily: 'inherit',
+      }}
+    >
+      {children}
+    </button>
+  );
+
+  return (
+    <Modal open onClose={onClose} width={1000} label="TBR Analysis">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="grid" size={16} />
+          <div style={{ fontSize: 14, fontWeight: 600, color: t.text }}>
+            TBR Analysis · {data.length} entr{data.length === 1 ? 'y' : 'ies'}
+          </div>
+          <div style={{ flex: 1 }} />
+          <Button size="sm" variant="subtle" icon="export" onClick={downloadCsv} disabled={data.length === 0}>
+            Export CSV
+          </Button>
+          <Button size="sm" variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+        {data.length === 0 ? (
+          <div style={{ fontSize: 12, color: t.textMuted, padding: 20 }}>
+            No TBR entries yet. Use Inspector → TBR Analysis to draw a Tumor and a
+            Background ROI on a frame, then click Add to table.
+          </div>
+        ) : (
+          <>
+            {summary && (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(5, 1fr)',
+                  gap: 10,
+                  padding: 12,
+                  background: t.chipBg,
+                  border: `1px solid ${t.border}`,
+                  borderRadius: 6,
+                  fontFamily: 'ui-monospace,Menlo,monospace',
+                }}
+              >
+                {[
+                  ['n', summary.n, t.text],
+                  ['mean', fmt2(summary.mean), t.accent],
+                  ['median', fmt2(summary.median), t.text],
+                  ['std', fmt2(summary.std), t.text],
+                  ['sem', fmt2(summary.sem), t.text],
+                  ['min', fmt2(summary.min), t.text],
+                  ['q1', fmt2(summary.q1), t.text],
+                  ['q3', fmt2(summary.q3), t.text],
+                  ['max', fmt2(summary.max), t.text],
+                  ['CI95', `${fmt2(summary.ci95Lo)}–${fmt2(summary.ci95Hi)}`, t.textMuted],
+                  ['TBR>1', `${(summary.fracBright * 100).toFixed(0)}%`, summary.fracBright > 0.5 ? '#3ecbe5' : t.textMuted],
+                ].map(([k, v, color]) => (
+                  <div key={k} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <span style={{ fontSize: 9.5, letterSpacing: 0.4, color: t.textFaint, fontWeight: 600, textTransform: 'uppercase' }}>{k}</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: color || t.text }}>{v}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${t.border}` }}>
+              <TabBtn id="overview">Overview</TabBtn>
+              <TabBtn id="tvb">Tumor vs Background</TabBtn>
+              <TabBtn id="scatter">Scatter</TabBtn>
+              <TabBtn id="distribution">Distribution</TabBtn>
+              <TabBtn id="grouping">By file / channel</TabBtn>
+              <TabBtn id="table">Table</TabBtn>
+            </div>
+            {tab === 'overview' && (
+              <div>
+                <div style={{ fontSize: 11.5, color: t.textMuted, marginBottom: 4 }}>
+                  TBR by entry — bars are ratio, error bars are propagated ratio std, dashed amber line marks TBR=1 (no contrast).
+                </div>
+                <RatioBarChart />
+              </div>
+            )}
+            {tab === 'tvb' && (
+              <div>
+                <div style={{ fontSize: 11.5, color: t.textMuted, marginBottom: 4 }}>
+                  Side-by-side tumor + background intensities. Identical bars → no contrast.
+                </div>
+                <TumorVsBgChart />
+              </div>
+            )}
+            {tab === 'scatter' && (
+              <div>
+                <div style={{ fontSize: 11.5, color: t.textMuted, marginBottom: 4 }}>
+                  Tumor vs background scatter. Points above the dashed amber y=x line have TBR&gt;1.
+                </div>
+                <ScatterChart />
+              </div>
+            )}
+            {tab === 'distribution' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div>
+                  <div style={{ fontSize: 11.5, color: t.textMuted, marginBottom: 4 }}>
+                    Histogram (Sturges-style auto-binning) — solid line = mean, dashed amber = median.
+                  </div>
+                  <Histogram />
+                </div>
+                <div>
+                  <div style={{ fontSize: 11.5, color: t.textMuted, marginBottom: 4 }}>
+                    Box plot (Q1 / median / Q3 + whiskers + jittered raw points + diamond mean).
+                  </div>
+                  <BoxPlot />
+                </div>
+              </div>
+            )}
+            {tab === 'grouping' && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 11.5, color: t.text, fontWeight: 600, marginBottom: 6 }}>By file</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {byFile.map((g) => {
+                      const w = ratios.length > 0 ? (g.mean / Math.max(...ratios)) * 100 : 0;
+                      return (
+                        <div key={g.key} style={{ padding: '4px 8px', background: t.chipBg, borderRadius: 4 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5, fontFamily: 'ui-monospace,Menlo,monospace' }}>
+                            <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: t.text }} title={g.key}>{g.key}</span>
+                            <span style={{ color: t.textFaint }}>n={g.n}</span>
+                            <span style={{ color: t.accent, fontWeight: 700 }}>{fmt2(g.mean)}</span>
+                            <span style={{ color: t.textFaint }}>±{fmt2(g.std)}</span>
+                          </div>
+                          <div style={{ marginTop: 3, height: 6, background: t.bg, borderRadius: 2, overflow: 'hidden' }}>
+                            <div style={{ width: `${w}%`, height: '100%', background: t.accent }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11.5, color: t.text, fontWeight: 600, marginBottom: 6 }}>By channel</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {byChannel.map((g) => {
+                      const w = ratios.length > 0 ? (g.mean / Math.max(...ratios)) * 100 : 0;
+                      return (
+                        <div key={g.key} style={{ padding: '4px 8px', background: t.chipBg, borderRadius: 4 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5, fontFamily: 'ui-monospace,Menlo,monospace' }}>
+                            <span style={{ flex: 1, color: t.text }}>{g.key}</span>
+                            <span style={{ color: t.textFaint }}>n={g.n}</span>
+                            <span style={{ color: t.accent, fontWeight: 700 }}>{fmt2(g.mean)}</span>
+                            <span style={{ color: t.textFaint }}>±{fmt2(g.std)}</span>
+                          </div>
+                          <div style={{ marginTop: 3, height: 6, background: t.bg, borderRadius: 2, overflow: 'hidden' }}>
+                            <div style={{ width: `${w}%`, height: '100%', background: t.accent }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+            {tab === 'table' && (
+              <div
+                style={{
+                  maxHeight: 360,
+                  overflowY: 'auto',
+                  fontFamily: 'ui-monospace,Menlo,monospace',
+                  fontSize: 10.5,
+                  border: `1px solid ${t.border}`,
+                  borderRadius: 4,
+                }}
+              >
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'auto 2fr 0.5fr 0.6fr 0.6fr 1fr 1fr 1fr',
+                    gap: 4,
+                    padding: '4px 6px',
+                    background: t.chipBg,
+                    color: t.textMuted,
+                    fontWeight: 600,
+                    borderBottom: `1px solid ${t.border}`,
+                    position: 'sticky',
+                    top: 0,
+                  }}
+                >
+                  <span>#</span>
+                  <span>file · channel</span>
+                  <span style={{ textAlign: 'right' }}>frame</span>
+                  <span style={{ textAlign: 'right' }}>n(T)</span>
+                  <span style={{ textAlign: 'right' }}>n(B)</span>
+                  <span style={{ textAlign: 'right' }}>tumor</span>
+                  <span style={{ textAlign: 'right' }}>bg</span>
+                  <span style={{ textAlign: 'right' }}>ratio</span>
+                </div>
+                {data.map((e, i) => (
+                  <div
+                    key={e.id}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'auto 2fr 0.5fr 0.6fr 0.6fr 1fr 1fr 1fr',
+                      gap: 4,
+                      padding: '4px 6px',
+                      color: t.text,
+                      borderBottom: i === data.length - 1 ? 'none' : `1px solid ${t.border}`,
+                    }}
+                  >
+                    <span style={{ color: t.textFaint }}>{i + 1}</span>
+                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {e.sourceFile} · {e.channel}
+                    </span>
+                    <span style={{ textAlign: 'right' }}>{e.frameIndex}</span>
+                    <span style={{ textAlign: 'right' }}>{e.tumorN}</span>
+                    <span style={{ textAlign: 'right' }}>{e.bgN}</span>
+                    <span style={{ textAlign: 'right' }}>
+                      {fmtInt(e.tumorValue)}±{fmtInt(e.tumorStd)}
+                    </span>
+                    <span style={{ textAlign: 'right' }}>
+                      {fmtInt(e.bgValue)}±{fmtInt(e.bgStd)}
+                    </span>
+                    <span style={{ textAlign: 'right', color: t.accent, fontWeight: 600 }}>
+                      {fmt1(e.ratio)}±{fmt1(e.ratioStd)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+};
+
+const FrameCacheBudgetControl = () => {
+  const t = useTheme();
+  const [persisted, setPersisted] = useLocalStorageState(
+    'playback/frameCacheBudgetMB',
+    _DEFAULT_CACHE_BUDGET_MB
+  );
+  const [hostInfo, setHostInfo] = React.useState({ totalRamMb: null, source: null });
+  React.useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await apiFetch('/api/system/info');
+        if (!alive) return;
+        if (r && Number.isFinite(r.total_ram_mb) && r.total_ram_mb > 0) {
+          setHostInfo({ totalRamMb: Math.round(r.total_ram_mb), source: 'host' });
+          return;
+        }
+      } catch {
+        /* fall through to navigator.deviceMemory */
+      }
+      const dm =
+        typeof navigator !== 'undefined' && Number.isFinite(navigator.deviceMemory)
+          ? Number(navigator.deviceMemory)
+          : null;
+      if (alive) {
+        setHostInfo({
+          totalRamMb: dm != null ? dm * 1024 : 6 * 1024,
+          source: dm != null ? 'navigator' : 'fallback',
+        });
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const totalRamMb = hostInfo.totalRamMb || 6 * 1024;
+  const ceilingMb = Math.max(64, Math.floor(totalRamMb * 0.8));
+  const budgetMb = Math.max(8, Math.min(ceilingMb, Number(persisted) || _DEFAULT_CACHE_BUDGET_MB));
+  // Push into the cache module on mount + every change so the setting
+  // applies live (LRU trims immediately when the user shrinks).
+  React.useEffect(() => {
+    setFrameCacheBudgetMB(budgetMb);
+  }, [budgetMb]);
+  const apply = (mb) => {
+    const clamped = Math.max(
+      8,
+      Math.min(ceilingMb, Math.round(Number(mb) || _DEFAULT_CACHE_BUDGET_MB))
+    );
+    setPersisted(clamped);
+  };
+  const ramSourceLabel =
+    hostInfo.source === 'host'
+      ? `host RAM ${(totalRamMb / 1024).toFixed(1)} GB`
+      : hostInfo.source === 'navigator'
+        ? `browser-reported ${(totalRamMb / 1024).toFixed(1)} GB (Chromium caps at 8 GB)`
+        : `fallback ${(totalRamMb / 1024).toFixed(1)} GB`;
+  return (
+    <div data-frame-cache-budget style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ fontSize: 11.5, color: t.text, fontWeight: 600 }}>Frame cache RAM budget</div>
+      <div style={{ fontSize: 10.5, color: t.textFaint, lineHeight: 1.45 }}>
+        Frames are cached in browser memory so scrubbing and replay are instant. Higher = smoother
+        on cold-cache files; lower = leaves more RAM for the rest of your machine. Capped at 80% of
+        physical memory ({ramSourceLabel}).
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <input
+          type="range"
+          min={8}
+          max={ceilingMb}
+          step={Math.max(1, Math.round(ceilingMb / 200))}
+          value={budgetMb}
+          onChange={(e) => apply(Number(e.target.value))}
+          aria-label="Frame cache RAM budget"
+          className="rgbnir-slider"
+          style={{
+            flex: 1,
+            minWidth: 0,
+            height: 18,
+            appearance: 'none',
+            WebkitAppearance: 'none',
+            background: 'transparent',
+            cursor: 'pointer',
+            margin: 0,
+          }}
+        />
+        <input
+          type="number"
+          min={8}
+          max={ceilingMb}
+          value={budgetMb}
+          onChange={(e) => apply(Number(e.target.value))}
+          aria-label="Frame cache RAM budget MB"
+          style={{
+            width: 72,
+            fontSize: 11,
+            padding: '2px 4px',
+            background: t.inputBg,
+            color: t.text,
+            border: `1px solid ${t.border}`,
+            borderRadius: 3,
+            fontFamily: 'ui-monospace,Menlo,monospace',
+            textAlign: 'right',
+          }}
+        />
+        <span style={{ fontSize: 10.5, color: t.textMuted, minWidth: 18 }}>MB</span>
+      </div>
+      <div
+        style={{
+          fontSize: 10,
+          color: t.textFaint,
+          fontFamily: 'ui-monospace,Menlo,monospace',
+        }}
+      >
+        Max {ceilingMb} MB · default {_DEFAULT_CACHE_BUDGET_MB} MB · ≈
+        {Math.floor((budgetMb * 1024) / _AVG_BLOB_KB_ESTIMATE)} frames at avg{' '}
+        {_AVG_BLOB_KB_ESTIMATE} KB/PNG
+      </div>
+    </div>
+  );
+};
+
+// usePlayCacheStatus — subscribe to the module-level fetch telemetry and
+// re-render the consuming component whenever inflight / completed counts
+// change. Snapshot shape matches `_emitCacheBusy` event detail.
+const usePlayCacheStatus = () => {
+  const [snap, setSnap] = React.useState({ inflight: 0, peak: 0, completed: 0 });
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handler = (ev) => {
+      const d = ev?.detail || {};
+      setSnap({
+        inflight: d.inflight | 0,
+        peak: d.peak | 0,
+        completed: d.completed | 0,
+      });
+    };
+    window.addEventListener('mantis:play:cache-busy', handler);
+    return () => window.removeEventListener('mantis:play:cache-busy', handler);
+  }, []);
+  return snap;
+};
+
+// usePlayCacheStats — polls cache-size + budget on a slow interval so the
+// idle status indicator stays current without storming React renders.
+const usePlayCacheStats = (intervalMs = 750) => {
+  const [stats, setStats] = React.useState({
+    entries: 0,
+    cap: _frameCacheMaxEntries(),
+    budgetMb: getFrameCacheBudgetMB(),
+    estUsedMb: 0,
+  });
+  React.useEffect(() => {
+    let alive = true;
+    const tick = () => {
+      if (!alive) return;
+      const entries = _frameBlobCache.size;
+      const cap = _frameCacheMaxEntries();
+      const budgetMb = getFrameCacheBudgetMB();
+      const estUsedMb = Math.round((entries * _AVG_BLOB_KB_ESTIMATE) / 1024);
+      setStats((prev) =>
+        prev.entries === entries && prev.cap === cap && prev.budgetMb === budgetMb
+          ? prev
+          : { entries, cap, budgetMb, estUsedMb }
+      );
+    };
+    tick();
+    const id = setInterval(tick, intervalMs);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [intervalMs]);
+  return stats;
+};
+
+// PlayCacheStatusBar — persistent bottom-of-Play strip. Always visible
+// so it doesn't flash in/out: when the cache is quiet it shows the
+// current cache size + budget; when fetches are in flight it switches
+// to a live progress bar. Background fill changes between idle / busy
+// to make the state immediately readable without taking focus.
+const PlayCacheStatusBar = ({ recordingsLoading = 0 }) => {
+  const t = useTheme();
+  const { inflight, completed, peak } = usePlayCacheStatus();
+  const stats = usePlayCacheStats();
+  const totalThisBurst = completed + inflight;
+  const pct = totalThisBurst > 0 ? Math.min(100, (completed / totalThisBurst) * 100) : 0;
+  const isFileLoad = recordingsLoading > 0;
+  const isBusy = inflight > 0 || isFileLoad;
+  const usagePct = stats.cap > 0 ? Math.min(100, (stats.entries / stats.cap) * 100) : 0;
+  const idleAccent = t.textMuted;
+  const fillColor = isBusy ? t.accent : idleAccent;
+  return (
+    <div
+      data-play-cache-status
+      data-busy={isBusy ? 'true' : 'false'}
+      style={{
+        height: 22,
+        overflow: 'hidden',
+        borderTop: `1px solid ${t.border}`,
+        background: t.panel,
+        flexShrink: 0,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '0 12px',
+          height: 22,
+          fontSize: 10.5,
+          fontFamily: 'ui-monospace,SF Mono,Menlo,monospace',
+          color: t.textMuted,
+        }}
+      >
+        <span
+          style={{
+            color: isBusy ? t.accent : t.textMuted,
+            fontWeight: 600,
+            letterSpacing: 0.4,
+          }}
+        >
+          CACHE
+        </span>
+        {isFileLoad ? (
+          <span style={{ color: t.text }}>
+            Loading {recordingsLoading} recording{recordingsLoading !== 1 ? 's' : ''}…
+          </span>
+        ) : isBusy ? (
+          <span style={{ color: t.text }}>
+            Caching frames · {completed}/{totalThisBurst}
+            {peak > 1 && (
+              <span style={{ color: t.textFaint, marginLeft: 6 }}>(peak {peak} in flight)</span>
+            )}
+          </span>
+        ) : (
+          <span style={{ color: t.textMuted }}>
+            Idle ·{' '}
+            <span style={{ color: t.text }}>
+              {stats.entries}/{stats.cap}
+            </span>{' '}
+            frames cached · ~{stats.estUsedMb} MB / {stats.budgetMb} MB budget
+          </span>
+        )}
+        <div
+          style={{
+            flex: 1,
+            position: 'relative',
+            height: 4,
+            background: t.chipBg,
+            borderRadius: 2,
+            overflow: 'hidden',
+            minWidth: 80,
+          }}
+          aria-label="frame cache status"
+          role="progressbar"
+          aria-valuenow={Math.round(isBusy ? pct : usagePct)}
+          aria-valuemin={0}
+          aria-valuemax={100}
+        >
+          {isFileLoad ? (
+            // Indeterminate stripe — file loads have no honest fraction
+            // because the H5 open is mostly a server-side blocking call
+            // before any byte stream comes back.
+            <div
+              style={{
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: '40%',
+                background: t.accent,
+                borderRadius: 2,
+                animation: 'mantisCacheStripe 1.4s linear infinite',
+              }}
+            />
+          ) : (
+            <div
+              style={{
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: `${isBusy ? pct : usagePct}%`,
+                background: fillColor,
+                borderRadius: 2,
+                transition: 'width 120ms ease-out',
+                opacity: isBusy ? 1 : 0.55,
+              }}
+            />
+          )}
+        </div>
+        <span style={{ color: t.textFaint, minWidth: 36, textAlign: 'right' }}>
+          {isFileLoad ? '…' : isBusy ? `${Math.round(pct)}%` : `${Math.round(usagePct)}% full`}
+        </span>
+      </div>
+      <style>{`@keyframes mantisCacheStripe {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(250%); }
+      }`}</style>
+    </div>
   );
 };
 
@@ -9154,19 +12035,16 @@ const PresetsList = ({ view, presets, onSave, onLoad, onDelete }) => {
 // disk-level deletes always need explicit confirmation.
 const DeleteFromDiskConfirmModal = ({ open, recordings, onClose, onConfirm }) => {
   const t = useTheme();
-  const [confirmText, setConfirmText] = useStatePb('');
-  useEffectPb(() => {
-    if (open) setConfirmText('');
-  }, [open]);
   if (!open) return null;
   const haveDiskPaths = (recordings || []).filter((r) => !!r.path);
   const noDiskPaths = (recordings || []).filter((r) => !r.path);
-  const canConfirm = haveDiskPaths.length > 0 && confirmText.trim().toUpperCase() === 'DELETE';
+  const totalToRemove = haveDiskPaths.length + noDiskPaths.length;
+  const canConfirm = totalToRemove > 0;
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title={`Delete ${haveDiskPaths.length} file${haveDiskPaths.length === 1 ? '' : 's'} from disk?`}
+      title={`Delete ${totalToRemove} file${totalToRemove === 1 ? '' : 's'} from your computer?`}
       width={600}
       data-delete-from-disk-modal
     >
@@ -9182,7 +12060,9 @@ const DeleteFromDiskConfirmModal = ({ open, recordings, onClose, onConfirm }) =>
           }}
         >
           <Icon name="warning" size={14} />
-          This permanently removes the files from your filesystem. Cannot be undone.
+          The actual file on your computer (e.g. ~/Desktop/...) will be permanently unlinked. Cannot
+          be undone. Recordings whose original disk path can&rsquo;t be resolved will be reported as
+          FAILED — your file will still be there.
         </div>
         {haveDiskPaths.length > 0 && (
           <div
@@ -9224,32 +12104,43 @@ const DeleteFromDiskConfirmModal = ({ open, recordings, onClose, onConfirm }) =>
               borderRadius: 4,
               background: t.chipBg,
               border: `1px solid ${t.border}`,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
             }}
           >
-            {noDiskPaths.length} marked recording
-            {noDiskPaths.length === 1 ? '' : 's'} have no disk path (uploaded files); they will be
-            skipped.
+            <div>
+              {noDiskPaths.length} uploaded recording
+              {noDiskPaths.length === 1 ? '' : 's'} — the upload tempfile the server is holding for
+              each will be deleted from disk:
+            </div>
+            <div
+              data-delete-uploaded-list
+              style={{
+                fontFamily: 'ui-monospace,Menlo,monospace',
+                fontSize: 11,
+                color: t.text,
+                lineHeight: 1.55,
+                maxHeight: 120,
+                overflowY: 'auto',
+              }}
+            >
+              {noDiskPaths.map((r) => (
+                <div
+                  key={r.source_id}
+                  style={{
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                  title={`${r.name} (uploaded · src ${r.source_id})`}
+                >
+                  {r.name}
+                </div>
+              ))}
+            </div>
           </div>
         )}
-        <Row label="Confirm">
-          <input
-            autoFocus
-            value={confirmText}
-            onChange={(e) => setConfirmText(e.target.value)}
-            placeholder='Type "DELETE" to confirm'
-            data-delete-confirm-input
-            style={{
-              flex: 1,
-              padding: '5px 8px',
-              fontSize: 12.5,
-              fontFamily: 'inherit',
-              background: t.inputBg,
-              color: t.text,
-              border: `1px solid ${t.border}`,
-              borderRadius: 4,
-            }}
-          />
-        </Row>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
           <Button size="sm" variant="ghost" onClick={onClose}>
             Cancel
@@ -9261,7 +12152,7 @@ const DeleteFromDiskConfirmModal = ({ open, recordings, onClose, onConfirm }) =>
             onClick={onConfirm}
             data-delete-confirm-button
           >
-            Delete {haveDiskPaths.length} from disk
+            {`Delete ${totalToRemove} from my computer`}
           </Button>
         </div>
       </div>
@@ -9706,4 +12597,87 @@ const OverlayBuilderModal = ({ view, recording, onClose, onApply }) => {
   );
 };
 
-export default PlaybackMode;
+// Render-time error boundary — wraps PlaybackMode so a thrown render
+// (e.g. a browser-OOM-driven null deref under 18+ legacy H5s) shows a
+// recoverable message instead of a blank dark screen. Reset clears
+// state so the user can try again with fewer files.
+class PlaybackErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null, info: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    // eslint-disable-next-line no-console
+    console.error('PlaybackMode render crash:', error, info);
+    this.setState({ error, info });
+  }
+  reset = () => this.setState({ error: null, info: null });
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div
+        data-play-error-boundary
+        style={{
+          padding: 24,
+          height: '100%',
+          width: '100%',
+          background: '#1a1d23',
+          color: '#e4e7ec',
+          fontFamily: 'ui-monospace,Menlo,monospace',
+          fontSize: 12,
+          overflow: 'auto',
+          boxSizing: 'border-box',
+        }}
+      >
+        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8, color: '#ff6b6b' }}>
+          Play mode crashed during render
+        </div>
+        <div style={{ marginBottom: 12, color: '#bcc1cc', maxWidth: 720, lineHeight: 1.5 }}>
+          The most common cause is loading more recordings than the browser can hold in memory at
+          once. Close some files (or shrink the frame-cache budget in Inspector → Advanced) and
+          retry. The error is logged to the console.
+        </div>
+        <pre
+          style={{
+            background: '#0f1115',
+            color: '#ff9090',
+            padding: 12,
+            borderRadius: 4,
+            maxWidth: 900,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+          }}
+        >
+          {String(this.state.error?.stack || this.state.error?.message || this.state.error)}
+        </pre>
+        <button
+          onClick={this.reset}
+          style={{
+            marginTop: 12,
+            padding: '6px 14px',
+            background: '#3a82f7',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 4,
+            cursor: 'pointer',
+            fontSize: 12,
+            fontWeight: 600,
+          }}
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
+}
+
+const PlaybackModeBoundary = (props) => (
+  <PlaybackErrorBoundary>
+    <PlaybackMode {...props} />
+  </PlaybackErrorBoundary>
+);
+
+export default PlaybackModeBoundary;

@@ -35,6 +35,7 @@ import {
   Select,
   Button,
   ChannelChip,
+  RgbCompositeChip,
   Segmented,
   Checkbox,
   StatBlock,
@@ -123,7 +124,33 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
     'fpn/analysisChannels',
     defaultAnalysisChannels(available)
   );
-  const [rgbCompositeDisplay] = useLocalStorageState('ispSettings/rgbComposite', false);
+  // RGB composite is now an explicit "RGB" entry inside the Display channel
+  // picker (see `rgbDisplayOptions` below), not a global override. Picking a
+  // single channel renders mono so the colormap applies.
+  const isRgbChannel = !!activeChannel && activeChannel.startsWith('RGB');
+  const rgbGainHint =
+    activeChannel === 'RGB-LG'
+      ? 'LG'
+      : activeChannel === 'RGB-HG'
+        ? 'HG'
+        : available.some((c) => c.startsWith('HG-'))
+          ? 'HG'
+          : available.some((c) => c.startsWith('LG-'))
+            ? 'LG'
+            : '';
+  const rgbChannelArg = rgbGainHint ? `${rgbGainHint}-R` : 'R';
+  const rgbDisplayOptions = useMemoF(() => {
+    if (!source?.rgb_composite_available) return [];
+    const hasHG = available.some((c) => c.startsWith('HG-'));
+    const hasLG = available.some((c) => c.startsWith('LG-'));
+    if (hasHG && hasLG) {
+      return [
+        { value: 'RGB-HG', gain: 'HG', tip: 'RGB color composite from high-gain channels' },
+        { value: 'RGB-LG', gain: 'LG', tip: 'RGB color composite from low-gain channels' },
+      ];
+    }
+    return [{ value: 'RGB', gain: '', tip: 'RGB color composite' }];
+  }, [source?.rgb_composite_available, available]);
 
   // ---- Picking knobs ------------------------------------------------------
   const [driftOrder, setDriftOrder] = useLocalStorageState('fpn/driftOrder', 'none');
@@ -181,7 +208,7 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
   const [range, setRange] = useStateF(null);
 
   useEffectF(() => {
-    if (!source || !activeChannel) {
+    if (!source || !activeChannel || isRgbChannel) {
       setRange(null);
       return;
     }
@@ -204,7 +231,7 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
     return () => {
       cancelled = true;
     };
-  }, [source?.source_id, source?.has_dark, activeChannel, autoRange]);
+  }, [source?.source_id, source?.has_dark, activeChannel, autoRange, isRgbChannel]);
 
   // Compose the ISP payload from the live FPN smoothing controls so the
   // canvas thumbnail previews the same preprocessing the analysis runs.
@@ -221,20 +248,21 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
           bilateral: bilateral,
         }
       : null;
-    const rgbComposite = !!(rgbCompositeDisplay && source.rgb_composite_available);
     return channelPngUrl(
       source.source_id,
-      activeChannel,
+      isRgbChannel ? rgbChannelArg : activeChannel,
       1600,
       isp,
-      colormap,
-      autoRange ? null : vmin,
-      autoRange ? null : vmax,
-      rgbComposite
+      isRgbChannel ? 'gray' : colormap,
+      isRgbChannel || autoRange ? null : vmin,
+      isRgbChannel || autoRange ? null : vmax,
+      isRgbChannel
     );
   }, [
     source,
     activeChannel,
+    isRgbChannel,
+    rgbChannelArg,
     colormap,
     autoRange,
     vmin,
@@ -243,7 +271,6 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
     gaussSigma,
     hotPixThr,
     bilateral,
-    rgbCompositeDisplay,
   ]);
 
   // ---- Settings payload (shared across every server call) ----------------
@@ -1251,11 +1278,22 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
 
         <Card title="Display channel" icon="layers">
           <div style={{ fontSize: 10.5, color: t.textFaint, marginBottom: 6 }}>
-            The ROI stats update when you change this.
+            The ROI stats update when you change this. Single channels render mono so the colormap
+            applies; pick RGB for a color composite.
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+            {rgbDisplayOptions.map((opt) => (
+              <Tip key={opt.value} title={opt.tip}>
+                <RgbCompositeChip
+                  gain={opt.gain}
+                  selected={activeChannel === opt.value}
+                  onToggle={() => setActiveChannel(opt.value)}
+                  size="sm"
+                />
+              </Tip>
+            ))}
             {available.map((c) => (
-              <Tip key={c} title={`Measure on ${c}`}>
+              <Tip key={c} title={`Measure on ${c} as a single-channel image`}>
                 <ChannelChip
                   id={fpnChipId(c)}
                   selected={activeChannel === c}

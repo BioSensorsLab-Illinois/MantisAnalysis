@@ -34,6 +34,7 @@ import {
   Select,
   Button,
   ChannelChip,
+  RgbCompositeChip,
   Segmented,
   Checkbox,
   StatBlock,
@@ -129,7 +130,33 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
     'dof/analysisChannels',
     defaultAnalysisChannels(available)
   );
-  const [rgbCompositeDisplay] = useLocalStorageState('ispSettings/rgbComposite', false);
+  // RGB composite is now an explicit "RGB" entry inside the Display channel
+  // picker (see `rgbDisplayOptions` below), not a global override. Picking a
+  // single channel renders mono so the colormap applies.
+  const isRgbChannel = !!activeChannel && activeChannel.startsWith('RGB');
+  const rgbGainHint =
+    activeChannel === 'RGB-LG'
+      ? 'LG'
+      : activeChannel === 'RGB-HG'
+        ? 'HG'
+        : available.some((c) => c.startsWith('HG-'))
+          ? 'HG'
+          : available.some((c) => c.startsWith('LG-'))
+            ? 'LG'
+            : '';
+  const rgbChannelArg = rgbGainHint ? `${rgbGainHint}-R` : 'R';
+  const rgbDisplayOptions = useMemoD(() => {
+    if (!source?.rgb_composite_available) return [];
+    const hasHG = available.some((c) => c.startsWith('HG-'));
+    const hasLG = available.some((c) => c.startsWith('LG-'));
+    if (hasHG && hasLG) {
+      return [
+        { value: 'RGB-HG', gain: 'HG', tip: 'RGB color composite from high-gain channels' },
+        { value: 'RGB-LG', gain: 'LG', tip: 'RGB color composite from low-gain channels' },
+      ];
+    }
+    return [{ value: 'RGB', gain: '', tip: 'RGB color composite' }];
+  }, [source?.rgb_composite_available, available]);
 
   // ---- Focus-metric knobs ------------------------------------------------
   const [metric, setMetric] = useLocalStorageState('dof/metric', 'laplacian');
@@ -209,20 +236,21 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
   const imgSrc = useMemoD(() => {
     if (!source || !activeChannel) return null;
     const isp = buildIspPayload();
-    const rgbComposite = !!(rgbCompositeDisplay && source.rgb_composite_available);
     return channelPngUrl(
       source.source_id,
-      activeChannel,
+      isRgbChannel ? rgbChannelArg : activeChannel,
       1600,
       isp,
-      colormap,
+      isRgbChannel ? 'gray' : colormap,
       null,
       null,
-      rgbComposite
+      isRgbChannel
     );
   }, [
     source,
     activeChannel,
+    isRgbChannel,
+    rgbChannelArg,
     colormap,
     ispEnabled,
     ispLive,
@@ -231,7 +259,6 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
     ispRadius,
     ispDenoise,
     ispBlackLvl,
-    rgbCompositeDisplay,
   ]);
 
   // ---- Calibration -------------------------------------------------------
@@ -1014,9 +1041,22 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
         </Card>
 
         <Card title="Display channel" icon="layers">
+          <div style={{ fontSize: 10.5, color: t.textFaint, marginBottom: 6 }}>
+            Single channels render mono so the colormap applies; pick RGB for a color composite.
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+            {rgbDisplayOptions.map((opt) => (
+              <Tip key={opt.value} title={opt.tip}>
+                <RgbCompositeChip
+                  gain={opt.gain}
+                  selected={activeChannel === opt.value}
+                  onToggle={() => setActiveChannel(opt.value)}
+                  size="sm"
+                />
+              </Tip>
+            ))}
             {available.map((c) => (
-              <Tip key={c} title={`Measure on ${c}`}>
+              <Tip key={c} title={`Measure on ${c} as a single-channel image`}>
                 <ChannelChip
                   id={dofChipId(c)}
                   selected={activeChannel === c}

@@ -34,7 +34,7 @@ import {
 import { USAFMode } from './usaf.tsx';
 import { FPNMode } from './fpn.tsx';
 import { DoFMode } from './dof.tsx';
-import { PlaybackMode } from './playback.tsx';
+import PlaybackMode from './playback.tsx';
 import { AnalysisShell } from './analysis/shell';
 import { ISPSettingsWindow } from './isp_settings.tsx';
 const {
@@ -331,7 +331,7 @@ const App = () => {
       },
       {
         id: 'isp.settings',
-        label: 'ISP settings…',
+        label: 'Filter & Channel Specification…',
         kbd: 'I',
         icon: 'isp',
         run: () => setShowISP(true),
@@ -890,14 +890,11 @@ const TopBar = ({
           </option>
         ))}
       </select>
-      <Button
-        icon="open"
-        size="sm"
-        onClick={onOpen}
-        title={`Open — filter: ${FILE_FILTERS[fileFilter]?.label} (⌘O)`}
-      >
-        Open
-      </Button>
+      {/* The TopBar global "Open" button used to live here; removed per
+          user request. Each mode's left-column SourcesPanel still has
+          its own Open button (USAF/FPN/DoF: "Open H5 / image…", Play:
+          "Open recording…"); the ⌘O shortcut + ⌘K palette + drag-drop
+          still work too. */}
       <Button icon="search" size="sm" onClick={onPalette} title="Command palette (⌘K)">
         <span
           style={{
@@ -910,7 +907,14 @@ const TopBar = ({
           ⌘K
         </span>
       </Button>
-      <Button icon="isp" size="sm" onClick={onISP} title="ISP settings (Shift+I)" />
+      <Button
+        icon="isp"
+        size="sm"
+        onClick={onISP}
+        title="Filter & Channel Specification — pick the ISP mode + Bayer mosaic origin / channel slots (Shift+I)"
+      >
+        Filter &amp; Channel
+      </Button>
       <Button icon="keyboard" size="sm" onClick={onHelp} title="Keyboard shortcuts (?)" />
       <div
         style={{

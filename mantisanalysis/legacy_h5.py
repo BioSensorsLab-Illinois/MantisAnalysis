@@ -181,15 +181,21 @@ def extract_legacy_channels(frame: np.ndarray) -> Dict[str, np.ndarray]:
             f"expected legacy frame shape {LEGACY_FRAME_HW}, got {frame.shape}"
         )
     f = frame
+    # Calibrated bench layout (matches the legacy_gsbsi_rgb_nir ISP mode in
+    # mantisanalysis/isp_modes.py): origin (0, 0), sub_step (1, 1),
+    # outer_stride (2, 2), and within each 2×2 super-pixel of each gain
+    # half — NIR = (0, 0), G = (0, 1), R = (1, 0), B = (1, 1). The
+    # row-period-4 split places LG on rows 0::4 + 2::4 and HG on rows
+    # 1::4 + 3::4 (each gain therefore covers two super-rows mod 4).
     channels: Dict[str, np.ndarray] = {
-        "LG-B":   np.ascontiguousarray(f[0::4, 0::2]),
-        "LG-R":   np.ascontiguousarray(f[0::4, 1::2]),
-        "HG-B":   np.ascontiguousarray(f[1::4, 0::2]),
-        "HG-R":   np.ascontiguousarray(f[1::4, 1::2]),
-        "LG-G":   np.ascontiguousarray(f[2::4, 0::2]),
-        "LG-NIR": np.ascontiguousarray(f[2::4, 1::2]),
-        "HG-G":   np.ascontiguousarray(f[3::4, 0::2]),
-        "HG-NIR": np.ascontiguousarray(f[3::4, 1::2]),
+        "LG-NIR": np.ascontiguousarray(f[0::4, 0::2]),
+        "LG-G":   np.ascontiguousarray(f[0::4, 1::2]),
+        "HG-NIR": np.ascontiguousarray(f[1::4, 0::2]),
+        "HG-G":   np.ascontiguousarray(f[1::4, 1::2]),
+        "LG-R":   np.ascontiguousarray(f[2::4, 0::2]),
+        "LG-B":   np.ascontiguousarray(f[2::4, 1::2]),
+        "HG-R":   np.ascontiguousarray(f[3::4, 0::2]),
+        "HG-B":   np.ascontiguousarray(f[3::4, 1::2]),
     }
     channels["HG-Y"] = _luminance_rec601(
         {"R": channels["HG-R"], "G": channels["HG-G"], "B": channels["HG-B"]}

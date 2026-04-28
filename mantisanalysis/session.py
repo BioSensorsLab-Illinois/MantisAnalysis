@@ -319,7 +319,7 @@ class LoadedSource:
 class SessionStore:
     """Process-wide session store. Thread-safe for the single-user case."""
 
-    def __init__(self, max_entries: int = 12, evicted_memory: int = 64):
+    def __init__(self, max_entries: int = 64, evicted_memory: int = 256):
         self._lock = threading.RLock()
         self._items: Dict[str, LoadedSource] = {}
         self._max = max_entries

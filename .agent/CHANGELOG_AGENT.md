@@ -4,6 +4,79 @@ Append-only log of agent sessions. One bullet per session, newest at top.
 
 ---
 
+**2026-04-27 — Play polish + delete-from-disk + cache rebuild + 18-file resilience (uncommitted)**
+
+User-driven polish sweep on top of the closed Phase 1/Phase 2 Play
+rebuild. No initiative milestone advanced; all changes are bug-fix /
+correctness / UX work captured directly against `main`. **Every change
+in the working tree is uncommitted** — branch still at `0645d57` (44
+ahead of origin), awaiting consent before commit.
+
+Highlights:
+
+- **Filter & Channel Specification (rebrand of "ISP settings")** —
+  TopBar entry promoted to a labeled button, modal title + ⌘K palette
+  + toast strings all renamed. Apply now fans the same config out to
+  every loaded Play recording (PUT `/isp` per sibling). Single
+  source-mode change → all files reconfigured.
+- **USAF / FPN / DoF Display channel** — dropped the legacy global
+  RGB-composite override toggle. Each mode now exposes explicit
+  `RGB · HG` / `RGB · LG` chips (or a single `RGB`) with a tri-color
+  pie swatch (new `RgbCompositeChip` in `shared.tsx`). Single channels
+  always render mono so the colormap applies.
+- **Play polish** — FPS dropdown widened to 12 presets (1, 2, 5, 10,
+  15, 24, 30, 48, 60, 90, 120, 240); pre-baked `overlay_nir_*` modes
+  removed (only `overlay_custom` remains, builder reachable from any
+  source mode); RGB Grading rebuilt as single-row `GradeRow` (label +
+  slider + numeric inline); Inspector Gain reads from view's
+  sourceMode (stays in sync with rendered image after stream-follow);
+  `setRecordingGain` is stream-wide; rebind preserves `view.name`.
+- **Real on-disk file delete** — backend `POST /api/files/locate`
+  scans `~/Desktop` / `~/Downloads` / `~/Documents` by name+size;
+  `POST /api/sources/{sid}/attach-path` binds the resolved path;
+  `DELETE /api/sources/{sid}` now unlinks the user's actual file
+  (returns `{deleted_path, deleted_kind}`). Frontend upload path runs
+  locate→attach automatically; `handleOpenClick` tries
+  `showOpenFilePicker` first for `FileSystemFileHandle.remove()`
+  capability. `deleted_kind: 'upload_tempfile'` is treated as
+  FAILURE — only `'user_path'` or a successful handle.remove() count.
+  Type-DELETE confirmation dropped; permanent `Select all` /
+  `Delete (N)` buttons in Sources panel header; FilePill checkbox
+  supports Shift+click range select; `markedRecIds` auto-prunes when
+  recordings vanish.
+- **Cache strategy rebuilt** — replaced the per-tick lookahead with
+  an eager **warmer effect** that walks (view × frame) URLs
+  round-robin in playhead order. Default budget bumped from 64 MB →
+  1024 MB (per the 8 GB minimum-RAM assumption). Cap derived from
+  new `/api/system/info` (`psutil` → `sysctl hw.memsize` →
+  `/proc/meminfo`) at 80% of physical RAM; `navigator.deviceMemory`
+  is the fallback only. Prefetch concurrency semaphore (max 6 in
+  flight, drops on saturation), in-flight URL dedupe set, and a
+  hard 32-frame lookahead cap. Cache status bar at the bottom of
+  Play is now persistent (idle vs busy modes). New Inspector →
+  Advanced "Frame cache RAM budget" control, persisted, with live
+  trim.
+- **Resilience** — `SessionStore.max_entries` raised 12 → 64 so 18+
+  legacy H5s stay loaded; `PlaybackErrorBoundary` wraps Play so
+  render-time crashes show a recoverable error pane + stack trace
+  instead of a solid-color blank. `warmerKey` simplified to scalars
+  only (no per-render JSON.stringify of nested view objects). Warm
+  queue capped, walks views round-robin. Verified live with 18-file
+  legacy gsbsi load: 16 loaded cleanly, 2 surfaced inline error
+  pills (one truncated H5, one bad path), no crash.
+- **Legacy gsbsi calibration** — `legacy_gsbsi_rgb_nir` ISP mode +
+  hardcoded `extract_legacy_channels` updated to user's bench
+  layout: `default_origin=(0,0)`, `default_sub_step=(1,1)`,
+  `default_outer_stride=(2,2)`, with NIR=(0,0), G=(0,1), R=(1,0),
+  B=(1,1). pytest 17/17 green.
+
+Verification: `npm run build` clean (~14 s), `tsc --noEmit` clean,
+`pytest tests/unit/test_legacy_h5.py -q` 17/17. Live browser
+verification on the 18-file legacy gsbsi load + the synthetic-sample
+USAF flow.
+
+---
+
 User: "Plan & implement Recording Inspection Mode (Play tab) per the
 Claude Design template. Ultra planning effort first; don't stop
 halfway; Playwright before every milestone close; work directly on
