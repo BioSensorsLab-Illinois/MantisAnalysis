@@ -1,17 +1,16 @@
 # HANDOFF — current live state pointer
 
-Last updated: **2026-04-28** (PM session) — comprehensive
-ultrareview + fix-everything sweep on `main`. Four parallel reviewer
-agents (fastapi-backend-reviewer, frontend-react-engineer,
-test-coverage-reviewer, risk-skeptic) ran a full-branch audit;
-findings were validated (3 hallucinations filtered, ~24 confirmed)
-and a 27-item plan was authored at
-`/Users/zz4/.claude/plans/tranquil-growing-lollipop.md`. This
-session implemented Phase A (P0 must-fix-before-push, 4 items) and
-most of Phase B/C (P1 + hygiene, ~16 items). Phase B11 (drop
-@ts-nocheck on 7 files) and Phase C8 (HDR fusion UI toggle) were
-deferred to backlog (B-0038, B-0040) as the type-error count and
-backend+frontend coupling exceeded the polish-sweep scope.
+Last updated: **2026-04-28** (Night session) — the
+`play-export-and-roi-fixes-v1` initiative addressing 7 user-reported
+Play-mode defects. Six milestones (M0 scaffold → M6 close), all
+green; 3 reviewers spawned at M5 (fastapi-backend-reviewer,
+frontend-react-engineer, risk-skeptic) all returned fix-then-ship,
+with P0/P1 batch resolved before close. Initiative artifacts at
+[`.agent/runs/play-export-and-roi-fixes-v1/`](runs/play-export-and-roi-fixes-v1/).
+Prior PM-session ultra-review work (27-item Phase-A/B/C sweep,
+plan at `/Users/zz4/.claude/plans/tranquil-growing-lollipop.md`)
+was committed in `8a1e056` / `b01d8f7` / `d1c0a9b` before this
+session began.
 
 ## Current state of the working tree
 
@@ -19,7 +18,28 @@ backend+frontend coupling exceeded the polish-sweep scope.
   pushed — B-0010 still open). Most-recent commit is the B-0037
   Phase 2-4 module extractions (sourceModes, RoiOverlay,
   WarningCenter, SmallModals).
-- **Three layered changes on `main`, all uncommitted**:
+- **Uncommitted: play-export-and-roi-fixes-v1 closed but unpushed.**
+  All 7 user-reported Play-mode bugs fixed; 3 reviewers green; all
+  P0/P1 resolved + verified. Touches:
+  * `mantisanalysis/server.py` (overlay labels, export_video CRF +
+    ISP, MultiSourceVideoRequest with Field/Literal validation, 4
+    new `/api/play/exports/*` routes, JOBS shutdown hook).
+  * `mantisanalysis/export_jobs.py` (NEW — JobStore + ExportJob).
+  * `web/src/playback.tsx` (vertex drag/delete/insert, TBR overlay
+    channel picker + skip-gain, multi-source export polling +
+    progress UI, Spinbox decoupled validation, hi-res defaults).
+  * `tests/unit/test_export_jobs.py` (NEW — 11 tests).
+  * `.agent/runs/play-export-and-roi-fixes-v1/` (NEW — initiative
+    + reviews/).
+- The **prior** "Three layered changes" listed below were **all
+  committed** before this session began — see commits `8a1e056`
+  (polish-sweep), `b01d8f7` (B-0037/B-0040/B-0041/B-0042), and
+  `d1c0a9b` (Phase 2-4 extracts). Section retained for the audit
+  trail of what those changes were.
+
+## Prior layered changes (now committed; section retained for trail)
+
+- **Three layered changes on `main`** (all now committed):
   0. **Polish-sweep audit fixes** (this session, 2026-04-28 PM) —
      reviewer-driven correctness + hardening pass:
      * Path-containment on `/api/sources/{sid}/attach-path`

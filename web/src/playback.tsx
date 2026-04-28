@@ -25,7 +25,10 @@ import {
   frameCachePut as _frameCachePut,
   frameCachePurgeForSource as _frameCachePurgeForSource,
   isPrefetchInflight as _isPrefetchInflight,
+  isPrefetchSemaphoreSaturated as _isPrefetchSemaphoreSaturated,
   prefetchFrame as _prefetchFrame,
+  trackFetchStart as _trackFetchStart,
+  trackFetchEnd as _trackFetchEnd,
 } from './playback/frameCache.ts';
 // B-0037 Phase 2-4 module extractions.
 import {
@@ -266,6 +269,11 @@ const frameOverlayUrl = (sid, frameIdx, opts = {}) => {
   if (Array.isArray(opts.maskPolygon) && opts.maskPolygon.length >= 3) {
     q.set('mask_polygon', JSON.stringify(opts.maskPolygon));
   }
+  // Forward burn-in labels (parity with the channel + RGB routes — the
+  // overlay route ignored them prior to play-export-and-roi-fixes-v1
+  // M1, so frame number / scale bar / source name silently dropped on
+  // overlay views).
+  _appendLabelsQuery(q, opts.labels);
   // ISP-version cache-buster (overlay route also re-extracts when ISP
   // geometry on the parent source changes).
   if (opts.ispVersion) q.set('_isp_v', String(opts.ispVersion));
@@ -429,6 +437,10 @@ const buildFrameUrl = (recording, view, frameIdx) => {
       maxDim: opts.maxDim,
       applyDark: opts.applyDark,
       ispVersion: opts.ispVersion,
+      // Forward labels to the overlay route so frame number / file name /
+      // scale bar / timestamp burn into the overlay PNG (parity with
+      // channel + RGB routes).
+      labels: opts.labels,
     });
   }
   // raw — user picks a channel via view.rawChannel
@@ -844,6 +856,25 @@ export const PlaybackMode = ({
   const [streamBuilderOpen, setStreamBuilderOpen] = React.useState(false);
   // Export Video modal (M10)
   const [exportVideoOpen, setExportVideoOpen] = React.useState(false);
+  // Multi-source export job state: tracks { jobId, status, progress,
+  // currentFrame, totalFrames, label } for the new
+  // /api/play/exports flow. Null when no job is in flight.
+  const [exportJob, setExportJob] = React.useState(null);
+  // Per-poll-loop cancellation token. Held in a ref so the polling
+  // closure can read the latest value without re-rendering, and so
+  // unmount can flip it to true without depending on state. Prevents
+  // setExportJob calls after unmount and aborts a stale loop when a
+  // new job kicks off. frontend-react-engineer P1-A.
+  const exportPollAbortRef = React.useRef(null);
+  React.useEffect(
+    () => () => {
+      // Mark any in-flight polling loop as aborted on unmount.
+      if (exportPollAbortRef.current) {
+        exportPollAbortRef.current.aborted = true;
+      }
+    },
+    []
+  );
   // M23 — tiled image export modal (multi-view PNG composite).
   const [exportImageOpen, setExportImageOpen] = React.useState(false);
   // Warning Center modal (M11)
@@ -874,7 +905,31 @@ export const PlaybackMode = ({
   // bg stats, ratio). Draft/in-progress measurement lives on the
   // active view (see view.tbrDraft) so it picks up the per-view ROI
   // drawing tool.
-  const [tbrEntries, setTbrEntries] = React.useState([]);
+  // TBR entries persist across page reloads + survive recording removal
+  // (the user explicitly asked for this — "make TBR table persistent and
+  // retain all entries even if I removed all h5 recording from the page").
+  // Storage key is versioned so a future schema change can drop legacy
+  // entries instead of corrupting state.
+  const TBR_STORAGE_KEY = 'mantis.play.tbrEntries.v1';
+  const [tbrEntries, setTbrEntries] = React.useState(() => {
+    try {
+      const raw = window.localStorage?.getItem(TBR_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  // Persist on every mutation. localStorage round-trip is cheap (these
+  // entries are small numeric records, no images), and a debounced write
+  // would risk losing the latest commit on a tab close.
+  React.useEffect(() => {
+    try {
+      window.localStorage?.setItem(TBR_STORAGE_KEY, JSON.stringify(tbrEntries));
+    } catch {
+      /* localStorage quota or disabled — silent fallback to in-memory */
+    }
+  }, [tbrEntries]);
   const [tbrAnalysisOpen, setTbrAnalysisOpen] = React.useState(false);
   React.useEffect(() => {
     let cancelled = false;
@@ -1188,8 +1243,16 @@ export const PlaybackMode = ({
         ...prev,
         ...names.map((n, idx) => ({ id: loadIds[idx], name: n })),
       ]);
-      const newRecordings = [];
-      for (let i = 0; i < items.length; i++) {
+      // Indexed-slot result buffer — preserves user-picked order even
+      // when the bounded-concurrency pool finishes items out of order.
+      // Each slot is `{ recording } | { error }` once that item settles.
+      const slots = new Array(items.length).fill(null);
+      // Concurrency cap. The browser's parallel-request-per-host limit
+      // is 6; staying under that keeps thumbnail fetches + other Play
+      // routes responsive while a big batch loads. h5py releases the
+      // GIL during reads so the server can saturate this happily.
+      const MAX_PARALLEL_LOADS = 4;
+      const loadOne = async (i) => {
         const it = items[i];
         const displayName = names[i];
         const loadId = loadIds[i];
@@ -1246,46 +1309,49 @@ export const PlaybackMode = ({
           if (['HG-R', 'HG-G', 'HG-B'].some(has)) initialGain = 'HG';
           else if (['LG-R', 'LG-G', 'LG-B'].some(has)) initialGain = 'LG';
           else if (['HDR-R', 'HDR-G', 'HDR-B'].some(has)) initialGain = 'HDR';
-          newRecordings.push({
-            source_id: summary.source_id,
-            name: summary.name,
-            kind: summary.kind,
-            channels: summary.channels,
-            shape: summary.shape,
-            // Raw mosaic dimensions before channel split — lets the
-            // FilePill show "raw file resolution" alongside the
-            // per-channel `shape` (which is post-extraction).
-            raw_shape: summary.raw_shape || summary.shape,
-            raw_dtype: summary.raw_dtype || 'uint16',
-            raw_bit_depth: summary.raw_bit_depth || 16,
-            path: summary.path,
-            // FileSystemFileHandle (when the user opened via showOpenFilePicker)
-            // — used by the delete flow to call `.remove()` and actually
-            // unlink the file from the user's filesystem in place. Not
-            // serializable; only present on this in-memory recording.
-            fileHandle: it.handle || null,
-            has_dark: !!summary.has_dark,
-            dark_name: summary.dark_name,
-            isp_mode_id: summary.isp_mode_id,
-            isp_channel_map: summary.isp_channel_map || {},
-            rgb_composite_available: !!summary.rgb_composite_available,
-            frame_count: summary.frame_count || (meta?.frame_count ?? 1),
-            exposures_s: meta?.exposures_s ?? [],
-            timestamps: meta?.timestamps ?? [],
-            duration_s: meta?.duration_s ?? 0,
-            fps_estimate: meta?.fps_estimate ?? 0,
-            file_size: it.kind === 'file' ? it.file.size : null,
-            loaded_at: summary.loaded_at,
-            // M16: forward backend-emitted load-time warnings
-            // (W-META-TS, W-META-EXP, W-FRAME-FAIL) so the FilePill
-            // can chip them and the Warning Center can aggregate.
-            warnings: summary.warnings || [],
-            // Recording-level gain preference (HG / LG / HDR) — set
-            // once in the Sources panel and applies to every view
-            // bound to this recording.
-            gainPref: initialGain,
-          });
+          slots[i] = {
+            recording: {
+              source_id: summary.source_id,
+              name: summary.name,
+              kind: summary.kind,
+              channels: summary.channels,
+              shape: summary.shape,
+              // Raw mosaic dimensions before channel split — lets the
+              // FilePill show "raw file resolution" alongside the
+              // per-channel `shape` (which is post-extraction).
+              raw_shape: summary.raw_shape || summary.shape,
+              raw_dtype: summary.raw_dtype || 'uint16',
+              raw_bit_depth: summary.raw_bit_depth || 16,
+              path: summary.path,
+              // FileSystemFileHandle (when the user opened via showOpenFilePicker)
+              // — used by the delete flow to call `.remove()` and actually
+              // unlink the file from the user's filesystem in place. Not
+              // serializable; only present on this in-memory recording.
+              fileHandle: it.handle || null,
+              has_dark: !!summary.has_dark,
+              dark_name: summary.dark_name,
+              isp_mode_id: summary.isp_mode_id,
+              isp_channel_map: summary.isp_channel_map || {},
+              rgb_composite_available: !!summary.rgb_composite_available,
+              frame_count: summary.frame_count || (meta?.frame_count ?? 1),
+              exposures_s: meta?.exposures_s ?? [],
+              timestamps: meta?.timestamps ?? [],
+              duration_s: meta?.duration_s ?? 0,
+              fps_estimate: meta?.fps_estimate ?? 0,
+              file_size: it.kind === 'file' ? it.file.size : null,
+              loaded_at: summary.loaded_at,
+              // M16: forward backend-emitted load-time warnings
+              // (W-META-TS, W-META-EXP, W-FRAME-FAIL) so the FilePill
+              // can chip them and the Warning Center can aggregate.
+              warnings: summary.warnings || [],
+              // Recording-level gain preference (HG / LG / HDR) — set
+              // once in the Sources panel and applies to every view
+              // bound to this recording.
+              gainPref: initialGain,
+            },
+          };
         } catch (err) {
+          slots[i] = { error: { name: displayName, message: err.detail || err.message } };
           setErrorFiles((prev) => [
             ...prev,
             { name: displayName, message: err.detail || err.message },
@@ -1294,7 +1360,32 @@ export const PlaybackMode = ({
         } finally {
           setLoadingFiles((prev) => prev.filter((lf) => lf.id !== loadId));
         }
+      };
+      // Bounded-concurrency Promise pool. Walks the items array left-
+      // to-right; each worker grabs the next index off a shared cursor
+      // until the array is exhausted. Order of dispatch is preserved
+      // (low-index items start first) so the user-perceptible "first
+      // file appears first" feel survives parallelism. Final ordering
+      // of `recordings` is enforced by walking `slots` in index order
+      // after all workers exit, NOT by the order they finish.
+      let cursor = 0;
+      const workers = [];
+      const poolSize = Math.min(MAX_PARALLEL_LOADS, items.length);
+      for (let w = 0; w < poolSize; w++) {
+        workers.push(
+          (async () => {
+            while (true) {
+              const i = cursor++;
+              if (i >= items.length) return;
+              await loadOne(i);
+            }
+          })()
+        );
       }
+      await Promise.all(workers);
+      // Drain slots in input order — successes preserve the user's
+      // pick order in the recordings array.
+      const newRecordings = slots.filter((s) => s && s.recording).map((s) => s.recording);
       if (newRecordings.length > 0) {
         setRecordings((prev) => [...prev, ...newRecordings]);
         setSelectedRecId((prev) => prev ?? newRecordings[0].source_id);
@@ -2028,7 +2119,7 @@ export const PlaybackMode = ({
       let pos = 0;
       const tick = async () => {
         while (!cancelled && pos < warmQueue.length) {
-          if (_prefetchActive >= _MAX_CONCURRENT_PREFETCHES) {
+          if (_isPrefetchSemaphoreSaturated()) {
             await new Promise((r) => setTimeout(r, 25));
             continue;
           }
@@ -2305,7 +2396,16 @@ export const PlaybackMode = ({
         start: String(opts.start),
         end: String(opts.end),
         fps: String(opts.fps),
-        max_dim: '1280',
+        // Hi-res default — server cap is 8192. Most cameras are 4K-class
+        // so 4096 keeps native pixels for 4K data and only downscales on
+        // monster sensors. User-tunable via the export modal Quality
+        // section once that lands; for now we ship one quality tier.
+        max_dim: '4096',
+        // Visually-lossless x264 default. crf=18 is the sweet spot for
+        // scientific video — preserves contrast and faint overlay detail
+        // without bloating the file like crf=0 (true lossless) would.
+        crf: '18',
+        preset: 'slow',
       });
       if (meta.kind === 'rgb' || meta.kind === 'rgb_image') {
         q.set('render', 'rgb_composite');
@@ -2352,13 +2452,239 @@ export const PlaybackMode = ({
       if (v.vmin != null) q.set('vmin', String(v.vmin));
       if (v.vmax != null) q.set('vmax', String(v.vmax));
       if (v.applyDark === false) q.set('apply_dark', 'false');
+      // Forward the live linear ISP (black_level + gain + offset) so the
+      // exported channel/RGB video matches the canvas WYSIWYG. The
+      // server route ignores these for render=overlay (overlay's base
+      // RGB is already auto-percentile in /export/video's overlay path).
+      _appendIspQuery(
+        q,
+        {
+          blackLevel: v.blackLevel,
+          gain: v.gain,
+          offset: v.offset,
+        },
+        { gainKey: 'isp_gain' }
+      );
+      // Forward the non-linear ISP chain (sharpen / FPN / denoise) so
+      // exports honor the live filter settings.
+      _appendIspChainQuery(q, v.isp || null);
       return `${API_BASE}/api/sources/${rec.source_id}/export/video?${q.toString()}`;
     },
     [views, selectedViewId, recordings]
   );
 
+  // Build the per-source spec for /api/play/exports. Mirrors the
+  // single-source GET URL builder but produces a JSON body field set
+  // for the multi-source job route.
+  const buildMultiSourceSpec = React.useCallback(
+    (recording, opts) => {
+      // Use the active view as the render template — the user's
+      // "what does the active view look like" determines render mode,
+      // ISP, and overlay settings; we just swap source_id per recording.
+      const v = views.find((vv) => vv.id === selectedViewId) || views[0];
+      if (!v) return null;
+      const meta = sourceModeMeta(v.sourceMode);
+      const spec = {
+        source_id: recording.source_id,
+        start: opts.start ?? 0,
+        end: opts.end ?? null,
+        apply_dark: v.applyDark !== false,
+        // Linear ISP from the active view.
+        black_level: v.blackLevel ?? 0,
+        isp_gain: v.gain ?? 1.0,
+        isp_offset: v.offset ?? 0.0,
+        // Non-linear ISP chain.
+        sharpen_method: v.isp?.sharpen_method ?? null,
+        sharpen_amount: v.isp?.sharpen_amount ?? 1.0,
+        sharpen_radius: v.isp?.sharpen_radius ?? 2.0,
+        denoise_sigma: v.isp?.denoise_sigma ?? 0.0,
+        median_size: v.isp?.median_size ?? 0,
+        gaussian_sigma: v.isp?.gaussian_sigma ?? 0.0,
+        hot_pixel_thr: v.isp?.hot_pixel_thr ?? 0.0,
+        bilateral: !!v.isp?.bilateral,
+      };
+      if (v.vmin != null) spec.vmin = v.vmin;
+      if (v.vmax != null) spec.vmax = v.vmax;
+      if (meta.kind === 'rgb' || meta.kind === 'rgb_image') {
+        spec.render = 'rgb_composite';
+        spec.gain = meta.kind === 'rgb_image' ? 'hg' : meta.gain;
+      } else if (meta.kind === 'channel') {
+        spec.render = 'channel';
+        spec.channel = meta.channel;
+        spec.colormap = v.colormap || meta.defaultColormap || 'gray';
+      } else if (meta.kind === 'overlay') {
+        const ov = v.overlay || {};
+        const baseKind = ov.baseKind || 'rgb_composite';
+        const baseGain = (ov.baseGain || meta.baseGain || 'hg').toLowerCase();
+        const baseChannel =
+          baseKind === 'rgb_composite'
+            ? baseGain === 'lg'
+              ? 'LG-R'
+              : 'HG-R'
+            : ov.baseChannel || (baseGain === 'lg' ? 'LG-Y' : 'HG-Y');
+        spec.render = 'overlay';
+        spec.base_channel = baseChannel;
+        spec.overlay_channel = ov.overlayChannel || meta.overlayChannel || 'HG-NIR';
+        spec.overlay_colormap =
+          ov.overlayColormap || v.colormap || meta.defaultColormap || 'inferno';
+        spec.blend = ov.blend || 'alpha';
+        spec.strength = ov.strength ?? 0.6;
+        if (ov.overlayLow != null) spec.overlay_low = ov.overlayLow;
+        if (ov.overlayHigh != null) spec.overlay_high = ov.overlayHigh;
+        if (Array.isArray(ov.maskPolygon) && ov.maskPolygon.length >= 3) {
+          spec.mask_polygon = ov.maskPolygon;
+        }
+      } else if (meta.kind === 'raw' && v.rawChannel) {
+        spec.render = 'channel';
+        spec.channel = v.rawChannel;
+        spec.colormap = v.colormap || 'gray';
+      } else {
+        return null;
+      }
+      return spec;
+    },
+    [views, selectedViewId]
+  );
+
   const exportVideo = React.useCallback(
     async (opts) => {
+      // Multi-recording → one MP4 covering every recording in cascade
+      // order via the new job-based /api/play/exports endpoint. This
+      // path takes priority over the per-source single-MP4 case so the
+      // user gets the correct "all sources concatenated" behaviour.
+      const useMulti = recordings.length > 1 && views.length === 1;
+      if (useMulti) {
+        // risk-skeptic A: ignore extra Export clicks while a job is
+        // already in flight. The modal button is also disabled while
+        // exportJob != null, but a programmatic dispatch (slash-cmd,
+        // future hotkey) could still reach exportVideo — guard at
+        // source.
+        if (exportJob) {
+          say?.('An export is already in progress — wait or cancel it first.', 'warning');
+          return;
+        }
+        const specs = recordings.map((rec) => buildMultiSourceSpec(rec, opts)).filter(Boolean);
+        if (specs.length === 0) {
+          say?.('Could not build export spec — pick a view first.', 'warning');
+          return;
+        }
+        // Cancellation token threaded into the polling closure. Flips
+        // to aborted on (a) component unmount, (b) a fresh export call
+        // (defensive — exportJob guard already keeps us out, but a
+        // future refactor could change that). frontend-react-engineer
+        // P1-A.
+        if (exportPollAbortRef.current) {
+          exportPollAbortRef.current.aborted = true;
+        }
+        const abortToken = { aborted: false };
+        exportPollAbortRef.current = abortToken;
+        const safeSetJob = (next) => {
+          if (abortToken.aborted) return;
+          setExportJob(next);
+        };
+        try {
+          const resp = await fetch(`${API_BASE}/api/play/exports`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sources: specs,
+              fps: opts.fps || 10,
+              max_dim: 4096,
+              crf: 18,
+              preset: 'slow',
+              format: 'mp4',
+            }),
+          });
+          if (!resp.ok) {
+            const text = await resp.text().catch(() => '');
+            throw new Error(`${resp.status}: ${text.slice(0, 200)}`);
+          }
+          const { job_id, label } = await resp.json();
+          safeSetJob({
+            jobId: job_id,
+            status: 'queued',
+            progress: 0,
+            currentFrame: 0,
+            totalFrames: 0,
+            label: label || `${specs.length} sources`,
+          });
+          say?.(`Export queued: ${label || specs.length + ' sources'}`, 'info');
+          // Poll loop — 500 ms cadence. Lives here so the modal's
+          // local busy state can stay simple.
+          const pollUntilDone = async () => {
+            while (true) {
+              if (abortToken.aborted) return;
+              await new Promise((r) => setTimeout(r, 500));
+              if (abortToken.aborted) return;
+              let snap;
+              try {
+                const r = await fetch(`${API_BASE}/api/play/exports/${job_id}`);
+                if (!r.ok) throw new Error(`${r.status}: poll failed`);
+                snap = await r.json();
+              } catch (err) {
+                if (abortToken.aborted) return;
+                say?.(`Export poll failed: ${err.message || err}`, 'danger');
+                safeSetJob(null);
+                return;
+              }
+              safeSetJob({
+                jobId: snap.job_id,
+                status: snap.status,
+                progress: snap.progress,
+                currentFrame: snap.current_frame,
+                totalFrames: snap.total_frames,
+                label: snap.label,
+              });
+              if (snap.status === 'done') {
+                if (abortToken.aborted) return;
+                const r = await fetch(`${API_BASE}/api/play/exports/${job_id}/result`);
+                if (abortToken.aborted) return;
+                if (!r.ok) {
+                  say?.(`Export result fetch failed (${r.status})`, 'danger');
+                  safeSetJob(null);
+                  return;
+                }
+                const blob = await r.blob();
+                if (abortToken.aborted) return;
+                const objUrl = URL.createObjectURL(blob);
+                const dispo = r.headers.get('Content-Disposition') || '';
+                const m = dispo.match(/filename="([^"]+)"/);
+                const filename = m ? m[1] : `play_multi_export.mp4`;
+                const a = document.createElement('a');
+                a.href = objUrl;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(objUrl), 5000);
+                say?.(
+                  `Exported ${filename} (${(blob.size / 1024 / 1024).toFixed(2)} MB)`,
+                  'success'
+                );
+                safeSetJob(null);
+                if (!abortToken.aborted) setExportVideoOpen(false);
+                return;
+              }
+              if (snap.status === 'error') {
+                say?.(`Export failed: ${snap.error || 'unknown'}`, 'danger');
+                safeSetJob(null);
+                return;
+              }
+              if (snap.status === 'cancelled') {
+                say?.('Export cancelled.', 'warning');
+                safeSetJob(null);
+                return;
+              }
+            }
+          };
+          pollUntilDone();
+          return;
+        } catch (err) {
+          say?.(`Export failed: ${err.message || err}`, 'danger');
+          safeSetJob(null);
+          return;
+        }
+      }
       // M24 — multi-view stream → tiled video endpoint; single-view
       // stays on the legacy /export/video URL builder.
       const tiled = (opts.tiled ?? views.length > 1) && views.length > 1;
@@ -2894,8 +3220,46 @@ export const PlaybackMode = ({
           totalFrames={totalFrames}
           fps={fps}
           viewCount={views.length}
+          recordingCount={recordings.length}
+          exportJob={exportJob}
           onExport={exportVideo}
-          onClose={() => setExportVideoOpen(false)}
+          onCancelJob={async () => {
+            if (!exportJob?.jobId) return;
+            // frontend-react-engineer P1-C: surface DELETE failures so
+            // the user knows the cancel didn't reach the server. The
+            // polling loop will continue to show 'running' until the
+            // backend actually flips state, so without a toast the
+            // user has no signal at all.
+            try {
+              const r = await fetch(`${API_BASE}/api/play/exports/${exportJob.jobId}`, {
+                method: 'DELETE',
+              });
+              if (!r.ok) {
+                say?.(`Cancel request returned ${r.status}; the job may keep running.`, 'warning');
+              }
+            } catch (err) {
+              say?.(
+                `Cancel request failed: ${err?.message || err}; the job may keep running.`,
+                'warning'
+              );
+            }
+          }}
+          onClose={() => {
+            // Don't allow close while a job is in any non-terminal
+            // state (queued, running, or in the post-done blob-fetch
+            // window). Closing would orphan the polling loop and the
+            // user could miss the result download. frontend-react-
+            // engineer P1-B.
+            if (
+              exportJob &&
+              (exportJob.status === 'running' ||
+                exportJob.status === 'queued' ||
+                exportJob.status === 'done')
+            ) {
+              return;
+            }
+            setExportVideoOpen(false);
+          }}
         />
       )}
       {exportImageOpen && (
@@ -4496,6 +4860,12 @@ const ViewerCard = ({
   // don't re-render every frame; we commit the new (panX, panY) to
   // view state on mouseup or on each frame via rAF.
   const dragRef = React.useRef(null); // { startClientX, startClientY, startPanX, startPanY } | null
+  // ROI vertex edit state — left-button drag of an existing polygon
+  // vertex. Lives alongside dragRef so the two pointer state-machines
+  // never collide (middle = pan, left = vertex move). Cleared on
+  // mouseup or when the vertex no longer exists (e.g. user hit Clear
+  // mid-drag). target ∈ 'mask' | 'tumor' | 'bg'.
+  const vertexDragRef = React.useRef(null);
   // M11 reviewer P1: track the most recent blob URL so we can revoke it
   // synchronously when the next one is assigned, AND on unmount. The
   // earlier onload-based revoke leaked under fast scrubbing.
@@ -4613,6 +4983,148 @@ const ViewerCard = ({
   const recForDropdown = recording;
   const sourceModes = availableSourceModes(recForDropdown);
   const meta = sourceModeMeta(view.sourceMode);
+  // Polygon edit helpers — vertex drag, right-click delete, double-
+  // click-edge insert. All three gestures consume image-pixel coords;
+  // the parent's existing _clientToImagePx handles letterbox + zoom.
+  // Hit-test is screen-tolerant: thresholds are in CSS px and we
+  // convert to image px on the fly so the grab zone scales with the
+  // user's current zoom level.
+  const _editablePolygons = React.useCallback(() => {
+    // Only expose polygons that semantically belong to this view's
+    // current mode. Overlay-mode views own a maskPolygon; any view
+    // can own a TBR draft. Returning [] when nothing's drawable
+    // short-circuits all hit-test paths.
+    const out = [];
+    if (meta?.kind === 'overlay') {
+      const ov = view.overlay || {};
+      if (Array.isArray(ov.maskPolygon) && ov.maskPolygon.length > 0) {
+        out.push({ target: 'mask', pts: ov.maskPolygon });
+      }
+    }
+    const draft = view.tbrDraft || {};
+    if (Array.isArray(draft.tumorPolygon) && draft.tumorPolygon.length > 0) {
+      out.push({ target: 'tumor', pts: draft.tumorPolygon });
+    }
+    if (Array.isArray(draft.bgPolygon) && draft.bgPolygon.length > 0) {
+      out.push({ target: 'bg', pts: draft.bgPolygon });
+    }
+    return out;
+  }, [meta?.kind, view.overlay, view.tbrDraft]);
+
+  // CSS-px → image-px scale factor for the current letterbox layout.
+  // Returns null when the SVG isn't mounted yet or has zero size.
+  const _imagePxPerScreenPx = () => {
+    const svgEl = svgRef.current;
+    if (!svgEl || !recording?.shape) return null;
+    const rect = svgEl.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    const ih = recording.shape[0] || 1;
+    const iw = recording.shape[1] || 1;
+    const aspectImg = iw / ih;
+    const aspectRect = rect.width / rect.height;
+    const contentW = aspectImg > aspectRect ? rect.width : rect.height * aspectImg;
+    const z = view.zoom || 1;
+    return iw / Math.max(1, contentW * z);
+  };
+
+  // Find the closest vertex within `screenPxRadius`. Returns
+  // { target, vertexIdx, distancePx } or null.
+  const _hitTestVertex = (clientX, clientY, screenPxRadius) => {
+    if (!recording?.shape) return null;
+    const ih = recording.shape[0] || 1;
+    const iw = recording.shape[1] || 1;
+    const hit = _clientToImagePx({
+      svgEl: svgRef.current,
+      imageW: iw,
+      imageH: ih,
+      clientX,
+      clientY,
+    });
+    if (!hit) return null;
+    const scale = _imagePxPerScreenPx();
+    if (scale == null) return null;
+    const tolImg = screenPxRadius * scale;
+    let best = null;
+    for (const { target, pts } of _editablePolygons()) {
+      for (let i = 0; i < pts.length; i++) {
+        const [x, y] = pts[i];
+        const dx = x - hit.ix;
+        const dy = y - hit.iy;
+        const dist = Math.hypot(dx, dy);
+        if (dist <= tolImg && (!best || dist < best.distance)) {
+          best = { target, vertexIdx: i, distance: dist, ix: hit.ix, iy: hit.iy };
+        }
+      }
+    }
+    return best;
+  };
+
+  // Find the closest polygon edge segment within perpendicular
+  // `screenPxRadius`. Returns { target, edgeIdx, ix, iy } where
+  // edgeIdx is the index of the segment's start vertex (next vertex
+  // is (edgeIdx + 1) % pts.length). Used for double-click insert.
+  const _hitTestEdge = (clientX, clientY, screenPxRadius) => {
+    if (!recording?.shape) return null;
+    const ih = recording.shape[0] || 1;
+    const iw = recording.shape[1] || 1;
+    const hit = _clientToImagePx({
+      svgEl: svgRef.current,
+      imageW: iw,
+      imageH: ih,
+      clientX,
+      clientY,
+    });
+    if (!hit) return null;
+    const scale = _imagePxPerScreenPx();
+    if (scale == null) return null;
+    const tolImg = screenPxRadius * scale;
+    let best = null;
+    for (const { target, pts } of _editablePolygons()) {
+      if (pts.length < 2) continue;
+      // Walk every segment including the closing edge for ≥3-vertex
+      // polygons (matches the SVG fill which draws the closed shape).
+      const closed = pts.length >= 3;
+      const limit = closed ? pts.length : pts.length - 1;
+      for (let i = 0; i < limit; i++) {
+        const [x1, y1] = pts[i];
+        const [x2, y2] = pts[(i + 1) % pts.length];
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const len2 = dx * dx + dy * dy;
+        if (len2 < 1e-6) continue;
+        const t = Math.max(0, Math.min(1, ((hit.ix - x1) * dx + (hit.iy - y1) * dy) / len2));
+        const px = x1 + t * dx;
+        const py = y1 + t * dy;
+        const dist = Math.hypot(px - hit.ix, py - hit.iy);
+        if (dist <= tolImg && (!best || dist < best.distance)) {
+          best = { target, edgeIdx: i, distance: dist, ix: hit.ix, iy: hit.iy };
+        }
+      }
+    }
+    return best;
+  };
+
+  // Apply a polygon mutation back into view state. Centralized so the
+  // three target families don't drift in their setter shape.
+  const _applyPolygonUpdate = (target, newPts) => {
+    if (target === 'mask') {
+      const ov = view.overlay || {};
+      onUpdate({ overlay: { ...ov, maskPolygon: newPts } });
+    } else if (target === 'tumor') {
+      const draft = view.tbrDraft || {};
+      onUpdate({ tbrDraft: { ...draft, tumorPolygon: newPts } });
+    } else if (target === 'bg') {
+      const draft = view.tbrDraft || {};
+      onUpdate({ tbrDraft: { ...draft, bgPolygon: newPts } });
+    }
+  };
+
+  const _polygonForTarget = (target) => {
+    if (target === 'mask') return (view.overlay || {}).maskPolygon || [];
+    if (target === 'tumor') return (view.tbrDraft || {}).tumorPolygon || [];
+    if (target === 'bg') return (view.tbrDraft || {}).bgPolygon || [];
+    return [];
+  };
   // Gain selector (HG / LG / HDR) lives outside the channel dropdown for
   // GSense-like recordings. The dropdown then only shows the channel
   // *kind* (Visible / NIR / Chroma / Raw splits) for the active gain.
@@ -4803,14 +5315,34 @@ const ViewerCard = ({
           // presses that. We set capture on the canvas-area so the
           // mousemove/mouseup keep firing even when the cursor leaves
           // the element mid-drag.
-          if (e.button !== 1 || !url) return;
+          if (e.button === 1 && url) {
+            e.preventDefault();
+            dragRef.current = {
+              startClientX: e.clientX,
+              startClientY: e.clientY,
+              startPanX: view.panX || 0,
+              startPanY: view.panY || 0,
+            };
+            try {
+              e.currentTarget.setPointerCapture?.(e.pointerId);
+            } catch {
+              /* ignore */
+            }
+            e.currentTarget.style.cursor = 'grabbing';
+            return;
+          }
+          // Left-button on an existing vertex → start vertex drag. We
+          // skip when actively appending vertices (overlay draw or TBR
+          // role) so the user's "add another vertex" click isn't
+          // hijacked into a 0-distance drag.
+          if (e.button !== 0 || !url || view.overlayDrawMode || view.tbrDraftRole) {
+            return;
+          }
+          const hit = _hitTestVertex(e.clientX, e.clientY, 12);
+          if (!hit) return;
           e.preventDefault();
-          dragRef.current = {
-            startClientX: e.clientX,
-            startClientY: e.clientY,
-            startPanX: view.panX || 0,
-            startPanY: view.panY || 0,
-          };
+          e.stopPropagation();
+          vertexDragRef.current = { target: hit.target, vertexIdx: hit.vertexIdx };
           try {
             e.currentTarget.setPointerCapture?.(e.pointerId);
           } catch {
@@ -4819,34 +5351,103 @@ const ViewerCard = ({
           e.currentTarget.style.cursor = 'grabbing';
         }}
         onMouseMove={(e) => {
-          if (!dragRef.current) return;
-          e.preventDefault();
-          const d = dragRef.current;
-          onUpdate({
-            panX: d.startPanX + (e.clientX - d.startClientX),
-            panY: d.startPanY + (e.clientY - d.startClientY),
-          });
+          if (dragRef.current) {
+            e.preventDefault();
+            const d = dragRef.current;
+            onUpdate({
+              panX: d.startPanX + (e.clientX - d.startClientX),
+              panY: d.startPanY + (e.clientY - d.startClientY),
+            });
+            return;
+          }
+          if (vertexDragRef.current) {
+            const ih = recording?.shape?.[0] || 1;
+            const iw = recording?.shape?.[1] || 1;
+            const ip = _clientToImagePx({
+              svgEl: svgRef.current,
+              imageW: iw,
+              imageH: ih,
+              clientX: e.clientX,
+              clientY: e.clientY,
+            });
+            if (!ip) return;
+            const { target, vertexIdx } = vertexDragRef.current;
+            const cur = _polygonForTarget(target);
+            if (!cur || vertexIdx >= cur.length) {
+              vertexDragRef.current = null;
+              return;
+            }
+            const next = cur.slice();
+            next[vertexIdx] = [ip.ix, ip.iy];
+            _applyPolygonUpdate(target, next);
+            return;
+          }
+          // Hover affordance — when hovering near a vertex outside
+          // draw mode, switch the cursor to a "move" affordance so
+          // the user knows the vertex is grabbable.
+          if (!url || view.overlayDrawMode || view.tbrDraftRole) return;
+          const hover = _hitTestVertex(e.clientX, e.clientY, 12);
+          const desired = hover ? 'grab' : 'default';
+          if (e.currentTarget.style.cursor !== desired) {
+            e.currentTarget.style.cursor = desired;
+          }
         }}
         onMouseUp={(e) => {
-          if (e.button !== 1 || !dragRef.current) return;
-          e.preventDefault();
-          dragRef.current = null;
-          e.currentTarget.style.cursor =
-            view.overlayDrawMode || view.tbrDraftRole ? 'crosshair' : 'default';
+          if (e.button === 1 && dragRef.current) {
+            e.preventDefault();
+            dragRef.current = null;
+            e.currentTarget.style.cursor =
+              view.overlayDrawMode || view.tbrDraftRole ? 'crosshair' : 'default';
+            return;
+          }
+          if (e.button === 0 && vertexDragRef.current) {
+            e.preventDefault();
+            vertexDragRef.current = null;
+            e.currentTarget.style.cursor =
+              view.overlayDrawMode || view.tbrDraftRole ? 'crosshair' : 'default';
+          }
         }}
         onMouseLeave={(e) => {
-          if (!dragRef.current) return;
-          dragRef.current = null;
-          e.currentTarget.style.cursor =
-            view.overlayDrawMode || view.tbrDraftRole ? 'crosshair' : 'default';
+          if (dragRef.current) {
+            dragRef.current = null;
+            e.currentTarget.style.cursor =
+              view.overlayDrawMode || view.tbrDraftRole ? 'crosshair' : 'default';
+          }
+          if (vertexDragRef.current) {
+            vertexDragRef.current = null;
+            e.currentTarget.style.cursor =
+              view.overlayDrawMode || view.tbrDraftRole ? 'crosshair' : 'default';
+          }
         }}
         onContextMenu={(e) => {
-          // The native context menu on right-click is already
-          // owned by ViewerCard's right-click → Send-to handler;
-          // suppress here so middle-click on macOS (which Chrome
-          // sometimes maps to right-click on touchpads) doesn't
-          // pop the menu mid-pan.
-          if (dragRef.current) e.preventDefault();
+          // The native context menu on right-click is already owned by
+          // ViewerCard's right-click → Send-to handler; suppress here
+          // so middle-click on macOS (which Chrome sometimes maps to
+          // right-click on touchpads) doesn't pop the menu mid-pan.
+          if (dragRef.current) {
+            e.preventDefault();
+            return;
+          }
+          // Right-click on a vertex → delete that vertex. We require
+          // ≥ 4 vertices remaining so the polygon stays a valid closed
+          // shape; the parent ROI-stats path requires ≥ 3.
+          if (view.overlayDrawMode || view.tbrDraftRole) return;
+          const hit = _hitTestVertex(e.clientX, e.clientY, 12);
+          if (!hit) return;
+          const cur = _polygonForTarget(hit.target);
+          if (!cur || cur.length <= 3) {
+            // Refuse the delete (would orphan the polygon). Suppress
+            // the parent ViewerCard's context-menu handler so the user
+            // gets a no-op rather than the wrong menu — matches the
+            // "≥3 vertices" floor enforced server-side.
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+          const next = cur.filter((_, i) => i !== hit.vertexIdx);
+          _applyPolygonUpdate(hit.target, next);
+          e.preventDefault();
+          e.stopPropagation();
         }}
         onClick={(e) => {
           // Polygon-vertex picker. Active when overlay-mask or TBR
@@ -4914,6 +5515,22 @@ const ViewerCard = ({
           // double-clicks were committing half-finished polygons).
           if (!url) return;
           if (view.overlayDrawMode || view.tbrDraftRole) return;
+          // Edge-insert: double-click on a polygon edge inserts a new
+          // vertex at the click point. Takes precedence over the
+          // zoom-reset because the user's intent is unambiguous (they
+          // clicked on a polyline edge, not on empty canvas).
+          const edge = _hitTestEdge(e.clientX, e.clientY, 8);
+          if (edge) {
+            const cur = _polygonForTarget(edge.target);
+            if (cur && cur.length >= 2) {
+              const next = cur.slice();
+              next.splice(edge.edgeIdx + 1, 0, [edge.ix, edge.iy]);
+              _applyPolygonUpdate(edge.target, next);
+              e.preventDefault();
+              e.stopPropagation();
+              return;
+            }
+          }
           e.preventDefault();
           e.stopPropagation();
           if ((view.zoom || 1) === 1 && !view.panX && !view.panY) return;
@@ -6145,6 +6762,9 @@ const ExportVideoModal = ({
   rangeSelection = null,
   onClearRange,
   viewCount = 1,
+  recordingCount = 1,
+  exportJob = null,
+  onCancelJob,
 }) => {
   const t = useTheme();
   const [format, setFormat] = React.useState('mp4');
@@ -6166,6 +6786,11 @@ const ExportVideoModal = ({
   }, [rangeSelection?.[0], rangeSelection?.[1]]);
   const [outFps, setOutFps] = React.useState(defaultFps || 10);
   const [busy, setBusy] = React.useState(false);
+  // Validation message surfaced only after the user clicks Export. While
+  // they're typing in the Start/End Spinboxes we let the values be
+  // "wrong" (e.g. start > end mid-edit) without yanking focus or clamping
+  // — the parent contract is "validate on submit", per user.
+  const [validationError, setValidationError] = React.useState(null);
   // M24: tiled video export — layout chooser visible when 2+ views.
   // Default 'auto' picks a sensible grid based on N.
   const tiledAvailable = viewCount > 1;
@@ -6288,9 +6913,12 @@ const ExportVideoModal = ({
             <Row label="Start frame">
               <Spinbox
                 value={start}
-                onChange={(v) => setStart(Math.max(0, Math.min(end, Number(v) || 0)))}
+                onChange={(v) => {
+                  setStart(Number(v) || 0);
+                  setValidationError(null);
+                }}
                 min={0}
-                max={end}
+                max={Math.max(0, totalFrames - 1)}
                 step={1}
                 data-start-frame
                 disabled={rangeLocked}
@@ -6299,9 +6927,12 @@ const ExportVideoModal = ({
             <Row label="End frame">
               <Spinbox
                 value={end}
-                onChange={(v) => setEnd(Math.max(start, Math.min(totalFrames - 1, Number(v) || 0)))}
-                min={start}
-                max={totalFrames - 1}
+                onChange={(v) => {
+                  setEnd(Number(v) || 0);
+                  setValidationError(null);
+                }}
+                min={0}
+                max={Math.max(0, totalFrames - 1)}
                 step={1}
                 data-end-frame
                 disabled={rangeLocked}
@@ -6385,6 +7016,101 @@ const ExportVideoModal = ({
             thresholds, overlays) are baked in.
           </div>
 
+          {validationError && (
+            <div
+              data-export-validation-error
+              style={{
+                fontSize: 11,
+                color: t.danger,
+                background: `${t.danger}15`,
+                border: `1px solid ${t.danger}55`,
+                borderRadius: 4,
+                padding: '6px 10px',
+              }}
+            >
+              {validationError}
+            </div>
+          )}
+          {recordingCount > 1 && viewCount === 1 && !exportJob && (
+            <div
+              style={{
+                fontSize: 11,
+                color: t.textMuted,
+                background: t.chipBg,
+                borderRadius: 4,
+                padding: '6px 10px',
+              }}
+            >
+              {recordingCount} recordings will be concatenated into one MP4 in cascade order. Export
+              runs as a background job — you&rsquo;ll see a progress bar below.
+            </div>
+          )}
+          {exportJob && (
+            <div
+              data-export-progress
+              style={{
+                fontSize: 11,
+                color: t.text,
+                background: t.chipBg,
+                border: `1px solid ${t.chipBorder}`,
+                borderRadius: 4,
+                padding: '8px 10px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontFamily: 'ui-monospace,Menlo,monospace' }}>
+                  {exportJob.status === 'running'
+                    ? `Rendering frame ${exportJob.currentFrame} / ${exportJob.totalFrames}`
+                    : exportJob.status === 'queued'
+                      ? 'Queued…'
+                      : exportJob.status === 'done'
+                        ? 'Encoding finished — fetching result…'
+                        : exportJob.status === 'cancelled'
+                          ? 'Cancelled'
+                          : exportJob.status === 'error'
+                            ? 'Failed'
+                            : exportJob.status}
+                </span>
+                <span style={{ flex: 1 }} />
+                <span style={{ color: t.textMuted, fontFamily: 'ui-monospace,Menlo,monospace' }}>
+                  {((exportJob.progress || 0) * 100).toFixed(0)}%
+                </span>
+              </div>
+              <progress
+                aria-label="Export progress"
+                value={Math.max(0, Math.min(1, exportJob.progress || 0))}
+                max={1}
+                style={{ width: '100%', height: 6 }}
+              />
+              <div
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+              >
+                <span style={{ fontSize: 10.5, color: t.textFaint }}>{exportJob.label}</span>
+                {(exportJob.status === 'running' || exportJob.status === 'queued') && (
+                  <button
+                    type="button"
+                    data-export-cancel
+                    onClick={() => onCancelJob?.()}
+                    style={{
+                      background: 'transparent',
+                      border: `1px solid ${t.warn}55`,
+                      color: t.warn,
+                      borderRadius: 3,
+                      padding: '2px 8px',
+                      fontSize: 10.5,
+                      fontFamily: 'inherit',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <Button variant="subtle" onClick={onClose} disabled={busy}>
               Cancel
@@ -6393,8 +7119,30 @@ const ExportVideoModal = ({
               variant="primary"
               icon="export"
               data-export-go
-              disabled={busy || frameCount < 1 || totalFrames <= 0}
+              disabled={busy || totalFrames <= 0 || !!exportJob}
               onClick={async () => {
+                // Submit-time validation. While the user is typing we let
+                // start/end be temporarily inconsistent; here we surface
+                // a single human-readable error and stop, so the modal
+                // doesn't fire a bogus export.
+                const maxFrame = Math.max(0, totalFrames - 1);
+                if (!Number.isFinite(start) || !Number.isFinite(end)) {
+                  setValidationError('Start and End must be numbers.');
+                  return;
+                }
+                if (start < 0 || start > maxFrame) {
+                  setValidationError(`Start must be between 0 and ${maxFrame}.`);
+                  return;
+                }
+                if (end < 0 || end > maxFrame) {
+                  setValidationError(`End must be between 0 and ${maxFrame}.`);
+                  return;
+                }
+                if (start > end) {
+                  setValidationError('Start frame must be ≤ End frame.');
+                  return;
+                }
+                setValidationError(null);
                 setBusy(true);
                 await onExport({
                   format,
@@ -7901,7 +8649,27 @@ const Inspector = ({
       <div style={{ flex: 1, overflowY: 'auto', padding: '8px 10px' }}>
         {!selectedView && (
           <div style={{ padding: 20, textAlign: 'center', color: t.textFaint, fontSize: 11.5 }}>
-            No selection. Pick a view.
+            <div>No selection. Pick a view.</div>
+            {tbrEntries.length > 0 && (
+              <button
+                data-tbr-open-when-empty
+                onClick={() => setTbrAnalysisOpen(true)}
+                title="Open the persisted TBR analysis table — entries survive recording removal and page reload."
+                style={{
+                  marginTop: 14,
+                  padding: '6px 12px',
+                  background: t.accent,
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  fontSize: 11,
+                }}
+              >
+                Open TBR table ({tbrEntries.length} {tbrEntries.length === 1 ? 'entry' : 'entries'})
+              </button>
+            )}
           </div>
         )}
         {selectedView && (
@@ -9375,16 +10143,33 @@ const TbrAnalysisPanel = ({
   const drawRole = view?.tbrDraftRole || null;
   // The TBR is computed on the channel the user is viewing. RGB views
   // fall back to the green channel (strongest tissue signal in vis).
+  // Overlay views default to the overlay channel itself (the channel
+  // being colormapped on top of the base RGB) — that matches what the
+  // user is "looking at" and avoids the prior bug where overlay views
+  // silently fell to HG-G via splitSourceMode('overlay_custom').gain
+  // returning null.
   const meta = view ? sourceModeMeta(view.sourceMode) : null;
   const split = view ? splitSourceMode(view.sourceMode) : { gain: '', channelKind: '' };
   const gainPrefix = (split.gain || 'HG').toUpperCase();
+  const overlayChannel =
+    meta?.kind === 'overlay'
+      ? view?.overlay?.overlayChannel || meta?.overlayChannel || `${gainPrefix}-NIR`
+      : null;
   const tbrChannel =
     draft.channel ||
     (meta?.kind === 'channel'
       ? meta.channel
       : meta?.kind === 'raw' && view?.rawChannel
         ? view.rawChannel
-        : `${gainPrefix}-G`);
+        : meta?.kind === 'overlay' && overlayChannel
+          ? overlayChannel
+          : `${gainPrefix}-G`);
+  // List of channels the user can pick for TBR analysis. Filtered to
+  // what the recording exposes so the dropdown can't produce a 404.
+  const tbrChannelOptions = React.useMemo(() => {
+    const chs = recording?.channels || [];
+    return Array.from(new Set(chs)).sort();
+  }, [recording?.channels]);
   const fmt = (v) => (v == null || !Number.isFinite(v) ? '—' : Number(v).toFixed(2));
   const setDraft = (patch) => onUpdateView({ tbrDraft: { ...draft, ...patch } });
   const setRole = (role) => onUpdateView({ tbrDraftRole: role });
@@ -9392,12 +10177,21 @@ const TbrAnalysisPanel = ({
   // run sharpen/FPN/gain/offset on the same array. Tone curve
   // (brightness/contrast/gamma) is intentionally omitted — TBR stays
   // in physical-DN-scaled-by-gain units.
+  //
+  // Overlay views skip linear gain/offset: the canvas overlay path
+  // auto-percentiles each channel for display rather than applying a
+  // user-set linear scale, so forwarding the slider's `view.gain` to
+  // /roi-stats produced inflated values (often clamped at the channel's
+  // saturation maximum, e.g. 65520 for GSense 12-bit-in-16-bit data).
+  // Sharpen / FPN are still honored — they map the canvas pre-display
+  // pipeline byte-for-byte.
   const buildViewConfig = (v) => {
     if (!v) return {};
     const ip = v.isp || {};
+    const isOverlay = sourceModeMeta(v.sourceMode)?.kind === 'overlay';
     return {
-      gain: v.gain ?? 1.0,
-      offset: v.offset ?? 0.0,
+      gain: isOverlay ? 1.0 : (v.gain ?? 1.0),
+      offset: isOverlay ? 0.0 : (v.offset ?? 0.0),
       sharpen_method: ip.sharpen_method || null,
       sharpen_amount: ip.sharpen_amount ?? 1.0,
       sharpen_radius: ip.sharpen_radius ?? 2.0,
@@ -9415,9 +10209,12 @@ const TbrAnalysisPanel = ({
   // on every parent re-render.
   const viewConfigSig = React.useMemo(
     () => JSON.stringify(buildViewConfig(view)),
-    // buildViewConfig only reads view.isp, view.gain, view.offset.
+    // buildViewConfig reads view.isp, view.gain, view.offset, AND
+    // view.sourceMode (overlay branch skips gain/offset). Switching
+    // source mode mid-session must re-fire auto-recompute even if
+    // the slider values didn't change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [view?.isp, view?.gain, view?.offset]
+    [view?.isp, view?.gain, view?.offset, view?.sourceMode]
   );
   // Monotonic per-kind counter used to drop stale /roi-stats responses.
   // apiFetch has no AbortSignal plumbing, so a slider drag that triggers
@@ -9811,8 +10608,20 @@ const TbrAnalysisPanel = ({
     <div data-tbr-panel style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ fontSize: 10.5, color: t.textFaint, lineHeight: 1.45 }}>
         Stats are computed AFTER the view&rsquo;s Corrections (dark subtract + black level).
-        Channel: <strong>{tbrChannel}</strong>.
+        Channel: <strong>{tbrChannel}</strong>
+        {meta?.kind === 'overlay' && overlayChannel && tbrChannel === overlayChannel && (
+          <span style={{ color: t.textMuted }}> &middot; matches the overlay channel</span>
+        )}
+        .
       </div>
+      <Row label="Channel">
+        <Select
+          value={tbrChannel}
+          onChange={(v) => setDraft({ channel: v })}
+          options={tbrChannelOptions.map((c) => ({ value: c, label: c }))}
+          data-tbr-channel-select
+        />
+      </Row>
       <Row label="Method">
         <Select
           value={draft.method || 'mean'}

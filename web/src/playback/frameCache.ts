@@ -78,6 +78,12 @@ let _prefetchActive = 0;
 
 export const isPrefetchInflight = (url) => _prefetchInflight.has(url);
 
+// Semaphore-saturation read for callers that walk a long prefetch queue
+// and want to back off (sleep + retry) rather than fire no-op calls
+// into `prefetchFrame`. The internal guard inside `prefetchFrame` still
+// drops over-cap requests; this lets the caller avoid spinning.
+export const isPrefetchSemaphoreSaturated = () => _prefetchActive >= MAX_CONCURRENT_PREFETCHES;
+
 const _frameBlobCache = new Map(); // url → objectURL (insertion order = recency)
 
 export const frameCacheHas = (url) => _frameBlobCache.has(url);

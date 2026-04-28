@@ -14,7 +14,7 @@ import base64
 import io
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import math
 import numpy as np
@@ -67,6 +67,7 @@ from .session import (
 from .labels import render_labels
 from .rgb_grading import apply_grading, auto_white_balance
 from .usaf_groups import LineSpec, detection_limit_lp_mm, measure_line
+from .export_jobs import JOBS as _JOBS, ExportJob
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +339,69 @@ class TiledExportVideoRequest(BaseModel):
     start: int = 0                         # global anchor for first output frame
     end: Optional[int] = None              # inclusive global anchor for last output frame
     format: str = "mp4"                    # "mp4" | "gif" | "zip"
+
+
+class MultiSourceVideoRequest(BaseModel):
+    """Body for ``POST /api/play/exports`` — one MP4 stitched across
+    every supplied source in cascade order. Each source contributes its
+    own [start, end] frame range using its own per-source ISP / overlay
+    settings; the runner concatenates them into a single MP4.
+
+    play-export-and-roi-fixes-v1 M4 (Bugs 5 + 6). Job-based: the route
+    returns immediately with a job_id; the client polls
+    ``/api/play/exports/{id}`` for progress and fetches
+    ``/api/play/exports/{id}/result`` when status = "done".
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    class SourceSpec(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+        source_id: str
+        start: int = Field(0, ge=0)
+        end: Optional[int] = Field(None, ge=0)  # inclusive; defaults to last frame
+        # Render mode + parameters mirror the single-source GET route
+        # so the runner can reuse the same render_frame closure.
+        render: Literal["rgb_composite", "channel", "overlay"] = "rgb_composite"
+        gain: Literal["hg", "lg", "HG", "LG"] = "hg"
+        channel: Optional[str] = None
+        colormap: str = "gray"
+        vmin: Optional[float] = None
+        vmax: Optional[float] = None
+        apply_dark: bool = True
+        # Linear ISP
+        black_level: float = 0.0
+        isp_gain: float = Field(1.0, ge=0.0, le=64.0)
+        isp_offset: float = 0.0
+        # Non-linear ISP chain. ``sharpen_method`` is constrained to
+        # the set ``apply_sharpen`` accepts so a typo 422s at the API
+        # edge instead of 500-ing inside the runner thread.
+        sharpen_method: Optional[Literal["Unsharp mask", "Laplacian", "High-pass"]] = None
+        sharpen_amount: float = Field(1.0, ge=0.0, le=8.0)
+        sharpen_radius: float = Field(2.0, ge=0.5, le=10.0)
+        denoise_sigma: float = Field(0.0, ge=0.0, le=6.0)
+        median_size: int = Field(0, ge=0, le=15)
+        gaussian_sigma: float = Field(0.0, ge=0.0, le=20.0)
+        hot_pixel_thr: float = Field(0.0, ge=0.0, le=50.0)
+        bilateral: bool = False
+        # Overlay-specific
+        base_channel: Optional[str] = None
+        overlay_channel: Optional[str] = None
+        overlay_low: Optional[float] = None
+        overlay_high: Optional[float] = None
+        blend: Literal["alpha", "screen", "additive"] = "alpha"
+        strength: float = Field(0.65, ge=0.0, le=1.0)
+        overlay_colormap: str = "inferno"
+        mask_polygon: Optional[List[List[float]]] = None
+
+    sources: List[SourceSpec]
+    fps: float = Field(10.0, ge=0.1, le=120.0)
+    max_dim: int = Field(4096, ge=64, le=8192)
+    crf: int = Field(18, ge=0, le=51)
+    preset: Literal[
+        "ultrafast", "superfast", "veryfast", "faster",
+        "fast", "medium", "slow", "slower", "veryslow",
+    ] = "slow"
+    format: Literal["mp4"] = "mp4"  # currently mp4-only on the multi-source path
 
 
 class PlaybackPreset(BaseModel):
@@ -750,6 +814,17 @@ def create_app() -> FastAPI:
 
     _mount_api(app)
     _mount_static(app)
+
+    # Shutdown hook — drain the export-job executor on app teardown so
+    # uvicorn --reload (or a Ctrl-C in the dev runner) doesn't leak the
+    # worker thread. fastapi-backend-reviewer P1.
+    @app.on_event("shutdown")
+    def _shutdown_export_jobs() -> None:
+        try:
+            _JOBS.shutdown()
+        except Exception:
+            pass
+
     return app
 
 
@@ -2058,6 +2133,18 @@ def _mount_api(app: FastAPI) -> None:
         # else. Points outside the channel shape are clipped at
         # rasterization time. Pass an empty list to clear.
         mask_polygon: Optional[str] = Query(None),
+        # Burn-in label flags (parity with frame_channel_thumbnail and
+        # frame_rgb). Defaults all off; _maybe_burn_labels short-circuits
+        # to the unmodified PNG when no flag is set, so the no-labels
+        # path stays free.
+        labels_timestamp: bool = Query(False),
+        labels_frame: bool = Query(False),
+        labels_channel: bool = Query(False),
+        labels_source: bool = Query(False),
+        labels_scale_bar: bool = Query(False),
+        labels_position: str = Query("bottom-left",
+            pattern="^(top-left|top-right|bottom-left|bottom-right)$"),
+        labels_font_size: int = Query(12, ge=6, le=64),
     ):
         """Compose a base view + colormapped overlay channel into one PNG.
 
@@ -2141,7 +2228,21 @@ def _mount_api(app: FastAPI) -> None:
                 im = im.resize(new_size, Image.Resampling.BILINEAR)
             buf = io.BytesIO()
             im.save(buf, format="PNG", optimize=False)
-            return Response(content=buf.getvalue(), media_type="image/png",
+            png = buf.getvalue()
+            labels_cfg = {
+                "timestamp": labels_timestamp,
+                "frame": labels_frame,
+                "channel": labels_channel,
+                "source_file": labels_source,
+                "scale_bar": labels_scale_bar,
+                "position": labels_position,
+                "font_size": labels_font_size,
+            }
+            png = _maybe_burn_labels(
+                png, src=src, frame_index=int(frame_index),
+                channel_name=overlay_channel, cfg=labels_cfg,
+            )
+            return Response(content=png, media_type="image/png",
                             headers={"Cache-Control": "no-store"})
         except HTTPException:
             raise
@@ -2444,7 +2545,14 @@ def _mount_api(app: FastAPI) -> None:
             description="Inclusive last frame; defaults to last frame."),
         fps: float = Query(10.0, ge=0.1, le=120.0),
         # Output
-        max_dim: int = Query(1280, ge=64, le=4096),
+        max_dim: int = Query(4096, ge=64, le=8192),
+        # libx264 quality knobs. crf=18 is visually lossless (default
+        # bumped from imageio default ~25). preset=slow trades encode
+        # time for ~10–15 % smaller files at the same CRF. Passed only
+        # to the MP4 path; GIF / PNG-zip ignore.
+        crf: int = Query(18, ge=0, le=51),
+        preset: str = Query("slow",
+            pattern="^(ultrafast|superfast|veryfast|faster|fast|medium|slow|slower|veryslow)$"),
         # Overlay-specific (when render=overlay)
         base_channel: Optional[str] = Query(None),
         overlay_channel: Optional[str] = Query(None),
@@ -2460,6 +2568,22 @@ def _mount_api(app: FastAPI) -> None:
         # route so the exported video matches WYSIWYG with the canvas.
         # Ignored for render='rgb_composite' / 'channel'.
         mask_polygon: Optional[str] = Query(None),
+        # Linear ISP pre-norm (forwarded to channel + RGB renders so the
+        # exported video honors the live gain / offset / black-level the
+        # canvas is showing). Defaults are no-op.
+        black_level: float = Query(0.0),
+        isp_gain: float = Query(1.0),
+        isp_offset: float = Query(0.0),
+        # Non-linear ISP chain (sharpen + denoise + FPN) forwarded so
+        # exported channel/RGB videos match the canvas WYSIWYG.
+        sharpen_method: Optional[str] = Query(None),
+        sharpen_amount: float = Query(1.0, ge=0.0, le=8.0),
+        sharpen_radius: float = Query(2.0, ge=0.5, le=10.0),
+        denoise_sigma: float = Query(0.0, ge=0.0, le=6.0),
+        median_size: int = Query(0, ge=0, le=15),
+        gaussian_sigma: float = Query(0.0, ge=0.0, le=20.0),
+        hot_pixel_thr: float = Query(0.0, ge=0.0, le=50.0),
+        bilateral: bool = Query(False),
     ):
         """Render a frame range as MP4 / GIF / PNG-zip.
 
@@ -2495,6 +2619,30 @@ def _mount_api(app: FastAPI) -> None:
 
         from PIL import Image as _PILImage
 
+        # Build the non-linear ISP pre-chain once per export so we don't
+        # rebuild it per frame. None = no-op (matches the live render
+        # path's frame_channel_thumbnail behaviour).
+        export_isp_chain = _isp_chain_from_query(
+            sharpen_method=sharpen_method,
+            sharpen_amount=sharpen_amount,
+            sharpen_radius=sharpen_radius,
+            denoise_sigma=denoise_sigma,
+            median_size=median_size, gaussian_sigma=gaussian_sigma,
+            hot_pixel_thr=hot_pixel_thr, bilateral=bilateral,
+        )
+
+        def _channel_post_isp(img: np.ndarray, ch: str) -> np.ndarray:
+            """dark → analysis_isp → pre_norm — same chain as the canvas."""
+            if apply_dark and src.has_dark and src.dark_channels is not None:
+                d = src.dark_channels.get(ch)
+                if d is not None:
+                    img = subtract_dark(img, d)
+            if export_isp_chain is not None:
+                img = _apply_analysis_isp(img, export_isp_chain)
+            return _apply_pre_norm(
+                img, black_level=black_level, gain=isp_gain, offset=isp_offset,
+            )
+
         def render_frame(idx: int) -> np.ndarray:
             """Render one frame to (H, W, 3) uint8."""
             chs = src.extract_frame(idx)
@@ -2515,11 +2663,7 @@ def _mount_api(app: FastAPI) -> None:
                 if channel not in chs:
                     raise HTTPException(404,
                         f"channel {channel!r} not in frame {idx}")
-                img = chs[channel]
-                if apply_dark and src.has_dark and src.dark_channels is not None:
-                    d = src.dark_channels.get(channel)
-                    if d is not None:
-                        img = subtract_dark(img, d)
+                img = _channel_post_isp(chs[channel], channel)
                 norm = _norm_to_unit(img, lo=vmin, hi=vmax)
                 cmap_name = (colormap or "gray").lower()
                 if cmap_name in ("gray", "grey", "l", "mono"):
@@ -2612,7 +2756,16 @@ def _mount_api(app: FastAPI) -> None:
                 with imageio.get_writer(
                     tmp_path, format="ffmpeg", fps=fps, codec="libx264",
                     macro_block_size=1,
-                    output_params=["-pix_fmt", "yuv420p"],
+                    output_params=[
+                        "-pix_fmt", "yuv420p",
+                        # Visually-lossless default — crf=18 puts the
+                        # encoder at the threshold of perceptual loss.
+                        # User-tunable via ?crf= (0=lossless, 51=worst).
+                        "-crf", str(int(crf)),
+                        # Slow preset gives ~10–15 % smaller files at the
+                        # same CRF for the cost of encode time.
+                        "-preset", str(preset),
+                    ],
                 ) as w:
                     w.append_data(even_pad(first_arr))
                     for i in range(first + 1, last + 1):
@@ -3248,6 +3401,376 @@ def _mount_api(app: FastAPI) -> None:
         kept = [p for p in _load_playback_presets() if p.id != preset_id]
         _save_playback_presets(kept)
         return {"ok": True, "count": len(kept)}
+
+    @app.post("/api/play/exports")
+    def create_play_export(req: MultiSourceVideoRequest):
+        """Kick off a multi-source MP4 export as a background job.
+
+        Returns immediately with ``{job_id}``. Frontend polls
+        ``GET /api/play/exports/{job_id}`` for progress, then fetches
+        the bytes from ``GET /api/play/exports/{job_id}/result`` when
+        the job's status flips to ``done``.
+
+        play-export-and-roi-fixes-v1 M4.
+        """
+        if not req.sources:
+            raise HTTPException(400, "sources[] must be non-empty")
+        if (req.format or "mp4").lower() != "mp4":
+            raise HTTPException(400, "multi-source export currently mp4-only")
+        # Pre-flight: resolve every source_id NOW so a typo fails the
+        # API call instead of dying mid-render and orphaning a job.
+        plan = []
+        total_frames = 0
+        for spec in req.sources:
+            try:
+                src = _must_get(spec.source_id)
+            except HTTPException:
+                raise
+            n = int(getattr(src, "frame_count", 0) or 0)
+            if n <= 0:
+                raise HTTPException(
+                    409,
+                    f"source {spec.source_id!r} has no frames to export",
+                )
+            first = max(0, int(spec.start))
+            last = (n - 1) if spec.end is None else min(int(spec.end), n - 1)
+            if last < first:
+                raise HTTPException(
+                    400,
+                    f"source {spec.source_id!r}: end ({last}) < start ({first})",
+                )
+            plan.append({"src": src, "spec": spec, "first": first, "last": last})
+            total_frames += last - first + 1
+        if total_frames > 5000:
+            raise HTTPException(
+                413,
+                f"multi-source export {total_frames} frames exceeds the limit "
+                f"of 5000; narrow the per-source frame ranges.",
+            )
+
+        label = (
+            f"{len(req.sources)} source"
+            + ("s" if len(req.sources) != 1 else "")
+            + f" · {total_frames} frames @ {req.fps:.0f} fps"
+        )
+
+        def _runner(job: ExportJob) -> None:
+            import imageio
+            import tempfile
+            from PIL import Image as _PILImage
+            tmp_path: Optional[Path] = None
+            writer = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    suffix=".mp4", delete=False
+                ) as fh:
+                    tmp_path = Path(fh.name)
+                produced = 0
+                first_arr_locked: Optional[np.ndarray] = None
+                pad_h = pad_w = 0
+                # We open the writer lazily on the first frame so the
+                # output dims match the actual first-frame render
+                # (sources of differing native resolutions still need
+                # one consistent canvas size — the runner uses the
+                # first source's resized dims as the canonical size).
+                for entry in plan:
+                    if job.cancel_event.is_set():
+                        break
+                    src = entry["src"]
+                    spec = entry["spec"]
+                    first = entry["first"]
+                    last = entry["last"]
+                    isp_pre_chain = _isp_chain_from_query(
+                        sharpen_method=spec.sharpen_method,
+                        sharpen_amount=spec.sharpen_amount,
+                        sharpen_radius=spec.sharpen_radius,
+                        denoise_sigma=spec.denoise_sigma,
+                        median_size=spec.median_size,
+                        gaussian_sigma=spec.gaussian_sigma,
+                        hot_pixel_thr=spec.hot_pixel_thr,
+                        bilateral=spec.bilateral,
+                    )
+
+                    def _channel_post_isp(
+                        img: np.ndarray, ch: str
+                    ) -> np.ndarray:
+                        if (
+                            spec.apply_dark
+                            and src.has_dark
+                            and src.dark_channels is not None
+                        ):
+                            d = src.dark_channels.get(ch)
+                            if d is not None:
+                                img = subtract_dark(img, d)
+                        if isp_pre_chain is not None:
+                            img = _apply_analysis_isp(img, isp_pre_chain)
+                        return _apply_pre_norm(
+                            img,
+                            black_level=spec.black_level,
+                            gain=spec.isp_gain,
+                            offset=spec.isp_offset,
+                        )
+
+                    def _render(idx: int) -> np.ndarray:
+                        chs = src.extract_frame(idx)
+                        if spec.render == "rgb_composite":
+                            arr = _composite_rgb_array(
+                                src,
+                                chs,
+                                "HG-R" if spec.gain.lower() == "hg" else "LG-R",
+                                apply_dark=spec.apply_dark,
+                                vmin=spec.vmin,
+                                vmax=spec.vmax,
+                            )
+                            if arr is None:
+                                raise RuntimeError(
+                                    f"RGB composite unavailable for {spec.source_id}"
+                                )
+                            return (arr * 255.0).astype(np.uint8)
+                        if spec.render == "channel":
+                            if not spec.channel:
+                                raise RuntimeError(
+                                    f"render=channel needs `channel` ({spec.source_id})"
+                                )
+                            if spec.channel not in chs:
+                                raise RuntimeError(
+                                    f"channel {spec.channel!r} not in frame {idx}"
+                                )
+                            img = _channel_post_isp(chs[spec.channel], spec.channel)
+                            norm = _norm_to_unit(img, lo=spec.vmin, hi=spec.vmax)
+                            cn = (spec.colormap or "gray").lower()
+                            if cn in ("gray", "grey", "l", "mono"):
+                                g = (norm * 255.0).astype(np.uint8)
+                                return np.stack([g, g, g], axis=-1)
+                            from matplotlib import colormaps
+                            try:
+                                cmap = colormaps[cn]
+                            except KeyError:
+                                cmap = colormaps["gray"]
+                            return cmap(norm, bytes=True)[..., :3]
+                        if spec.render == "overlay":
+                            if not spec.base_channel or not spec.overlay_channel:
+                                raise RuntimeError(
+                                    "render=overlay needs base_channel + overlay_channel"
+                                )
+                            base_arr = _composite_rgb_array(
+                                src,
+                                chs,
+                                spec.base_channel,
+                                apply_dark=spec.apply_dark,
+                                vmin=spec.vmin,
+                                vmax=spec.vmax,
+                            )
+                            if base_arr is None:
+                                raise RuntimeError(
+                                    "RGB composite unavailable for overlay base"
+                                )
+                            if spec.overlay_channel not in chs:
+                                raise RuntimeError(
+                                    f"overlay channel {spec.overlay_channel!r} not in frame {idx}"
+                                )
+                            ov = chs[spec.overlay_channel]
+                            if (
+                                spec.apply_dark
+                                and src.has_dark
+                                and src.dark_channels is not None
+                            ):
+                                d = src.dark_channels.get(spec.overlay_channel)
+                                if d is not None:
+                                    ov = subtract_dark(ov, d)
+                            ov_norm = _norm_to_unit(
+                                ov, lo=spec.overlay_low, hi=spec.overlay_high
+                            )
+                            from matplotlib import colormaps
+                            try:
+                                cmap = colormaps[spec.overlay_colormap]
+                            except KeyError:
+                                cmap = colormaps["inferno"]
+                            ov_rgb = cmap(ov_norm)[..., :3].astype(np.float32)
+                            mask = ov_norm.astype(np.float32) * float(spec.strength)
+                            roi = _polygon_to_roi_mask(spec.mask_polygon, mask.shape)
+                            if roi is not None:
+                                mask = mask * roi
+                            if spec.blend == "additive":
+                                out = np.clip(
+                                    base_arr + ov_rgb * mask[..., None], 0.0, 1.0
+                                )
+                            elif spec.blend == "screen":
+                                out = 1.0 - (1.0 - base_arr) * (
+                                    1.0 - ov_rgb * mask[..., None]
+                                )
+                            else:
+                                out = (
+                                    base_arr * (1.0 - mask[..., None])
+                                    + ov_rgb * mask[..., None]
+                                )
+                            return (np.clip(out, 0.0, 1.0) * 255.0).astype(np.uint8)
+                        raise RuntimeError(f"unknown render: {spec.render!r}")
+
+                    def _resize(arr: np.ndarray) -> np.ndarray:
+                        h, w = arr.shape[:2]
+                        big = max(h, w)
+                        if big <= req.max_dim:
+                            return arr
+                        scale = req.max_dim / float(big)
+                        im = _PILImage.fromarray(arr, mode="RGB")
+                        im = im.resize(
+                            (int(round(w * scale)), int(round(h * scale))),
+                            _PILImage.Resampling.BILINEAR,
+                        )
+                        return np.asarray(im)
+
+                    for idx in range(first, last + 1):
+                        if job.cancel_event.is_set():
+                            break
+                        arr = _resize(_render(idx))
+                        if writer is None:
+                            # First frame — open the writer with the
+                            # canonical (even-padded) dims and lock
+                            # subsequent frames to match.
+                            h, w = arr.shape[:2]
+                            pad_h = h + (h & 1)
+                            pad_w = w + (w & 1)
+                            first_arr_locked = arr
+                            writer = imageio.get_writer(
+                                str(tmp_path),
+                                format="ffmpeg",
+                                fps=req.fps,
+                                codec="libx264",
+                                macro_block_size=1,
+                                output_params=[
+                                    "-pix_fmt", "yuv420p",
+                                    "-crf", str(int(req.crf)),
+                                    "-preset", str(req.preset),
+                                ],
+                            )
+                            # Pad to even dims if needed.
+                            if pad_h != h or pad_w != w:
+                                padded = np.zeros((pad_h, pad_w, 3), dtype=np.uint8)
+                                padded[:h, :w] = arr
+                                arr = padded
+                        else:
+                            # Subsequent frames — clamp/pad to the
+                            # canonical first-frame dims so the encoder
+                            # stays happy with mixed-resolution sources.
+                            h, w = arr.shape[:2]
+                            if h != pad_h or w != pad_w:
+                                tile = np.zeros(
+                                    (pad_h, pad_w, 3), dtype=np.uint8
+                                )
+                                copy_h = min(h, pad_h)
+                                copy_w = min(w, pad_w)
+                                tile[:copy_h, :copy_w] = arr[:copy_h, :copy_w]
+                                arr = tile
+                        writer.append_data(arr)
+                        produced += 1
+                        job.current_frame = produced
+                        job.progress = (
+                            produced / float(total_frames) if total_frames else 1.0
+                        )
+                # Snapshot cancel state BEFORE writer.close(). A cancel
+                # arriving between the last append_data and writer.close
+                # would otherwise discard a fully-encoded MP4 the user
+                # could have kept; we only honor cancellation when the
+                # encoded frame count fell short of the requested total
+                # (i.e. the loop genuinely bailed early). risk-skeptic
+                # P1-C.
+                cancelled_mid_encode = (
+                    job.cancel_event.is_set() and produced < total_frames
+                )
+                if writer is not None:
+                    writer.close()
+                if cancelled_mid_encode:
+                    job.status = "cancelled"
+                    job.finished_at = time.time()
+                    if tmp_path and tmp_path.exists():
+                        try:
+                            tmp_path.unlink()
+                        except OSError:
+                            pass
+                    return
+                if produced == 0:
+                    raise RuntimeError("no frames rendered")
+                job.result_path = tmp_path
+                job.result_filename = (
+                    f"play_multi_{len(req.sources)}sources_"
+                    f"{produced}frames.mp4"
+                )
+                job.result_media_type = "video/mp4"
+                job.status = "done"
+                job.progress = 1.0
+                job.finished_at = time.time()
+            except Exception:
+                if writer is not None:
+                    try:
+                        writer.close()
+                    except Exception:
+                        pass
+                if tmp_path and tmp_path.exists():
+                    try:
+                        tmp_path.unlink()
+                    except OSError:
+                        pass
+                raise
+
+        job = _JOBS.create(
+            kind="video_multi", runner=_runner,
+            label=label, total_frames=total_frames,
+        )
+        return {"job_id": job.job_id, "status": job.status, "label": label}
+
+    @app.get("/api/play/exports/{job_id}")
+    def get_play_export(job_id: str):
+        # Opportunistic cleanup of stale finished jobs on every poll.
+        _JOBS.cleanup()
+        job = _JOBS.get(job_id)
+        if not job:
+            raise HTTPException(404, f"unknown export job {job_id!r}")
+        return job.public()
+
+    @app.get("/api/play/exports/{job_id}/result")
+    def get_play_export_result(job_id: str):
+        job = _JOBS.get(job_id)
+        if not job:
+            raise HTTPException(404, f"unknown export job {job_id!r}")
+        if job.status == "queued" or job.status == "running":
+            raise HTTPException(409, f"job {job_id} not finished (status={job.status})")
+        if job.status != "done" or not job.result_path or not job.result_path.exists():
+            raise HTTPException(
+                410,
+                f"job {job_id} has no result available "
+                f"(status={job.status}, error={job.error or '—'})",
+            )
+        # Read once into memory then unlink the tempfile + clear the
+        # job's result_path so the disk doesn't sit on the bytes for
+        # the full TTL window (1 hr). Two concurrent /result fetches
+        # race here; the second sees `not result_path.exists()` and
+        # 410s, which is acceptable given the user's flow is fetch-
+        # then-stop. fastapi-backend-reviewer P1.
+        body = job.result_path.read_bytes()
+        path = job.result_path
+        job.result_path = None
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        return Response(
+            content=body,
+            media_type=job.result_media_type or "video/mp4",
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Disposition": (
+                    f'attachment; filename="{job.result_filename or "export.mp4"}"'
+                ),
+            },
+        )
+
+    @app.delete("/api/play/exports/{job_id}")
+    def cancel_play_export(job_id: str):
+        ok = _JOBS.cancel(job_id)
+        if not ok:
+            raise HTTPException(409, f"job {job_id} not cancellable (already finished or unknown)")
+        return {"ok": True}
 
 
 # ---------------------------------------------------------------------------

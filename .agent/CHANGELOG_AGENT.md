@@ -4,6 +4,109 @@ Append-only log of agent sessions. One bullet per session, newest at top.
 
 ---
 
+**2026-04-28 (Night) — play-export-and-roi-fixes-v1 INITIATIVE CLOSED — 7 Play-mode bugs fixed, multi-source job-based export, ROI vertex edit**
+
+User reported seven defects in Play mode: (1) ROI vertices were
+add-only — no way to edit a placed polygon; (2) labels (frame # /
+filename / scale bar) didn't burn into overlay-rendered frames; (3)
+Export-Video frame-range Spinbox clamped onChange and rejected mid-
+edit values; (4) exported videos were 1280-px max + default CRF, not
+hi-res; (5) multi-recording exports only emitted the first source's
+frames; (6) no progress bar during export; (7) TBR analysis on
+overlay views always reported 65520 (= 4095 × 16, GSense 12-in-16
+saturation max).
+
+Initiative under [`/.agent/runs/play-export-and-roi-fixes-v1/`](.agent/runs/play-export-and-roi-fixes-v1/) with
+6 milestones (M0 scaffold → M6 close), all green. User-confirmed
+design choices: one MP4 for multi-recording (cascade order), job-
+based progress over chunked-streaming, TBR overlay channel = user-
+pickable defaulting to the colormapped channel, vertex edit = drag +
+right-click-delete + double-click-edge-insert.
+
+Fix shape:
+
+- `mantisanalysis/server.py::frame_overlay` — gained 7 `labels_*`
+  Query params + `_maybe_burn_labels` call after the resize+save
+  pipeline (parity with channel + RGB routes).
+- `mantisanalysis/server.py::export_video` — `crf`, `preset`,
+  `black_level`, `isp_gain`, `isp_offset`, full sharpen/FPN ISP chain
+  Query params; CRF=18 + preset=slow visually-lossless default;
+  `max_dim` raised 1280 → 4096.
+- `mantisanalysis/server.py` — new `MultiSourceVideoRequest`
+  Pydantic model with `Field(ge=, le=)` bounds + `Literal[...]` on
+  every enum-shaped field (caught by risk-skeptic P0); 4 new routes
+  `POST /api/play/exports`, `GET /api/play/exports/{id}` (poll),
+  `GET .../result`, `DELETE .../{id}`. The runner reads bytes once
+  and unlinks the tempfile so re-fetch returns 410 (no disk leak).
+  Cancel race fixed: `cancelled_mid_encode` snapshot BEFORE
+  `writer.close()` so a fully-encoded MP4 isn't discarded by a late
+  cancel click. `JOBS.shutdown()` wired into `app.on_event("shutdown")`.
+- `mantisanalysis/export_jobs.py` (NEW) — `JobStore` with single-
+  worker `ThreadPoolExecutor`, RLock-protected registry, threading.
+  Event-based cancellation, 1 hr TTL cleanup, `ExportJob` dataclass
+  with `public()` snapshot for the polling endpoint.
+- `web/src/playback.tsx::ViewerCard` — new `vertexDragRef` +
+  `_editablePolygons` / `_imagePxPerScreenPx` / `_hitTestVertex` /
+  `_hitTestEdge` / `_applyPolygonUpdate` / `_polygonForTarget`
+  helpers. Canvas mouse handlers extended: `onMouseDown` left-button
+  on a vertex starts drag (middle-button still pans); `onMouseMove`
+  updates the dragged vertex's image-px coords; `onContextMenu` on
+  a vertex deletes it (≥3-vertex floor); `onDoubleClick` on an edge
+  inserts a vertex at the click point. Hit-test tolerance is in
+  CSS px and converts to image px via the live letterbox scale.
+- `web/src/playback.tsx::TbrAnalysisPanel` — overlay channel default
+  = `view.overlay.overlayChannel`; user-pickable `<select>`;
+  `buildViewConfig` skips linear gain/offset for overlay views
+  (root cause of Bug 7: GSense saturation pixels = 4095 × 16 =
+  65520 were being multiplied through the slider gain when overlay's
+  canvas chain doesn't actually apply linear scaling — this was the
+  fixed-value 65520 the user reported).
+- `web/src/playback.tsx::buildVideoUrl` — bumped `max_dim` 1280 →
+  4096; `crf=18`, `preset=slow`; forwards live `_appendIspQuery` +
+  `_appendIspChainQuery` so exports honor the active filter chain.
+- `web/src/playback.tsx::buildMultiSourceSpec` + `exportVideo` multi
+  branch — when `recordings.length > 1`, builds a per-recording
+  `SourceSpec[]` body, POSTs to `/api/play/exports`, polls every
+  500 ms via an abort-token-guarded closure, fetches the result blob
+  on `done`. `exportPollAbortRef` + cleanup `useEffect` ensure the
+  polling closure can't `setExportJob` after unmount or after a
+  fresh export starts.
+- `web/src/playback.tsx::ExportVideoModal` — `recordingCount`,
+  `exportJob`, `onCancelJob` props; raw-typing Spinbox onChange (no
+  clamping); validation deferred to onClick with inline error text;
+  `<progress aria-label="Export progress">` + `type="button"`
+  cancel; modal close blocked while job in `queued`/`running`/`done`
+  states; Export button disabled while `!!exportJob`.
+- `web/src/playback.tsx::frameOverlayUrl` — calls
+  `_appendLabelsQuery` so labels burn through to the overlay PNG.
+- `tests/unit/test_export_jobs.py` (NEW, 11 tests) — JobStore
+  lifecycle: create → progress → done → result → 410-after-second-
+  fetch; cancel mid-run; runner exception → error status; route
+  POST → GET poll → GET result → DELETE cancel.
+
+Reviewer pass (M5): 3 reviewers spawned in parallel
+(`fastapi-backend-reviewer`, `frontend-react-engineer`,
+`risk-skeptic`); all returned **fix-then-ship**. P0 was Pydantic
+input validation gap (preset/crf/sharpen_method passed unchecked to
+ffmpeg + apply_sharpen); 8 P1s spanning tempfile cleanup, cancel-
+after-success race, JOBS shutdown leak, polling-loop unmount
+hazard, modal close gating, DELETE error swallowing, double-Export
+concurrency. All P0/P1 resolved + verified live (422 on bad params,
+410 on re-fetch). P2/P3 deferred to backlog (vertex hit-test at
+extreme zoom, Spinbox mid-edit pill, Recompute view-mode mismatch).
+Reviewer evidence files at
+`.agent/runs/play-export-and-roi-fixes-v1/reviews/`.
+
+Verification gates green: smoke 0+1+2+3 ✓; 301 unit tests pass
+(was 290; +11 new); Vite bundle compiles + reloads clean with no
+console errors; live end-to-end multi-source export verified (POST
+→ poll → MP4 fetch returns valid ISO Media bytes); live Pydantic
+422s verified for preset / crf / sharpen_method.
+
+INITIATIVE CLOSED.
+
+---
+
 **2026-04-28 (Late evening) — B-0037 Phase 2-4: sourceModes / RoiOverlay / WarningCenter + SmallModals extracted**
 
 Continuation of the backlog-drain pass. Three more module
