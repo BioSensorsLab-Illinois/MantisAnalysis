@@ -661,3 +661,50 @@ no automated a11y. `B-0014` tracked the migration decision. Closed
   is observed masking real type bugs.
 
 
+
+
+## D-0018 — Drop axe-core / accessibility-skill gate; visual + manual keyboard review for UI work  (2026-04-28)
+
+**Status**: Active.
+
+**Context**: When the Play tab was rebuilt from scratch (commit
+`a17e4f9` — `playback-rebuild-v2 M0`) the
+`tests/web/test_accessibility.py` module + the
+`.agent/skills/accessibility-check/SKILL.md` skill were both deleted.
+The replacement Play surface is a 13 K-line single file with roving
+tab-index, polygon-ROI canvas interaction, custom right-click context
+menus, and slider-on-canvas controls — none of which are exercised by
+an automated a11y suite anymore. The polish-sweep audit
+(`.agent/runs/play-tab-recording-inspection-rescue-v1/`) flagged the
+deletion as a quiet capability removal without a paper trail.
+
+**Decision**: We accept the deletion as a deliberate policy choice.
+The user has a recorded preference for a "visual design over
+a11y baseline" gate (memory file `feedback_visual_design.md`):
+manual visual + keyboard review on UI initiatives, Lighthouse
+spot-check at release time. axe-core remains available in
+`devDependencies` if a future initiative wants to opt back in, but
+the pre-merge Tier-4 gate will not run it.
+
+**Why over alternatives**:
+- (a) Re-add the axe scan on every Tier-4 run — too noisy on the new
+  Play surface, where canvas-based ROI drawing is inherently
+  axe-unfriendly. Would block merges on rule failures the user
+  explicitly does not want to block on.
+- (b) Move axe to "advisory" / non-blocking — produces a steady stream
+  of warnings the team agreed to ignore; cargo-cult.
+- (c) Drop the gate, log the trade-off (chosen).
+
+**Consequences**:
+- Keyboard-only and screen-reader users may hit walls in Play; that
+  is logged as `R-0010` in `RISKS.md`.
+- Lighthouse spot-check at release time is the only automated
+  visibility into a11y regressions.
+- A future initiative that wants to re-introduce a Play-specific a11y
+  test (see `BACKLOG.md`) is welcome — this decision does not preclude
+  per-surface opt-in.
+
+**Revisit**: If users (especially the BSL group running demos with
+keyboard-only control on a projector) surface concrete a11y issues,
+re-introduce a targeted axe smoke for the affected surface — not a
+blanket gate.

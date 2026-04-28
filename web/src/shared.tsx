@@ -4524,6 +4524,106 @@ const Page = ({
   );
 };
 
+// ---------------------------------------------------------------------------
+// <ContentErrorBoundary> — generic recoverable error pane.
+// ---------------------------------------------------------------------------
+// Originally lived inside playback.tsx (PlaybackErrorBoundary). Lifted
+// to shared so AnalysisShell + any future module can wrap their root
+// in the same boundary instead of unmounting to a white screen on a
+// throw. Stateful (must remain a class). The reset button clears the
+// error state so the user can try again.
+//
+// Props:
+//   subject     — display name of the affected surface ("Play mode",
+//                 "Analysis modal", ...). Shows in the error title.
+//   helpText    — optional 1-2 line plain-language description of
+//                 likely causes / remedies. Defaults to a generic
+//                 "an error occurred" message.
+//   children    — the subtree to guard.
+//   onReset     — optional callback invoked when the user clicks
+//                 "Try again" (e.g. to clear shared state).
+class ContentErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null, info: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    // eslint-disable-next-line no-console
+    console.error(`[${this.props.subject || 'ContentErrorBoundary'}] render crash:`, error, info);
+    this.setState({ error, info });
+  }
+  reset = () => {
+    this.setState({ error: null, info: null });
+    try {
+      this.props.onReset?.();
+    } catch {
+      /* swallow — boundary stays usable even if reset hook errors */
+    }
+  };
+  render() {
+    if (!this.state.error) return this.props.children;
+    const subject = this.props.subject || 'Content';
+    const help =
+      this.props.helpText || 'An unexpected error occurred. The error is logged to the console.';
+    return (
+      <div
+        data-content-error-boundary
+        data-subject={subject}
+        style={{
+          padding: 24,
+          height: '100%',
+          width: '100%',
+          background: '#1a1d23',
+          color: '#e4e7ec',
+          fontFamily: 'ui-monospace,Menlo,monospace',
+          fontSize: 12,
+          overflow: 'auto',
+          boxSizing: 'border-box',
+        }}
+      >
+        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8, color: '#ff6b6b' }}>
+          {subject} crashed during render
+        </div>
+        <div style={{ marginBottom: 12, color: '#bcc1cc', maxWidth: 720, lineHeight: 1.5 }}>
+          {help}
+        </div>
+        <pre
+          style={{
+            background: '#0f1115',
+            color: '#ff9090',
+            padding: 12,
+            borderRadius: 4,
+            maxWidth: 900,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+          }}
+        >
+          {String(this.state.error?.stack || this.state.error?.message || this.state.error)}
+        </pre>
+        <button
+          onClick={this.reset}
+          style={{
+            marginTop: 12,
+            padding: '6px 14px',
+            background: '#3a82f7',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 4,
+            cursor: 'pointer',
+            fontSize: 12,
+            fontWeight: 600,
+          }}
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
+}
+
 export {
   THEMES,
   CHANNEL_COLORS,
@@ -4627,4 +4727,7 @@ export {
   chartBodyBgFor,
   renderChartToPng,
   renderNodeToPng,
+  // generic error boundary — used by Play + AnalysisShell + any
+  // future modal / mode that wants recoverable error rendering.
+  ContentErrorBoundary,
 };

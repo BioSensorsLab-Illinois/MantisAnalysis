@@ -777,3 +777,109 @@ analysis (B-0013), visual regressions and logic bugs will bite.
 **Estimated effort**: ~1 day for the smoke step.
 
 <!-- /qt-allowed -->
+
+
+## B-0037 — Split `web/src/playback.tsx` into modules (2026-04-28)
+
+The polish-sweep audit confirmed `web/src/playback.tsx` is 13,193
+lines in one file. Module-level mutable state (`_frameBlobCache`,
+`_prefetchInflight`, `_prefetchActive`) plus inline UI components
+(StreamHeader, SourcesPanel, ViewerGrid, Inspector, TimelineStrip,
+9 modals, TBR panel, OverlayBuilder) all live in the same file.
+Maintainability degrades sharply on any non-trivial bug fix that
+touches code 5,000+ lines apart.
+
+Extraction candidates, in priority order:
+
+1. `playback/frameCache.ts` — module-level `_frameBlobCache`,
+   `_prefetchInflight`, `_prefetchActive` + the trim/get/put/purge
+   helpers (currently lines 42–243).
+2. `playback/sourceModes.ts` — `SOURCE_MODES` catalog +
+   `sourceModeMeta` + `splitSourceMode` (currently lines 469–818).
+3. `playback/RoiOverlay.tsx` — polygon hit-test math + SVG overlay
+   layer (currently lines 5364–5604).
+4. `playback/tbr/` — TbrAnalysisPanel + TbrAnalysisModal (currently
+   ~1500 lines around 10117–11500).
+5. `playback/modals/` — every `*Modal` component
+   (OverlayBuilderModal, ExportImageModal, ExportVideoModal,
+   WarningCenterModal, StreamBuilderModal, SavePresetModal,
+   DeleteFromDiskConfirmModal).
+
+Target: under 4,000 lines for the remaining `playback.tsx`. Drives
+B-0038 (drop @ts-nocheck) much easier — module boundaries make the
+remaining type errors local.
+
+
+## B-0038 — Drop `@ts-nocheck` from frontend files (2026-04-28)
+
+Seven files still carry the migration-time `@ts-nocheck` pragma:
+`playback.tsx`, `app.tsx`, `analysis.tsx`, `shared.tsx`, `dof.tsx`,
+`fpn.tsx`, `usaf.tsx`. The polish-sweep audit measured the
+type-error count when removing the pragma — `dof.tsx` alone
+surfaces 30+ implicit-any errors plus several `never`-typed
+variables. Each file's pragma removal is its own per-file
+milestone; expect 50–150 type errors to fix (mostly callback param
+types, channel-set narrowing on `useSource()` returns, and the
+shared.tsx `as any` cast surface).
+
+Recommended sequence — smallest blast-radius first:
+- `app.tsx` (1,359 lines, mostly orchestration)
+- `analysis.tsx` (5,597 lines, but most of it was retired in
+  Phase 8 cutover — much is dead)
+- `shared.tsx` (4,733 lines, the type-source-of-truth — once typed
+  this lifts the `as any` shims in every consumer)
+- `dof.tsx`, `fpn.tsx`, `usaf.tsx` (the analysis-mode shells)
+- `playback.tsx` (13,193 lines — defer behind B-0037 split)
+
+Until these are typed, `shared.tsx` consumers use `_s as any` shims
+in newly-typed files (see `analysis/shell.tsx`). That is acceptable
+short-term.
+
+
+## B-0039 — Re-introduce a11y smoke for Play tab (gated on user opt-in) (2026-04-28)
+
+D-0018 dropped axe-core as a default merge gate. R-0010 captures
+the resulting risk for the Play tab specifically. If a user
+surfaces a concrete keyboard / screen-reader regression, this
+ticket re-introduces a *targeted* axe scan over the mounted Play
+tab. Not a blocker; opt-in per future initiative.
+
+
+## B-0040 — HDR fusion mode toggle (Inspector) (2026-04-28)
+
+`mantisanalysis/hdr_fusion.py` has two modes — `"switch"` (hard,
+default) and `"mertens"` (smooth, no seam at HG saturation). The
+Inspector → HDR card has no UI to flip between them; the default
+"switch" produces a visible seam that the Mertens mode fixes.
+
+Multi-touch change:
+1. Backend: add `hdr_fusion: str = Query("switch", pattern="^(switch|mertens)$")`
+   to the per-frame channel render route + plumb to
+   `add_hdr_channels(... fusion=hdr_fusion)`.
+2. Frontend: add `view.hdrFusion` state + a toggle in the Inspector
+   HDR card + URL builder include.
+3. Tests: round-trip via `tests/unit/test_hdr_fusion.py`.
+
+Deferred from the polish sweep because it crosses backend + frontend
+boundaries and warrants its own milestone (estimate 0.5 day).
+
+
+## B-0041 — Replace `_AVG_BLOB_KB_ESTIMATE` with rolling measurement (2026-04-28)
+
+The frontend frame-cache trim loop converts MB budget → entry count
+via a fixed `_AVG_BLOB_KB_ESTIMATE` (now 400 KB after the polish
+sweep). Real PNG sizes vary 70–1500 KB depending on channel layout
+and source resolution. A rolling average — track `bytesWritten /
+entriesWritten` on the cache populate path, expose via debug — would
+give an accurate trim even when the user mixes a 512×512 grayscale
+source with a 4 K RGB legacy file.
+
+
+## B-0042 — Real-disk delete: undo (Trash) path on macOS via `send2trash` (2026-04-28)
+
+`POST /api/sources/delete-files` currently issues hard `unlink`.
+There is no undo. On macOS we could use `send2trash` (or a custom
+macOS Foundation call) to send the file to the user's Trash so an
+accidental bulk-delete is recoverable. Linux + Windows have
+equivalent paths. Not blocking (the Sources-panel modal still
+confirms before delete) but a nice safety net.

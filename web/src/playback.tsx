@@ -28,14 +28,6 @@ import {
   useViewport,
 } from './shared.tsx';
 
-const {
-  useState: useStatePb,
-  useEffect: useEffectPb,
-  useCallback: useCallbackPb,
-  useMemo: useMemoPb,
-  useRef: useRefPb,
-} = React;
-
 // ---------------------------------------------------------------------------
 // Helpers — frame URL builders, exposure formatting
 // ---------------------------------------------------------------------------
@@ -55,10 +47,16 @@ const {
 // pathological burst of huge frames still stays under budget. The cap
 // is read via a getter so the Inspector → Advanced setting can change
 // it at runtime without re-instantiating the cache.
-const _AVG_BLOB_KB_ESTIMATE = 150; // average compressed PNG size we plan around
+// 400 KB per blob — empirical average for legacy 2 k × 2 k channel PNGs.
+// The previous 150 KB estimate underestimated by ~4× and let the LRU
+// silently grow past the documented MB budget on big sessions.
+const _AVG_BLOB_KB_ESTIMATE = 400;
 // Default budget assumes ≥ 8 GB of RAM (per project guarantee). 1 GB
-// gives ~6.8K cached PNGs, more than enough to hold any reasonable
-// stream end-to-end and survive scrub/replay without re-fetching.
+// gives ~2.5K cached PNGs at the new estimate, more than enough to
+// hold any reasonable stream end-to-end and survive scrub/replay
+// without re-fetching. The actual budget used at runtime is clamped
+// to ``Math.min(default, ceilingMb / 4)`` so a low-RAM host (e.g.
+// 4 GB SBC) starts with 1024 / 4 = 256 MB instead of overcommitting.
 const _DEFAULT_CACHE_BUDGET_MB = 1024;
 let _frameCacheBudgetMB = _DEFAULT_CACHE_BUDGET_MB;
 const setFrameCacheBudgetMB = (mb) => {
@@ -1333,22 +1331,22 @@ export const PlaybackMode = ({
   const t = useTheme();
 
   // --- State -------------------------------------------------------------
-  const [recordings, setRecordings] = useStatePb([]); // Recording[]
-  const [loadingFiles, setLoadingFiles] = useStatePb([]); // [{ name, progress }]
-  const [errorFiles, setErrorFiles] = useStatePb([]); // [{ name, message }]
-  const [selectedRecId, setSelectedRecId] = useStatePb(null);
+  const [recordings, setRecordings] = React.useState([]); // Recording[]
+  const [loadingFiles, setLoadingFiles] = React.useState([]); // [{ name, progress }]
+  const [errorFiles, setErrorFiles] = React.useState([]); // [{ name, message }]
+  const [selectedRecId, setSelectedRecId] = React.useState(null);
   // Multi-select for the "Delete from disk" flow. Holds the set of
   // recording source_ids the user has ticked. Independent from
   // `selectedRecId` (which is the single "active" recording the
   // viewer/inspector binds to).
-  const [markedRecIds, setMarkedRecIds] = useStatePb(() => new Set());
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useStatePb(false);
+  const [markedRecIds, setMarkedRecIds] = React.useState(() => new Set());
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false);
   // Anchor for shift+click range selection — the source_id of the most
   // recently toggled (non-shift) recording. Shift+click on another
   // recording selects every entry between the anchor and the click in
   // current visual order, mirroring Finder/Explorer behaviour.
-  const markAnchorRef = useRefPb(null);
-  const toggleMarked = useCallbackPb(
+  const markAnchorRef = React.useRef(null);
+  const toggleMarked = React.useCallback(
     (sourceId, opts = {}) => {
       const isShift = !!opts.shiftKey;
       setMarkedRecIds((prev) => {
@@ -1376,7 +1374,7 @@ export const PlaybackMode = ({
     },
     [recordings]
   );
-  const clearMarked = useCallbackPb(() => {
+  const clearMarked = React.useCallback(() => {
     setMarkedRecIds(new Set());
     markAnchorRef.current = null;
   }, []);
@@ -1385,7 +1383,7 @@ export const PlaybackMode = ({
   // route (delete, remove, server eviction) leaves a phantom entry in
   // the marked-set and the header badge shows "Delete (1)" against an
   // empty file list. Also reset the anchor when its source disappears.
-  useEffectPb(() => {
+  React.useEffect(() => {
     const live = new Set(recordings.map((r) => r.source_id));
     setMarkedRecIds((prev) => {
       let changed = false;
@@ -1400,15 +1398,15 @@ export const PlaybackMode = ({
       markAnchorRef.current = null;
     }
   }, [recordings]);
-  const [views, setViews] = useStatePb([]); // View[]; ordered by display position
-  const [selectedViewId, setSelectedViewId] = useStatePb(null);
-  const [layoutPreset, setLayoutPreset] = useStatePb('single'); // single | side | stack | 2x2
-  const [globalFrame, setGlobalFrame] = useStatePb(0); // 0..(totalFrames-1)
+  const [views, setViews] = React.useState([]); // View[]; ordered by display position
+  const [selectedViewId, setSelectedViewId] = React.useState(null);
+  const [layoutPreset, setLayoutPreset] = React.useState('single'); // single | side | stack | 2x2
+  const [globalFrame, setGlobalFrame] = React.useState(0); // 0..(totalFrames-1)
   // Stream order — ordered list of source_ids. v1 keeps display order ===
   // load order; M6 lets the user reorder via the Stream Builder modal.
-  const [streamOrder, setStreamOrder] = useStatePb([]);
+  const [streamOrder, setStreamOrder] = React.useState([]);
   // Playback state
-  const [playing, setPlaying] = useStatePb(false);
+  const [playing, setPlaying] = React.useState(false);
   const [fps, setFps] = useLocalStorageState('playback/fps', 10);
   const [loop, setLoop] = useLocalStorageState('playback/loop', true); // resolved decision #3
   // Inspector / Sources collapse states are persisted across sessions per spec §4.3.
@@ -1429,10 +1427,10 @@ export const PlaybackMode = ({
   // the auto-rule another shot in the new regime. (See plan §M15
   // verification gate: "respect user's manual override".)
   const { isNarrow } = useViewport();
-  const prevIsNarrowRef = useRefPb(isNarrow);
-  const sourcesTouchedRef = useRefPb(false);
-  const inspectorTouchedRef = useRefPb(false);
-  useEffectPb(() => {
+  const prevIsNarrowRef = React.useRef(isNarrow);
+  const sourcesTouchedRef = React.useRef(false);
+  const inspectorTouchedRef = React.useRef(false);
+  React.useEffect(() => {
     if (prevIsNarrowRef.current === isNarrow) return;
     prevIsNarrowRef.current = isNarrow;
     if (!sourcesTouchedRef.current) setSourcesCollapsed(isNarrow);
@@ -1441,42 +1439,42 @@ export const PlaybackMode = ({
     inspectorTouchedRef.current = false;
   }, [isNarrow, setSourcesCollapsed, setInspectorCollapsed]);
   // Stream Builder modal state (M6)
-  const [streamBuilderOpen, setStreamBuilderOpen] = useStatePb(false);
+  const [streamBuilderOpen, setStreamBuilderOpen] = React.useState(false);
   // Export Video modal (M10)
-  const [exportVideoOpen, setExportVideoOpen] = useStatePb(false);
+  const [exportVideoOpen, setExportVideoOpen] = React.useState(false);
   // M23 — tiled image export modal (multi-view PNG composite).
-  const [exportImageOpen, setExportImageOpen] = useStatePb(false);
+  const [exportImageOpen, setExportImageOpen] = React.useState(false);
   // Warning Center modal (M11)
-  const [warningCenterOpen, setWarningCenterOpen] = useStatePb(false);
+  const [warningCenterOpen, setWarningCenterOpen] = React.useState(false);
   // M17: range-brush on the timeline mini-map. `null` = no brush (full
   // stream is the export default); `[start, end]` (inclusive global
   // frame indices) = brush active. Two amber handles on the mini-map
   // and a shaded fill between them. Used by ExportVideoModal as the
   // default range and to lock its start/end Spinboxes when active.
-  const [rangeSelection, setRangeSelection] = useStatePb(null);
+  const [rangeSelection, setRangeSelection] = React.useState(null);
   // M16: per-source warnings the user dismissed via the FilePill chip
   // close button. Session-only — dismissals don't persist across reloads
   // because the underlying H5 metadata is unchanged. The same warning
   // still appears in the Warning Center modal regardless.
   // Map: source_id → Set<warning code>.
-  const [dismissedWarnings, setDismissedWarnings] = useStatePb({});
+  const [dismissedWarnings, setDismissedWarnings] = React.useState({});
   // M28: server-side presets store (~/.mantisanalysis/playback-presets.json).
   // Persisted across sessions; multiple users on the same host get separate
   // files (mode 0600). Frontend owns the `fields` schema; backend round-trips.
-  const [presets, setPresets] = useStatePb([]);
-  const [savePresetOpen, setSavePresetOpen] = useStatePb(false);
+  const [presets, setPresets] = React.useState([]);
+  const [savePresetOpen, setSavePresetOpen] = React.useState(false);
   // M29: 4-step Overlay Builder wizard. Holds the id of the view being
   // configured; null when closed. Same backend as the inline overlay
   // configurator — the modal just gives a more guided UX.
-  const [overlayBuilderViewId, setOverlayBuilderViewId] = useStatePb(null);
+  const [overlayBuilderViewId, setOverlayBuilderViewId] = React.useState(null);
   // TBR Analysis (Tumor / Background ratio). Top-level table of
   // committed entries (sourceFile, frameIndex, channel, tumor stats,
   // bg stats, ratio). Draft/in-progress measurement lives on the
   // active view (see view.tbrDraft) so it picks up the per-view ROI
   // drawing tool.
-  const [tbrEntries, setTbrEntries] = useStatePb([]);
-  const [tbrAnalysisOpen, setTbrAnalysisOpen] = useStatePb(false);
-  useEffectPb(() => {
+  const [tbrEntries, setTbrEntries] = React.useState([]);
+  const [tbrAnalysisOpen, setTbrAnalysisOpen] = React.useState(false);
+  React.useEffect(() => {
     let cancelled = false;
     apiFetch('/api/playback/presets', { method: 'GET' })
       .then((body) => {
@@ -1493,7 +1491,7 @@ export const PlaybackMode = ({
   // M28 — replace the persisted preset list with a new one. Optimistic:
   // local state updates immediately, server PUT happens in the background.
   // On error we re-fetch so the local view doesn't drift.
-  const replacePresets = useCallbackPb(
+  const replacePresets = React.useCallback(
     async (next) => {
       setPresets(next);
       try {
@@ -1543,7 +1541,7 @@ export const PlaybackMode = ({
     'labels',
     'isp',
   ];
-  const captureViewFields = useCallbackPb((view) => {
+  const captureViewFields = React.useCallback((view) => {
     if (!view) return {};
     const out = {};
     for (const k of PRESET_FIELDS) {
@@ -1551,7 +1549,7 @@ export const PlaybackMode = ({
     }
     return out;
   }, []);
-  const savePreset = useCallbackPb(
+  const savePreset = React.useCallback(
     async (name, sourceView) => {
       if (!sourceView) return;
       const id = `preset-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -1566,7 +1564,7 @@ export const PlaybackMode = ({
     },
     [presets, replacePresets, captureViewFields]
   );
-  const deletePreset = useCallbackPb(
+  const deletePreset = React.useCallback(
     async (id) => {
       const next = presets.filter((p) => p.id !== id);
       setPresets(next);
@@ -1580,7 +1578,7 @@ export const PlaybackMode = ({
     },
     [presets, setPresets]
   );
-  const dismissWarning = useCallbackPb((sourceId, code) => {
+  const dismissWarning = React.useCallback((sourceId, code) => {
     setDismissedWarnings((prev) => {
       const next = { ...prev };
       const existing = next[sourceId] ? new Set(next[sourceId]) : new Set();
@@ -1596,7 +1594,7 @@ export const PlaybackMode = ({
   // recording's `gainPref` still tracks the most recent choice on
   // this source so newly-spawned views default to the same gain,
   // but per-view edits never propagate to siblings.
-  const setRecordingGain = useCallbackPb(
+  const setRecordingGain = React.useCallback(
     (sourceId, gain) => {
       setRecordings((prev) =>
         prev.map((r) => (r.source_id === sourceId ? { ...r, gainPref: gain } : r))
@@ -1630,13 +1628,13 @@ export const PlaybackMode = ({
   // Darks loaded as a frontend-managed list. Backend stores one dark per
   // source; this list tracks which darks the user picked AND which sources
   // they're currently attached to. M8.
-  const [darks, setDarks] = useStatePb([]); // [{ id, name, file_size, attached: Set<sid> }]
-  const [loadingDarks, setLoadingDarks] = useStatePb([]); // [{ name }]
-  const [darkErrors, setDarkErrors] = useStatePb([]); // [{ name, message }]
-  const darkInputRef = useRefPb(null);
+  const [darks, setDarks] = React.useState([]); // [{ id, name, file_size, attached: Set<sid> }]
+  const [loadingDarks, setLoadingDarks] = React.useState([]); // [{ name }]
+  const [darkErrors, setDarkErrors] = React.useState([]); // [{ name, message }]
+  const darkInputRef = React.useRef(null);
 
   // --- Derived -----------------------------------------------------------
-  const allExposures = useMemoPb(() => {
+  const allExposures = React.useMemo(() => {
     const set = new Set();
     recordings.forEach((r) =>
       (r.exposures_s || []).forEach((e) => set.add(Math.round(e * 1e6) / 1e6))
@@ -1648,7 +1646,7 @@ export const PlaybackMode = ({
   // Whenever recordings list changes, reconcile streamOrder so it
   // contains exactly the active source_ids in the order the user
   // either set (M6) or first loaded (default).
-  useEffectPb(() => {
+  React.useEffect(() => {
     setStreamOrder((prev) => {
       const presentIds = new Set(recordings.map((r) => r.source_id));
       const kept = prev.filter((sid) => presentIds.has(sid));
@@ -1659,15 +1657,15 @@ export const PlaybackMode = ({
   }, [recordings]);
 
   // --- Global → local frame mapping ------------------------------------
-  const orderedRecordings = useMemoPb(
+  const orderedRecordings = React.useMemo(
     () => streamOrder.map((sid) => recordings.find((r) => r.source_id === sid)).filter(Boolean),
     [streamOrder, recordings]
   );
-  const totalFrames = useMemoPb(
+  const totalFrames = React.useMemo(
     () => orderedRecordings.reduce((acc, r) => acc + (r.frame_count || 1), 0) || 1,
     [orderedRecordings]
   );
-  const sourceOffsets = useMemoPb(() => {
+  const sourceOffsets = React.useMemo(() => {
     const m = new Map();
     let cum = 0;
     for (const r of orderedRecordings) {
@@ -1678,7 +1676,7 @@ export const PlaybackMode = ({
   }, [orderedRecordings]);
   // Resolve the active source for the current global frame (the one that
   // owns this index in the concatenated stream).
-  const activeAtGlobal = useMemoPb(() => {
+  const activeAtGlobal = React.useMemo(() => {
     let cum = 0;
     for (const r of orderedRecordings) {
       const next = cum + (r.frame_count || 1);
@@ -1692,7 +1690,7 @@ export const PlaybackMode = ({
     return { sourceId: null, local: 0 };
   }, [globalFrame, orderedRecordings]);
 
-  const localFrameForView = useCallbackPb(
+  const localFrameForView = React.useCallback(
     (view) => {
       if (view.isLocked && view.lockedFrame != null) return view.lockedFrame;
       // Stream-follow: when the view's source matches the active source
@@ -1717,7 +1715,7 @@ export const PlaybackMode = ({
   // new active source. This keeps the canvas tracking what the timeline
   // says is "active". Locked views stay on their pinned source. Manual
   // per-view source pinning would set `view.isLocked = true`.
-  useEffectPb(() => {
+  React.useEffect(() => {
     if (!activeAtGlobal.sourceId) return;
     setViews((prev) => {
       let changed = false;
@@ -1753,7 +1751,7 @@ export const PlaybackMode = ({
   }, [activeAtGlobal.sourceId, recordings]);
 
   // --- Status bar ---------------------------------------------------------
-  useEffectPb(() => {
+  React.useEffect(() => {
     if (recordings.length === 0) {
       onStatusChange?.('Play · No recording loaded', 0);
     } else {
@@ -1765,7 +1763,7 @@ export const PlaybackMode = ({
   }, [recordings.length, totalFrames, onStatusChange]);
 
   // --- Multi-file open ----------------------------------------------------
-  const fileInputRef = useRefPb(null);
+  const fileInputRef = React.useRef(null);
 
   // `handleOpenClick` is declared FURTHER DOWN, after `loadRecordings`,
   // because the File System Access API path needs to call into it.
@@ -1774,15 +1772,25 @@ export const PlaybackMode = ({
   // Shared loader: takes a list of {kind:'file', file} or {kind:'path', path, name}.
   // Powers both the file-picker flow and the programmatic load-by-path hook
   // (used by tests and the future "Load by path" command-palette entry).
-  const loadRecordings = useCallbackPb(
+  const loadRecordings = React.useCallback(
     async (items) => {
       if (!items || items.length === 0) return;
       const names = items.map((it) => (it.kind === 'file' ? it.file.name : it.name || it.path));
-      setLoadingFiles((prev) => [...prev, ...names.map((n) => ({ name: n }))]);
+      // Stable per-load id so two files with the SAME basename (e.g.
+      // duplicates dragged from two folders) don't both clear on the
+      // first .filter pass.
+      const loadIds = items.map(
+        (_, idx) => `lf-${Date.now().toString(36)}-${idx}-${Math.random().toString(36).slice(2, 6)}`
+      );
+      setLoadingFiles((prev) => [
+        ...prev,
+        ...names.map((n, idx) => ({ id: loadIds[idx], name: n })),
+      ]);
       const newRecordings = [];
       for (let i = 0; i < items.length; i++) {
         const it = items[i];
         const displayName = names[i];
+        const loadId = loadIds[i];
         try {
           let summary;
           if (it.kind === 'file') {
@@ -1882,7 +1890,7 @@ export const PlaybackMode = ({
           ]);
           say?.(`Failed to load ${displayName}: ${err.detail || err.message}`, 'danger');
         } finally {
-          setLoadingFiles((prev) => prev.filter((lf) => lf.name !== displayName));
+          setLoadingFiles((prev) => prev.filter((lf) => lf.id !== loadId));
         }
       }
       if (newRecordings.length > 0) {
@@ -1908,7 +1916,7 @@ export const PlaybackMode = ({
     [say]
   );
 
-  const handleFilesChosen = useCallbackPb(
+  const handleFilesChosen = React.useCallback(
     (e) => {
       const files = Array.from(e.target.files || []);
       e.target.value = '';
@@ -1923,7 +1931,7 @@ export const PlaybackMode = ({
   // the user's source file from disk, not just our upload tempfile.
   // Falls back to the legacy `<input type="file">` (upload-only path)
   // when the API isn't available (Safari, older Firefox).
-  const handleOpenClick = useCallbackPb(async () => {
+  const handleOpenClick = React.useCallback(async () => {
     if (typeof window === 'undefined' || typeof window.showOpenFilePicker !== 'function') {
       fileInputRef.current?.click();
       return;
@@ -1969,7 +1977,7 @@ export const PlaybackMode = ({
   // tests, the future "Load Play sample" command, and a "Load by path"
   // command-palette entry can drive recording loading without the browser
   // file picker. Detail shape: { paths: string[] }.
-  useEffectPb(() => {
+  React.useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     const handler = (ev) => {
       const paths = (ev?.detail?.paths || []).filter((p) => typeof p === 'string');
@@ -1989,12 +1997,12 @@ export const PlaybackMode = ({
   // miss the cache and re-fetch the freshly-extracted image.
   // Live-current-recordings ref so the source-reconfigured fan-out can read
   // the latest list without recreating the listener on every change.
-  const recordingsRef = useRefPb([]);
-  useEffectPb(() => {
+  const recordingsRef = React.useRef([]);
+  React.useEffect(() => {
     recordingsRef.current = recordings;
   }, [recordings]);
 
-  useEffectPb(() => {
+  React.useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     const handler = async (ev) => {
       const detail = ev?.detail || {};
@@ -2026,6 +2034,14 @@ export const PlaybackMode = ({
       const targets = (recordingsRef.current || []).filter(
         (r) => r && r.source_id && r.source_id !== sid
       );
+      // Aggregate per-target outcomes so a partial failure surfaces as
+      // a single toast at the end instead of a silent split-brain
+      // (originating recording on the new mode, one or more siblings
+      // still on the old mode). Without this the user might export a
+      // tiled video and find one tile rendered with the previous
+      // channel layout.
+      const succeededNames = [];
+      const failed = [];
       for (const target of targets) {
         try {
           const updated = await apiFetch(`/api/sources/${target.source_id}/isp`, {
@@ -2053,6 +2069,7 @@ export const PlaybackMode = ({
                 : r
             )
           );
+          succeededNames.push(target.name || target.source_id);
         } catch (err) {
           // Non-fatal: log and continue. The user can re-apply manually
           // from the Filter & Channel Specification dialog if a sibling
@@ -2062,6 +2079,33 @@ export const PlaybackMode = ({
             'Filter & Channel fan-out failed for',
             target.source_id,
             err?.detail || err?.message || err
+          );
+          failed.push({
+            name: target.name || target.source_id,
+            detail: err?.detail || err?.message || String(err),
+          });
+        }
+      }
+      if (targets.length > 0) {
+        if (failed.length === 0) {
+          say?.(
+            `Filter & Channel applied to ${succeededNames.length} other recording${
+              succeededNames.length === 1 ? '' : 's'
+            }.`,
+            'success'
+          );
+        } else if (succeededNames.length === 0) {
+          say?.(
+            `Filter & Channel fan-out failed on ${failed.length} recording${
+              failed.length === 1 ? '' : 's'
+            }: ${failed.map((f) => f.name).join(', ')}.`,
+            'danger'
+          );
+        } else {
+          say?.(
+            `Filter & Channel: ${succeededNames.length} of ${targets.length} updated. ` +
+              `Failed: ${failed.map((f) => f.name).join(', ')}.`,
+            'warning'
           );
         }
       }
@@ -2076,7 +2120,7 @@ export const PlaybackMode = ({
   // opening ISP Settings on a legacy or modern Play recording showed the
   // sample's defaults (sub_step=2 / outer_stride=4) because the dialog
   // reads its source from `useSource()` (the global SourceCtx).
-  useEffectPb(() => {
+  React.useEffect(() => {
     if (!onSwitchSource) return;
     const rec = recordings.find((r) => r.source_id === selectedRecId);
     if (rec) onSwitchSource(rec);
@@ -2105,64 +2149,67 @@ export const PlaybackMode = ({
   //   • if there is no surviving source AFTER → walk BACKWARD looking
   //     for the first surviving source before it and jump to ITS START.
   //   • if everything is being removed → globalFrame = 0.
-  const computePostDeleteGlobalFrame = useCallbackPb((preOrdered, currentGlobalFrame, removed) => {
-    if (!preOrdered || preOrdered.length === 0) return 0;
-    // Find the cursor's pre-removal slot + local-within-that-source.
-    let cursorIdx = -1;
-    let cursorLocal = 0;
-    let cum = 0;
-    for (let i = 0; i < preOrdered.length; i++) {
-      const r = preOrdered[i];
-      const n = r.frame_count || 1;
-      if (currentGlobalFrame < cum + n) {
-        cursorIdx = i;
-        cursorLocal = currentGlobalFrame - cum;
-        break;
+  const computePostDeleteGlobalFrame = React.useCallback(
+    (preOrdered, currentGlobalFrame, removed) => {
+      if (!preOrdered || preOrdered.length === 0) return 0;
+      // Find the cursor's pre-removal slot + local-within-that-source.
+      let cursorIdx = -1;
+      let cursorLocal = 0;
+      let cum = 0;
+      for (let i = 0; i < preOrdered.length; i++) {
+        const r = preOrdered[i];
+        const n = r.frame_count || 1;
+        if (currentGlobalFrame < cum + n) {
+          cursorIdx = i;
+          cursorLocal = currentGlobalFrame - cum;
+          break;
+        }
+        cum += n;
       }
-      cum += n;
-    }
-    if (cursorIdx === -1) {
-      // Cursor was past the end of the stream — fall back to the
-      // last surviving source's last frame, computed below.
-      cursorIdx = preOrdered.length - 1;
-      cursorLocal = (preOrdered[cursorIdx].frame_count || 1) - 1;
-    }
-    // Build the surviving ordered list + a per-source new offset.
-    const survivors = preOrdered.filter((r) => !removed.has(r.source_id));
-    if (survivors.length === 0) return 0;
-    const offsetOf = (sid) => {
-      let acc = 0;
-      for (const r of survivors) {
-        if (r.source_id === sid) return acc;
-        acc += r.frame_count || 1;
+      if (cursorIdx === -1) {
+        // Cursor was past the end of the stream — fall back to the
+        // last surviving source's last frame, computed below.
+        cursorIdx = preOrdered.length - 1;
+        cursorLocal = (preOrdered[cursorIdx].frame_count || 1) - 1;
       }
-      return -1;
-    };
-    const cursorRec = preOrdered[cursorIdx];
-    // Case A: cursor's source survived — same source + same local.
-    if (!removed.has(cursorRec.source_id)) {
-      const off = offsetOf(cursorRec.source_id);
-      if (off >= 0) {
-        const localCap = (cursorRec.frame_count || 1) - 1;
-        return off + Math.max(0, Math.min(localCap, cursorLocal));
+      // Build the surviving ordered list + a per-source new offset.
+      const survivors = preOrdered.filter((r) => !removed.has(r.source_id));
+      if (survivors.length === 0) return 0;
+      const offsetOf = (sid) => {
+        let acc = 0;
+        for (const r of survivors) {
+          if (r.source_id === sid) return acc;
+          acc += r.frame_count || 1;
+        }
+        return -1;
+      };
+      const cursorRec = preOrdered[cursorIdx];
+      // Case A: cursor's source survived — same source + same local.
+      if (!removed.has(cursorRec.source_id)) {
+        const off = offsetOf(cursorRec.source_id);
+        if (off >= 0) {
+          const localCap = (cursorRec.frame_count || 1) - 1;
+          return off + Math.max(0, Math.min(localCap, cursorLocal));
+        }
       }
-    }
-    // Case B: walk forward in the ORIGINAL order for the next survivor.
-    for (let j = cursorIdx + 1; j < preOrdered.length; j++) {
-      if (!removed.has(preOrdered[j].source_id)) {
-        return offsetOf(preOrdered[j].source_id);
+      // Case B: walk forward in the ORIGINAL order for the next survivor.
+      for (let j = cursorIdx + 1; j < preOrdered.length; j++) {
+        if (!removed.has(preOrdered[j].source_id)) {
+          return offsetOf(preOrdered[j].source_id);
+        }
       }
-    }
-    // Case C: no survivor after — walk backward.
-    for (let j = cursorIdx - 1; j >= 0; j--) {
-      if (!removed.has(preOrdered[j].source_id)) {
-        return offsetOf(preOrdered[j].source_id);
+      // Case C: no survivor after — walk backward.
+      for (let j = cursorIdx - 1; j >= 0; j--) {
+        if (!removed.has(preOrdered[j].source_id)) {
+          return offsetOf(preOrdered[j].source_id);
+        }
       }
-    }
-    return 0;
-  }, []);
+      return 0;
+    },
+    []
+  );
 
-  const handleRemoveRecording = useCallbackPb(
+  const handleRemoveRecording = React.useCallback(
     async (sid) => {
       try {
         await apiFetch(`/api/sources/${sid}?delete_disk_file=false`, {
@@ -2203,7 +2250,7 @@ export const PlaybackMode = ({
   // The browser-side handle delete is the only path that can reach the
   // user's original file when the upload pipeline owns a tempfile copy
   // (browsers don't expose the original disk path for security).
-  const handleDeleteMarkedFromDisk = useCallbackPb(async () => {
+  const handleDeleteMarkedFromDisk = React.useCallback(async () => {
     const ids = [...markedRecIds];
     if (ids.length === 0) {
       setDeleteConfirmOpen(false);
@@ -2327,11 +2374,11 @@ export const PlaybackMode = ({
   ]);
 
   // ---- View management -------------------------------------------------
-  const updateView = useCallbackPb((viewId, patch) => {
+  const updateView = React.useCallback((viewId, patch) => {
     setViews((prev) => prev.map((v) => (v.id === viewId ? { ...v, ...patch } : v)));
   }, []);
 
-  const addView = useCallbackPb(() => {
+  const addView = React.useCallback(() => {
     const rec = recordings.find((r) => r.source_id === selectedRecId) || recordings[0];
     if (!rec) return;
     const v = makeDefaultView(rec);
@@ -2347,7 +2394,7 @@ export const PlaybackMode = ({
     });
   }, [recordings, selectedRecId, views.length]);
 
-  const removeView = useCallbackPb(
+  const removeView = React.useCallback(
     (viewId) => {
       setViews((prev) => {
         const next = prev.filter((v) => v.id !== viewId);
@@ -2365,7 +2412,7 @@ export const PlaybackMode = ({
   // M13: duplicate a view + place the copy adjacent to the original.
   // Cloned view gets a fresh id, inherits all display state, and starts
   // unlocked / not-included-in-export by default to avoid surprises.
-  const duplicateView = useCallbackPb((viewId) => {
+  const duplicateView = React.useCallback((viewId) => {
     setViews((prev) => {
       const idx = prev.findIndex((v) => v.id === viewId);
       if (idx < 0) return prev;
@@ -2388,7 +2435,7 @@ export const PlaybackMode = ({
   // brightness/contrast/saturation, overlay struct, applyDark, invert,
   // labels. Excludes name / sourceMode / sourceId / lockedFrame so the
   // user doesn't accidentally repoint a target view at a different source.
-  const copyViewSettingsTo = useCallbackPb(
+  const copyViewSettingsTo = React.useCallback(
     (sourceViewId, targetViewIds) => {
       const source = views.find((v) => v.id === sourceViewId);
       if (!source) return;
@@ -2413,7 +2460,7 @@ export const PlaybackMode = ({
   // ---- Frame clamp + playback loop -------------------------------------
   // Clamp globalFrame whenever totalFrames changes so we never point past
   // the end of the (possibly shrunk) stream.
-  useEffectPb(() => {
+  React.useEffect(() => {
     setGlobalFrame((cur) => Math.max(0, Math.min(cur, totalFrames - 1)));
     // M17: if a brush range is set and the stream just shrank past its
     // bounds, drop the brush rather than silently clamping to a range
@@ -2428,7 +2475,7 @@ export const PlaybackMode = ({
   // setTimeout-chained play loop. Single chain — abort on `playing=false`,
   // FPS change, loop change, or stream-size change. No setInterval (avoids
   // request pileup if frame fetch slows past 1000/FPS).
-  useEffectPb(() => {
+  React.useEffect(() => {
     if (!playing) return undefined;
     if (totalFrames <= 1) {
       setPlaying(false);
@@ -2466,7 +2513,12 @@ export const PlaybackMode = ({
       cancelled = true;
       clearTimeout(id);
     };
-  }, [playing, fps, loop, totalFrames, views, recordings]);
+    // Deliberately exclude `views` and `recordings`: the play-loop body
+    // never reads them (it only advances the global frame index). Adding
+    // them to the dep list interrupted the loop on every overlay /
+    // grading / label edit, dropping frames at high FPS. The eager
+    // warmer effect handles URL-set changes separately.
+  }, [playing, fps, loop, totalFrames]);
 
   // ---- Eager cache warmer ---------------------------------------------
   // Walk every (view × frame) URL once in the background so the cache
@@ -2489,7 +2541,7 @@ export const PlaybackMode = ({
   // (and a stream of 18+ recordings was crashing the renderer on the
   // recompute). The cache-key already encodes the full URL anyway, so
   // a stale warmer-key just means the warmer over-walks; not a bug.
-  const warmerKey = useMemoPb(() => {
+  const warmerKey = React.useMemo(() => {
     const parts = [];
     for (const v of views) {
       const rec = recordings.find((r) => r.source_id === v.sourceId);
@@ -2515,79 +2567,89 @@ export const PlaybackMode = ({
     return parts.join('||');
   }, [views, recordings]);
 
-  useEffectPb(() => {
+  React.useEffect(() => {
     if (totalFrames <= 0 || views.length === 0) return undefined;
     let cancelled = false;
-    // BOUNDED warm queue. With ~150 KB per cached PNG, a 1 GB budget
-    // holds ~6900 entries. Loading 18 legacy H5s × 128 frames × N
-    // views easily blows past that. We cap the queue at HALF the cache
-    // capacity (so the trim loop doesn't immediately evict what we
-    // just warmed) and walk views ROUND-ROBIN, prioritising the first
-    // view's first frames so the active stream is always warm even
-    // when later views/sources never get their turn.
-    const cacheCap = _frameCacheMaxEntries();
-    const queueCap = Math.max(64, Math.floor(cacheCap / 2));
-    const perViewBudget = Math.max(1, Math.floor(queueCap / Math.max(1, views.length)));
-    const warmQueue = [];
-    let stop = false;
-    // Round-robin frame index across views so frame 0 of every view is
-    // queued before frame 1 of the first view — matters when the user
-    // is scrubbing across the multi-view grid.
-    const maxLocal = views.reduce((m, v) => {
-      const rec = recordings.find((r) => r.source_id === v.sourceId);
-      const c = rec?.frame_count || 0;
-      return c > m ? c : m;
-    }, 0);
-    for (let i = 0; i < maxLocal && !stop; i++) {
-      for (const view of views) {
-        if (warmQueue.length >= queueCap) {
-          stop = true;
-          break;
-        }
-        const rec = recordings.find((r) => r.source_id === view.sourceId);
-        if (!rec) continue;
-        const localCount = rec.frame_count || 0;
-        if (localCount <= 0) continue;
-        if (view.isLocked && view.lockedFrame != null) {
-          if (i === 0) warmQueue.push({ rec, view, localFrame: view.lockedFrame });
-          continue;
-        }
-        if (i >= localCount) continue;
-        if (i >= perViewBudget) continue;
-        warmQueue.push({ rec, view, localFrame: i });
-      }
-    }
-    // Walk the queue, dispatching prefetches as the semaphore allows.
-    // Yields aggressively so the React event loop stays responsive
-    // even when the queue is in the thousands.
-    let pos = 0;
-    const tick = async () => {
-      while (!cancelled && pos < warmQueue.length) {
-        if (_prefetchActive >= _MAX_CONCURRENT_PREFETCHES) {
-          await new Promise((r) => setTimeout(r, 25));
-          continue;
-        }
-        const { rec, view, localFrame } = warmQueue[pos++];
-        const url = buildFrameUrl(rec, view, localFrame);
-        if (url && !_frameBlobCache.has(url) && !_prefetchInflight.has(url)) {
-          _prefetchFrame(url);
-        }
-        // Yield to the event loop every few dispatches so React
-        // re-renders + user input don't get blocked on huge streams.
-        if (pos % 4 === 0) {
-          await new Promise((r) => setTimeout(r, 0));
+    // 100 ms debounce so a slider drag (warmerKey churning at 50 fps)
+    // doesn't restart the warmer on every tick. Only the LATEST
+    // warmerKey gets the walk; intermediate ones cancel cleanly. The
+    // per-card AbortController fetch is unaffected — the slider
+    // canvas update is still immediate.
+    const debounceTimer = setTimeout(runWarmer, 100);
+    function runWarmer() {
+      if (cancelled) return;
+      // BOUNDED warm queue. With ~400 KB per cached PNG, a 1 GB budget
+      // holds ~2.5K entries. Loading 18 legacy H5s × 128 frames × N
+      // views easily blows past that. We cap the queue at HALF the cache
+      // capacity (so the trim loop doesn't immediately evict what we
+      // just warmed) and walk views ROUND-ROBIN, prioritising the first
+      // view's first frames so the active stream is always warm even
+      // when later views/sources never get their turn.
+      const cacheCap = _frameCacheMaxEntries();
+      const queueCap = Math.max(64, Math.floor(cacheCap / 2));
+      const perViewBudget = Math.max(1, Math.floor(queueCap / Math.max(1, views.length)));
+      const warmQueue = [];
+      let stop = false;
+      // Round-robin frame index across views so frame 0 of every view is
+      // queued before frame 1 of the first view — matters when the user
+      // is scrubbing across the multi-view grid.
+      const maxLocal = views.reduce((m, v) => {
+        const rec = recordings.find((r) => r.source_id === v.sourceId);
+        const c = rec?.frame_count || 0;
+        return c > m ? c : m;
+      }, 0);
+      for (let i = 0; i < maxLocal && !stop; i++) {
+        for (const view of views) {
+          if (warmQueue.length >= queueCap) {
+            stop = true;
+            break;
+          }
+          const rec = recordings.find((r) => r.source_id === view.sourceId);
+          if (!rec) continue;
+          const localCount = rec.frame_count || 0;
+          if (localCount <= 0) continue;
+          if (view.isLocked && view.lockedFrame != null) {
+            if (i === 0) warmQueue.push({ rec, view, localFrame: view.lockedFrame });
+            continue;
+          }
+          if (i >= localCount) continue;
+          if (i >= perViewBudget) continue;
+          warmQueue.push({ rec, view, localFrame: i });
         }
       }
-    };
-    tick();
+      // Walk the queue, dispatching prefetches as the semaphore allows.
+      // Yields aggressively so the React event loop stays responsive
+      // even when the queue is in the thousands.
+      let pos = 0;
+      const tick = async () => {
+        while (!cancelled && pos < warmQueue.length) {
+          if (_prefetchActive >= _MAX_CONCURRENT_PREFETCHES) {
+            await new Promise((r) => setTimeout(r, 25));
+            continue;
+          }
+          const { rec, view, localFrame } = warmQueue[pos++];
+          const url = buildFrameUrl(rec, view, localFrame);
+          if (url && !_frameBlobCache.has(url) && !_prefetchInflight.has(url)) {
+            _prefetchFrame(url);
+          }
+          // Yield to the event loop every few dispatches so React
+          // re-renders + user input don't get blocked on huge streams.
+          if (pos % 4 === 0) {
+            await new Promise((r) => setTimeout(r, 0));
+          }
+        }
+      };
+      tick();
+    } // end runWarmer
     return () => {
       cancelled = true;
+      clearTimeout(debounceTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [warmerKey, totalFrames]);
 
   // ---- Keyboard shortcuts (only while Play tab is mounted) -------------
-  useEffectPb(() => {
+  React.useEffect(() => {
     const onKey = (e) => {
       const t2 = e.target;
       const typing =
@@ -2626,18 +2688,18 @@ export const PlaybackMode = ({
     return () => window.removeEventListener('keydown', onKey);
   }, [totalFrames]);
 
-  const handleRetryError = useCallbackPb((name) => {
+  const handleRetryError = React.useCallback((name) => {
     setErrorFiles((prev) => prev.filter((e) => e.name !== name));
     // Just clear — user can re-open the file. Real auto-retry would need
     // to re-trigger the picker which the browser blocks programmatically.
   }, []);
 
   // ---- Dark-frame management (M8) --------------------------------------
-  const handleOpenDarkClick = useCallbackPb(() => {
+  const handleOpenDarkClick = React.useCallback(() => {
     darkInputRef.current?.click();
   }, []);
 
-  const refreshSourceSummary = useCallbackPb(async (sid) => {
+  const refreshSourceSummary = React.useCallback(async (sid) => {
     try {
       const sum = await apiFetch(`/api/sources/${sid}`, { method: 'GET' });
       setRecordings((prev) =>
@@ -2657,7 +2719,7 @@ export const PlaybackMode = ({
     }
   }, []);
 
-  const attachDarkToSource = useCallbackPb(
+  const attachDarkToSource = React.useCallback(
     async (sid, file) => {
       const fd = new FormData();
       fd.append('file', file);
@@ -2667,7 +2729,7 @@ export const PlaybackMode = ({
     [refreshSourceSummary]
   );
 
-  const handleDarkFilesChosen = useCallbackPb(
+  const handleDarkFilesChosen = React.useCallback(
     async (e) => {
       const files = Array.from(e.target.files || []);
       e.target.value = '';
@@ -2683,9 +2745,19 @@ export const PlaybackMode = ({
         recordings.find((r) => r.source_id === selectedRecId) ||
         recordings[0];
       if (!target) return;
-      setLoadingDarks((prev) => [...prev, ...files.map((f) => ({ name: f.name }))]);
+      // Per-file stable load id so duplicate basenames don't both clear
+      // on the first .filter pass.
+      const darkLoadIds = files.map(
+        (_, idx) => `ld-${Date.now().toString(36)}-${idx}-${Math.random().toString(36).slice(2, 6)}`
+      );
+      setLoadingDarks((prev) => [
+        ...prev,
+        ...files.map((f, idx) => ({ id: darkLoadIds[idx], name: f.name })),
+      ]);
       const newDarks = [];
-      for (const f of files) {
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        const loadId = darkLoadIds[i];
         try {
           await attachDarkToSource(target.source_id, f);
           newDarks.push({
@@ -2699,7 +2771,7 @@ export const PlaybackMode = ({
           setDarkErrors((prev) => [...prev, { name: f.name, message: err.detail || err.message }]);
           say?.(`Failed to attach dark ${f.name}: ${err.detail || err.message}`, 'danger');
         } finally {
-          setLoadingDarks((prev) => prev.filter((lf) => lf.name !== f.name));
+          setLoadingDarks((prev) => prev.filter((lf) => lf.id !== loadId));
         }
       }
       if (newDarks.length > 0) {
@@ -2714,7 +2786,7 @@ export const PlaybackMode = ({
   // the live ViewerCard render byte-for-byte (modulo PNG re-encode).
   // NOTE: declared BEFORE the video/image export callbacks so their
   // dependency arrays don't trigger TDZ on `buildTiledViewSpec`.
-  const buildTiledViewSpec = useCallbackPb(
+  const buildTiledViewSpec = React.useCallback(
     (v) => {
       if (!v) return null;
       const rec = recordings.find((r) => r.source_id === v.sourceId);
@@ -2814,7 +2886,7 @@ export const PlaybackMode = ({
   );
 
   // ---- Video export (M10) ---------------------------------------------
-  const buildVideoUrl = useCallbackPb(
+  const buildVideoUrl = React.useCallback(
     (opts) => {
       const v = views.find((vv) => vv.id === selectedViewId) || views[0];
       if (!v) return null;
@@ -2880,7 +2952,7 @@ export const PlaybackMode = ({
     [views, selectedViewId, recordings]
   );
 
-  const exportVideo = useCallbackPb(
+  const exportVideo = React.useCallback(
     async (opts) => {
       // M24 — multi-view stream → tiled video endpoint; single-view
       // stays on the legacy /export/video URL builder.
@@ -2958,7 +3030,7 @@ export const PlaybackMode = ({
   );
 
   // M23 — POST the tiled-image-export request and download the result.
-  const exportImageTiled = useCallbackPb(
+  const exportImageTiled = React.useCallback(
     async ({ scope, layout, format, gap, background }) => {
       let chosen = [];
       if (scope === 'selected') {
@@ -3020,7 +3092,7 @@ export const PlaybackMode = ({
   );
 
   // ---- Image export (M9) ----------------------------------------------
-  const exportImage = useCallbackPb(async () => {
+  const exportImage = React.useCallback(async () => {
     const v = views.find((vv) => vv.id === selectedViewId) || views[0];
     if (!v) {
       say?.('No view to export.', 'warning');
@@ -3070,7 +3142,7 @@ export const PlaybackMode = ({
     }
   }, [views, selectedViewId, recordings, activeAtGlobal, say]);
 
-  const handleRemoveDark = useCallbackPb(
+  const handleRemoveDark = React.useCallback(
     async (darkId) => {
       const dark = darks.find((d) => d.id === darkId);
       if (!dark) return;
@@ -3095,7 +3167,7 @@ export const PlaybackMode = ({
   // explains what to do. We DO NOT auto-clear the recording — that
   // crashed React's commit phase during fast unmount under realistic
   // 404 sequences. The user can hit "Retry" or "×" themselves.
-  useEffectPb(() => {
+  React.useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     const handler = (ev) => {
       const sid = ev?.detail?.source_id;
@@ -3112,7 +3184,7 @@ export const PlaybackMode = ({
   // so its deps array doesn't trigger a TDZ. Detail:
   // { paths: string[], targetSid?: string }. Used by tests and a future
   // "Load dark by path" command.
-  useEffectPb(() => {
+  React.useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     const handler = async (ev) => {
       const paths = (ev?.detail?.paths || []).filter((p) => typeof p === 'string');
@@ -3127,8 +3199,18 @@ export const PlaybackMode = ({
         return;
       }
       const newDarks = [];
-      setLoadingDarks((prev) => [...prev, ...paths.map((p) => ({ name: p.split('/').pop() }))]);
-      for (const p of paths) {
+      // Per-path stable load id so duplicate basenames don't both
+      // clear on the first .filter pass.
+      const darkLoadIds = paths.map(
+        (_, idx) => `ld-${Date.now().toString(36)}-${idx}-${Math.random().toString(36).slice(2, 6)}`
+      );
+      setLoadingDarks((prev) => [
+        ...prev,
+        ...paths.map((p, idx) => ({ id: darkLoadIds[idx], name: p.split('/').pop() })),
+      ]);
+      for (let i = 0; i < paths.length; i++) {
+        const p = paths[i];
+        const loadId = darkLoadIds[i];
         const name = p.split('/').pop();
         try {
           await apiFetch(`/api/sources/${sid}/dark/load-path`, {
@@ -3145,7 +3227,7 @@ export const PlaybackMode = ({
         } catch (err) {
           setDarkErrors((prev) => [...prev, { name, message: err.detail || err.message }]);
         } finally {
-          setLoadingDarks((prev) => prev.filter((lf) => lf.name !== name));
+          setLoadingDarks((prev) => prev.filter((lf) => lf.id !== loadId));
         }
       }
       if (newDarks.length > 0) {
@@ -4296,9 +4378,9 @@ const FilePill = ({
   isPlaying,
 }) => {
   const t = useTheme();
-  const [expanded, setExpanded] = useStatePb(false);
+  const [expanded, setExpanded] = React.useState(false);
   // M16: which warning code the user clicked (to expand its detail row).
-  const [openWarningCode, setOpenWarningCode] = useStatePb(null);
+  const [openWarningCode, setOpenWarningCode] = React.useState(null);
   // Live warnings list = backend-supplied warnings minus session dismissals.
   const dismissedSet =
     (recording && dismissedWarnings && dismissedWarnings[recording.source_id]) || null;
@@ -4989,36 +5071,36 @@ const ViewerCard = ({
   cellStyle,
 }) => {
   const t = useTheme();
-  const [imgState, setImgState] = useStatePb('idle'); // 'idle' | 'loading' | 'ok' | 'error'
-  const [errStatus, setErrStatus] = useStatePb(null); // HTTP status on failure
-  const [errDetail, setErrDetail] = useStatePb(null); // server-supplied detail message
-  const [retryNonce, setRetryNonce] = useStatePb(0);
-  const [menuOpen, setMenuOpen] = useStatePb(false); // M13: overflow ⋮ menu
-  const [copyOpen, setCopyOpen] = useStatePb(false); // M13: copy-settings sub-popover
+  const [imgState, setImgState] = React.useState('idle'); // 'idle' | 'loading' | 'ok' | 'error'
+  const [errStatus, setErrStatus] = React.useState(null); // HTTP status on failure
+  const [errDetail, setErrDetail] = React.useState(null); // server-supplied detail message
+  const [retryNonce, setRetryNonce] = React.useState(0);
+  const [menuOpen, setMenuOpen] = React.useState(false); // M13: overflow ⋮ menu
+  const [copyOpen, setCopyOpen] = React.useState(false); // M13: copy-settings sub-popover
   // M30: right-click context menu — Send to USAF / FPN / DoF.
-  const [ctxMenu, setCtxMenu] = useStatePb(null); // null | { x, y }
-  const menuAnchorRef = useRefPb(null);
-  const imgRef = useRefPb(null);
+  const [ctxMenu, setCtxMenu] = React.useState(null); // null | { x, y }
+  const menuAnchorRef = React.useRef(null);
+  const imgRef = React.useRef(null);
   // SVG overlay used for accurate screen-px → image-px hit-testing
   // (the IMG element's getBoundingClientRect doesn't account for
   // objectFit:contain letterboxing). The SVG has the same viewBox
   // as the image, so getScreenCTM().inverse() returns the precise
   // mapping even at any zoom + pan.
-  const svgRef = useRefPb(null);
+  const svgRef = React.useRef(null);
   // Middle-button drag-pan state. Held in a ref so mousemove updates
   // don't re-render every frame; we commit the new (panX, panY) to
   // view state on mouseup or on each frame via rAF.
-  const dragRef = useRefPb(null); // { startClientX, startClientY, startPanX, startPanY } | null
+  const dragRef = React.useRef(null); // { startClientX, startClientY, startPanX, startPanY } | null
   // M11 reviewer P1: track the most recent blob URL so we can revoke it
   // synchronously when the next one is assigned, AND on unmount. The
   // earlier onload-based revoke leaked under fast scrubbing.
-  const prevBlobRef = useRefPb(null);
+  const prevBlobRef = React.useRef(null);
 
   // Use the parent-computed local frame (handles locked views and global→
   // local mapping for multi-source streams).
   const effectiveFrame = view.isLocked && view.lockedFrame != null ? view.lockedFrame : localFrame;
 
-  const url = useMemoPb(
+  const url = React.useMemo(
     () => buildFrameUrl(recording, view, effectiveFrame),
     [recording, view, effectiveFrame]
   );
@@ -5026,7 +5108,7 @@ const ViewerCard = ({
   // Single-flight: when the URL changes, kick off a fresh fetch and abort
   // the previous one via the cleanup. The browser's HTTP cache + the
   // backend's per-source LRU mean repeat frames are near-instant.
-  useEffectPb(() => {
+  React.useEffect(() => {
     if (!url) {
       setImgState('idle');
       return undefined;
@@ -5770,10 +5852,10 @@ const ViewerCard = ({
 
 const ViewerCardContextMenu = ({ x, y, recording, frameIndex, onClose }) => {
   const t = useTheme();
-  const ref = useRefPb(null);
+  const ref = React.useRef(null);
   // Click-outside / Esc closes the menu. Run in capture phase so a click
   // on a menu item runs its onClick before the close handler unmounts.
-  useEffectPb(() => {
+  React.useEffect(() => {
     const onDocClick = (e) => {
       if (ref.current && !ref.current.contains(e.target)) onClose();
     };
@@ -5905,10 +5987,10 @@ const ViewerCardMenu = ({
   onCopySettingsTo,
 }) => {
   const t = useTheme();
-  const popoverRef = useRefPb(null);
+  const popoverRef = React.useRef(null);
 
   // Click-outside / Escape to close. Bind once per mount.
-  useEffectPb(() => {
+  React.useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     const onDocClick = (e) => {
       if (!popoverRef.current) return;
@@ -6103,7 +6185,7 @@ const ViewerCardMenu = ({
 
 const CopySettingsSubPopover = ({ otherViews, onCancel, onCommit }) => {
   const t = useTheme();
-  const [selected, setSelected] = useStatePb(() => new Set(otherViews.map((v) => v.id)));
+  const [selected, setSelected] = React.useState(() => new Set(otherViews.map((v) => v.id)));
   const toggle = (id) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -6278,8 +6360,8 @@ const TimelineStrip = ({
   // them, rendered only when `rangeSelection` is non-null. Drag uses
   // window-level mousemove/mouseup so the user can keep moving past
   // the mini-map's bounds without losing capture.
-  const minimapRef = useRefPb(null);
-  const startBrushDrag = useCallbackPb(
+  const minimapRef = React.useRef(null);
+  const startBrushDrag = React.useCallback(
     (which) => (e) => {
       e.stopPropagation();
       e.preventDefault();
@@ -6745,29 +6827,29 @@ const ExportVideoModal = ({
   viewCount = 1,
 }) => {
   const t = useTheme();
-  const [format, setFormat] = useStatePb('mp4');
+  const [format, setFormat] = React.useState('mp4');
   // M17: when a brush is active, default to its bounds; otherwise default
   // to the full stream. Spinboxes below are locked when `rangeLocked` is
   // true, with a Clear button that maps to the parent's onClearRange.
   const rangeLocked = !!rangeSelection;
-  const [start, setStart] = useStatePb(rangeSelection ? rangeSelection[0] : 0);
-  const [end, setEnd] = useStatePb(
+  const [start, setStart] = React.useState(rangeSelection ? rangeSelection[0] : 0);
+  const [end, setEnd] = React.useState(
     rangeSelection ? rangeSelection[1] : Math.max(0, totalFrames - 1)
   );
   // Sync local Spinbox state with the parent brush whenever the user
   // drags handles while the modal is open.
-  useEffectPb(() => {
+  React.useEffect(() => {
     if (rangeSelection) {
       setStart(rangeSelection[0]);
       setEnd(rangeSelection[1]);
     }
   }, [rangeSelection?.[0], rangeSelection?.[1]]);
-  const [outFps, setOutFps] = useStatePb(defaultFps || 10);
-  const [busy, setBusy] = useStatePb(false);
+  const [outFps, setOutFps] = React.useState(defaultFps || 10);
+  const [busy, setBusy] = React.useState(false);
   // M24: tiled video export — layout chooser visible when 2+ views.
   // Default 'auto' picks a sensible grid based on N.
   const tiledAvailable = viewCount > 1;
-  const [layout, setLayout] = useStatePb('auto');
+  const [layout, setLayout] = React.useState('auto');
 
   const frameCount = Math.max(1, end - start + 1);
   const estDuration = frameCount / Math.max(0.1, outFps);
@@ -7037,13 +7119,13 @@ const TILED_FORMATS = [
 
 const ExportImageModal = ({ views, selectedViewId, onExport, onClose }) => {
   const t = useTheme();
-  const [layout, setLayout] = useStatePb('auto');
-  const [format, setFormat] = useStatePb('png');
-  const [scope, setScope] = useStatePb('visible'); // 'visible' | 'selected' | 'custom'
-  const [customSet, setCustomSet] = useStatePb(() => new Set(views.map((v) => v.id)));
-  const [gap, setGap] = useStatePb(6);
-  const [background, setBackground] = useStatePb('#000000');
-  const [busy, setBusy] = useStatePb(false);
+  const [layout, setLayout] = React.useState('auto');
+  const [format, setFormat] = React.useState('png');
+  const [scope, setScope] = React.useState('visible'); // 'visible' | 'selected' | 'custom'
+  const [customSet, setCustomSet] = React.useState(() => new Set(views.map((v) => v.id)));
+  const [gap, setGap] = React.useState(6);
+  const [background, setBackground] = React.useState('#000000');
+  const [busy, setBusy] = React.useState(false);
 
   const visibleCount = views.filter((v) => v.includedInExport !== false).length;
   const customCount = customSet.size;
@@ -7501,25 +7583,25 @@ const StreamBuilderModal = ({
 }) => {
   const t = useTheme();
   // Local working copy — only commit on Apply.
-  const [draft, setDraft] = useStatePb(orderedRecordings.map((r) => r.source_id));
-  const [thresh, setThresh] = useStatePb(continuityThreshold);
-  const [dragIdx, setDragIdx] = useStatePb(null);
+  const [draft, setDraft] = React.useState(orderedRecordings.map((r) => r.source_id));
+  const [thresh, setThresh] = React.useState(continuityThreshold);
+  const [dragIdx, setDragIdx] = React.useState(null);
   // M19: quarantined source ids — present in `orderedRecordings` (so the
   // user keeps them in Sources) but excluded from the active stream.
   // Authoritative for the Apply payload + the Summary card.
-  const [quarantined, setQuarantined] = useStatePb(new Set());
+  const [quarantined, setQuarantined] = React.useState(new Set());
   // M19: which row's per-row metadata block is expanded. One at a time.
-  const [expandedSid, setExpandedSid] = useStatePb(null);
+  const [expandedSid, setExpandedSid] = React.useState(null);
 
-  const allDraftRecs = useMemoPb(
+  const allDraftRecs = React.useMemo(
     () => draft.map((sid) => orderedRecordings.find((r) => r.source_id === sid)).filter(Boolean),
     [draft, orderedRecordings]
   );
-  const draftRecs = useMemoPb(
+  const draftRecs = React.useMemo(
     () => allDraftRecs.filter((r) => !quarantined.has(r.source_id)),
     [allDraftRecs, quarantined]
   );
-  const quarantinedRecs = useMemoPb(
+  const quarantinedRecs = React.useMemo(
     () => allDraftRecs.filter((r) => quarantined.has(r.source_id)),
     [allDraftRecs, quarantined]
   );
@@ -7533,7 +7615,7 @@ const StreamBuilderModal = ({
     anchorShape != null &&
     rec.shape != null &&
     (rec.shape[0] !== anchorShape[0] || rec.shape[1] !== anchorShape[1]);
-  const warnings = useMemoPb(() => detectContinuity(draftRecs, thresh), [draftRecs, thresh]);
+  const warnings = React.useMemo(() => detectContinuity(draftRecs, thresh), [draftRecs, thresh]);
   const totalFrames = draftRecs.reduce((acc, r) => acc + (r.frame_count || 1), 0);
   const totalDuration = (() => {
     if (draftRecs.length < 2) return draftRecs[0]?.duration_s || 0;
@@ -8157,12 +8239,12 @@ const histogramTracesFor = (view, recording) => {
 // showed pre-correction DN counts and the vmin/vmax markers landed
 // on the wrong bins after any Corrections edit.
 const useChannelHistograms = (recording, traces, localFrame, view) => {
-  const [data, setData] = useStatePb([]);
+  const [data, setData] = React.useState([]);
   const tracesKey = (traces || []).map((tr) => tr.channel).join('|');
   // Build a stable signature of the post-ISP-relevant view fields so
   // the effect re-fires when (and only when) the rendered pixels
   // actually change.
-  const ispSig = useMemoPb(() => {
+  const ispSig = React.useMemo(() => {
     if (!view) return '';
     const ip = view.isp || {};
     return [
@@ -8180,7 +8262,7 @@ const useChannelHistograms = (recording, traces, localFrame, view) => {
       ip.bilateral ? '1' : '0',
     ].join('|');
   }, [view]);
-  useEffectPb(() => {
+  React.useEffect(() => {
     if (!recording || !traces || traces.length === 0 || localFrame == null) {
       setData([]);
       return undefined;
@@ -10165,8 +10247,15 @@ const TbrAnalysisPanel = ({
   };
   // Stable signature so the auto-recompute effect re-fires whenever any
   // ISP knob the canvas honors changes. JSON.stringify of view_config is
-  // small (<200 chars) and avoids tracking each field separately.
-  const viewConfigSig = JSON.stringify(buildViewConfig(view));
+  // small (<200 chars) and avoids tracking each field separately. Memo
+  // the recompute so a slider drag doesn't pay the JSON.stringify cost
+  // on every parent re-render.
+  const viewConfigSig = React.useMemo(
+    () => JSON.stringify(buildViewConfig(view)),
+    // buildViewConfig only reads view.isp, view.gain, view.offset.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [view?.isp, view?.gain, view?.offset]
+  );
   // Monotonic per-kind counter used to drop stale /roi-stats responses.
   // apiFetch has no AbortSignal plumbing, so a slider drag that triggers
   // many requests can land out-of-order; we only keep the response from
@@ -10233,10 +10322,14 @@ const TbrAnalysisPanel = ({
   // canvas changes AND we have ≥ 3 vertices. viewConfigSig collapses the
   // ISP chain into one stable string so a slider drag triggers exactly
   // one effect fire.
+  //
+  // Debounced 120 ms so rapid-clicking polygon vertices doesn't pelt
+  // the server with one POST per vertex. ``reqSeqRef`` already drops
+  // out-of-order responses; the debounce trims the request count too.
   React.useEffect(() => {
-    if (Array.isArray(draft.tumorPolygon) && draft.tumorPolygon.length >= 3) {
-      computeStats('tumor');
-    }
+    if (!Array.isArray(draft.tumorPolygon) || draft.tumorPolygon.length < 3) return;
+    const t = setTimeout(() => computeStats('tumor'), 120);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     JSON.stringify(draft.tumorPolygon || []),
@@ -10250,9 +10343,9 @@ const TbrAnalysisPanel = ({
     localFrame,
   ]);
   React.useEffect(() => {
-    if (Array.isArray(draft.bgPolygon) && draft.bgPolygon.length >= 3) {
-      computeStats('background');
-    }
+    if (!Array.isArray(draft.bgPolygon) || draft.bgPolygon.length < 3) return;
+    const t = setTimeout(() => computeStats('background'), 120);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     JSON.stringify(draft.bgPolygon || []),
@@ -11903,7 +11996,13 @@ const FrameCacheBudgetControl = () => {
   }, []);
   const totalRamMb = hostInfo.totalRamMb || 6 * 1024;
   const ceilingMb = Math.max(64, Math.floor(totalRamMb * 0.8));
-  const budgetMb = Math.max(8, Math.min(ceilingMb, Number(persisted) || _DEFAULT_CACHE_BUDGET_MB));
+  // Low-RAM safety: never use more than 25% of the available ceiling
+  // by default. On a 4 GB SBC (ceiling ~3277 MB) the default becomes
+  // 819 MB instead of 1024 MB; on a 192 GB workstation the default
+  // is unchanged (1024 < 39322). Persisted user preference still
+  // overrides — only the FRESH-INSTALL default is capped.
+  const safeDefaultMb = Math.max(8, Math.min(_DEFAULT_CACHE_BUDGET_MB, Math.floor(ceilingMb / 4)));
+  const budgetMb = Math.max(8, Math.min(ceilingMb, Number(persisted) || safeDefaultMb));
   // Push into the cache module on mount + every change so the setting
   // applies live (LRU trims immediately when the user shrinks).
   React.useEffect(() => {
@@ -12429,7 +12528,7 @@ const IspChainDisclosure = ({ viewType, isp, onChange, onReset }) => {
 
 const PresetsList = ({ view, presets, onSave, onLoad, onDelete }) => {
   const t = useTheme();
-  const [confirmDeleteId, setConfirmDeleteId] = useStatePb(null);
+  const [confirmDeleteId, setConfirmDeleteId] = React.useState(null);
   const matching = (presets || []).filter((p) => p.view_type === view?.sourceMode);
   return (
     <div data-inspector-presets>
@@ -12672,8 +12771,8 @@ const DeleteFromDiskConfirmModal = ({ open, recordings, onClose, onConfirm }) =>
 
 const SavePresetModal = ({ open, onClose, onSave, view }) => {
   const t = useTheme();
-  const [name, setName] = useStatePb('');
-  useEffectPb(() => {
+  const [name, setName] = React.useState('');
+  React.useEffect(() => {
     if (open) setName('');
   }, [open]);
   if (!open) return null;
@@ -12759,8 +12858,8 @@ const OVERLAY_WIZARD_STEPS = [
 
 const OverlayBuilderModal = ({ view, recording, onClose, onApply }) => {
   const t = useTheme();
-  const [stepIdx, setStepIdx] = useStatePb(0);
-  const [draft, setDraft] = useStatePb(() => ({
+  const [stepIdx, setStepIdx] = React.useState(0);
+  const [draft, setDraft] = React.useState(() => ({
     baseKind: 'rgb_composite',
     baseGain: 'hg',
     baseChannel: null,
@@ -12775,7 +12874,7 @@ const OverlayBuilderModal = ({ view, recording, onClose, onApply }) => {
   // Reset draft + stepIdx whenever the modal re-opens for a different
   // view (the parent unmounts/remounts on close+reopen for different
   // view-ids, so this is just defensive).
-  useEffectPb(() => {
+  React.useEffect(() => {
     setStepIdx(0);
   }, [view?.id]);
   const setDraftField = (patch) => setDraft((d) => ({ ...d, ...patch }));

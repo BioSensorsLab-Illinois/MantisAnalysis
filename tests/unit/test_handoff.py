@@ -79,3 +79,37 @@ def test_handoff_transient_is_independent(client, loaded_h5):
     client.delete(f"/api/sources/{tid}")
     assert client.get(f"/api/sources/{sid}/frames").status_code == 200
     assert client.get(f"/api/sources/{tid}").status_code == 404
+
+
+def test_handoff_transient_is_pinned_against_lru(client, loaded_h5, tmp_path):
+    """Polish-sweep hardening: transient handoff sources are flagged
+    ``pinned=True`` so the LRU never silently boots them under
+    pressure. Without this, 65 right-clicks on a 64-cap STORE would
+    evict the user's actual recordings to make room for throwaways.
+
+    Approach: temporarily shrink ``STORE._max`` to 2, load the parent
+    + create one transient, then load several more H5s. Without the
+    pin the transient would be the oldest entry and would be the
+    first evicted; with the pin it stays.
+    """
+    sid = loaded_h5["source_id"]
+    transient_id = client.post(
+        "/api/playback/handoff",
+        json={"source_id": sid, "frame_index": 0, "target_mode": "usaf"},
+    ).json()["source_id"]
+    # Shrink the cap so the next load triggers eviction.
+    original_max = STORE._max
+    try:
+        STORE._max = 2  # already have parent + transient = 2
+        # Load a 3rd H5 — this should evict the parent (oldest unpinned),
+        # NOT the transient.
+        for i in range(3):
+            extra = tmp_path / f"extra{i}.h5"
+            _make_synthetic_h5(extra, n_frames=2, exposure_s=0.1, seed=10 + i)
+            client.post("/api/sources/load-path", json={"path": str(extra)})
+        list_ids = {s["source_id"] for s in client.get("/api/sources").json()}
+        assert transient_id in list_ids, (
+            "pinned transient was evicted by LRU pressure"
+        )
+    finally:
+        STORE._max = original_max

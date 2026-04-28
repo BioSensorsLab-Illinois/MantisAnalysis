@@ -134,7 +134,10 @@ def test_roi_stats_view_config_changes_stats(client: TestClient, loaded: dict):
 
 
 def test_roi_stats_rejects_bad_view_config(client: TestClient, loaded: dict):
-    """Non-dict view_config returns 400 with a useful detail."""
+    """Non-dict view_config now fails Pydantic validation with 422
+    (post B-0010 polish sweep — the body is a typed model with
+    extra='forbid', so a string payload for view_config can't survive
+    parsing). The detail is the Pydantic error envelope."""
     sid = loaded["source_id"]
     poly = _square_polygon(2, 2, 6, 6)
     r = client.post(
@@ -145,8 +148,53 @@ def test_roi_stats_rejects_bad_view_config(client: TestClient, loaded: dict):
             "view_config": "not-a-dict",
         },
     )
-    assert r.status_code == 400
-    assert "view_config" in r.json()["detail"]
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    # Pydantic's error list — at least one entry must reference view_config.
+    assert any("view_config" in str(e.get("loc", "")) for e in detail)
+
+
+def test_roi_stats_rejects_extra_field(client: TestClient, loaded: dict):
+    """extra='forbid' rejects unknown body keys with 422 so frontend
+    typos can't silently no-op (was previously accepted as a stray
+    Dict[str, Any] entry)."""
+    sid = loaded["source_id"]
+    poly = _square_polygon(2, 2, 6, 6)
+    r = client.post(
+        f"/api/sources/{sid}/frame/0/channel/HG-G/roi-stats",
+        json={
+            "polygon": poly,
+            "method": "mean",
+            "stray_field": "should-be-rejected",
+        },
+    )
+    assert r.status_code == 422
+
+
+def test_roi_stats_polygon_validator_rejects_non_finite():
+    """NaN / Inf polygon coords are rejected by the
+    ``ROIStatsRequest._finite_polygon`` field_validator. Tested at the
+    Pydantic layer (not the FastAPI layer) because JSON cannot natively
+    encode NaN, and FastAPI's error-response serializer would itself
+    choke on the NaN-containing error envelope."""
+    import pydantic
+    from mantisanalysis.server import ROIStatsRequest
+
+    with pytest.raises(pydantic.ValidationError) as exc_info:
+        ROIStatsRequest(polygon=[(0.0, 0.0), (float("nan"), 1.0), (2.0, 2.0)])
+    assert "non-finite" in str(exc_info.value)
+    with pytest.raises(pydantic.ValidationError):
+        ROIStatsRequest(polygon=[(0.0, 0.0), (1.0, float("inf")), (2.0, 2.0)])
+
+
+def test_roi_stats_rejects_too_few_vertices(client: TestClient, loaded: dict):
+    """Polygons must have ≥ 3 vertices (Pydantic min_length)."""
+    sid = loaded["source_id"]
+    r = client.post(
+        f"/api/sources/{sid}/frame/0/channel/HG-G/roi-stats",
+        json={"polygon": [[0, 0], [1, 1]], "method": "mean"},
+    )
+    assert r.status_code == 422
 
 
 def test_roi_stats_response_carries_pipeline_version(

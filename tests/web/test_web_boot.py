@@ -200,6 +200,93 @@ def test_analysis_modal_plotly_renders(web_server: str) -> None:
 
 
 @pytest.mark.web_smoke
+def test_play_tab_boots(web_server: str) -> None:
+    """play-tab-recording-inspection-rescue-v1 — minimum-floor coverage
+    for the new 13k-line Play tab.
+
+    The polish-sweep review caught that Tier-4 had no coverage of the
+    Play surface, leaving the entire ViewerGrid / Inspector / Stream
+    Builder / TBR / ROI work without a regression net. This test
+    asserts:
+
+      1. The mode-rail PLAY tile is reachable (data-mode-tile="play").
+      2. Clicking it (via the keyboard shortcut "4" so we don't depend
+         on visual layout) flips the active mode without throwing.
+      3. The empty-stream landmark "No stream loaded" renders, proving
+         the StreamHeader subtree didn't throw on mount.
+      4. The cache-status landmark (data-play-cache-status) renders,
+         proving the bottom-edge subtree mounted.
+      5. No console errors fire during the first 1.5 s of the tab's
+         life. The only pre-filtered noise is the same Babel /
+         DevTools whitelist used by the other web_smoke tests.
+
+    Note: ``data-play-error-boundary`` is intentionally NOT used as a
+    landmark because the boundary only renders that attribute in the
+    catch-state. Successful boots (the case we're testing) skip the
+    boundary's render() body and pass children straight through.
+
+    Deeper interaction coverage (load a real H5, draw an ROI, run TBR)
+    is tracked as backlog work in BACKLOG.md — those need synthetic
+    H5 fixtures + canvas hit-test plumbing that's not yet wired through
+    the smoke harness.
+    """
+    pytest.importorskip("playwright")
+    from playwright.sync_api import sync_playwright  # noqa: E402
+
+    if not _DIST_INDEX.is_file():
+        pytest.skip(
+            "web/dist/index.html not built. Run `npm install && npm run build`."
+        )
+
+    errors: list[str] = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        context = browser.new_context()
+        page = context.new_page()
+        page.on(
+            "console",
+            lambda msg: errors.append(msg.text) if msg.type == "error" else None,
+        )
+        page.on("pageerror", lambda exc: errors.append(str(exc)))
+
+        page.goto(web_server, wait_until="networkidle", timeout=15_000)
+
+        # 1. PLAY mode-rail tile present.
+        play_tile = page.locator('[data-mode-tile="play"]')
+        assert play_tile.is_visible(), "PLAY mode-rail tile not visible"
+
+        # 2. Switch to Play. Use the keyboard shortcut so we don't
+        # depend on click coordinates (the rail tile uses an icon,
+        # not a button-with-text label that get_by_role would match
+        # cleanly across themes).
+        page.keyboard.press("4")
+        page.wait_for_timeout(300)
+
+        # 3. Empty-stream landmark renders. With no recordings loaded
+        # the StreamHeader shows "No stream loaded" — its presence
+        # proves the StreamHeader subtree didn't throw on mount.
+        empty_marker = page.get_by_text("No stream loaded", exact=True)
+        empty_marker.wait_for(state="attached", timeout=5_000)
+
+        # 4. Cache-status landmark mounts — proves the bottom-edge
+        # subtree (which includes the cache budget panel) survived.
+        cache_status = page.locator('[data-play-cache-status]')
+        cache_status.wait_for(state="attached", timeout=5_000)
+
+        # 5. Let deferred errors surface.
+        page.wait_for_timeout(1500)
+
+        browser.close()
+
+    errors = [
+        e for e in errors
+        if "in-browser Babel transformer" not in e
+        and "React DevTools" not in e
+    ]
+    assert not errors, f"console errors during Play-tab boot: {errors}"
+
+
+@pytest.mark.web_smoke
 def test_analysis_shell_module_imports_clean(web_server: str) -> None:
     """analysis-page-overhaul-v1 — guard the `<AnalysisShell>` module
     chain (web/src/analysis/{shell,registry,types,filterbar}.tsx +

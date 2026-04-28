@@ -196,6 +196,19 @@ class LoadedSource:
     # tempfile would have otherwise been unlinked. close_frame_reader
     # cleans it up on eviction / removal.
     _owned_tempfile: Optional[Path] = field(default=None, repr=False)
+    # Captured at upload time from the trusted UploadFile metadata.
+    # Used by /api/sources/{sid}/attach-path as a trust anchor — the
+    # candidate disk path must match BOTH basename and byte-size before
+    # we agree to bind it. Without this guard, a malformed body could
+    # bind /etc/passwd to a source so DELETE could unlink it.
+    upload_basename: Optional[str] = field(default=None, repr=False)
+    upload_size: Optional[int] = field(default=None, repr=False)
+    # Pinned sources are skipped by ``_evict_locked`` so the LRU never
+    # silently boots them. Used for transient handoff sources created
+    # by ``create_transient_from_frame`` — without pinning, 65 right-
+    # click handoffs could evict the user's loaded recordings to make
+    # room for the throwaway ones. Explicit removal still works.
+    pinned: bool = field(default=False, repr=False)
     _frame_reader: Optional[FrameReader] = field(default=None, repr=False)
     # Per-source LRU of extracted channel dicts keyed by (frame_idx, isp_hash).
     # Bounded to PLAYBACK_CACHE_SIZE entries.
@@ -314,6 +327,33 @@ class LoadedSource:
                 self._owned_tempfile = None
                 # Clear _h5_path too so a stale reference doesn't survive.
                 self._h5_path = None
+
+    def resolve_disk_target(self) -> Optional[Path]:
+        """Return the on-disk file the user owns for this source, or
+        None if this source has no externally-resolvable file (e.g. the
+        synthetic sample / transient handoff sources).
+
+        Resolution order: ``self.path`` (user-chosen file from
+        load-from-path or attach-path) → ``self._owned_tempfile``
+        (upload tempfile) → None. Public alternative to the
+        underscore-prefixed access so server.py code doesn't reach
+        into LoadedSource internals.
+        """
+        if self.path:
+            try:
+                p = Path(self.path)
+                if p.exists() and p.is_file():
+                    return p
+            except OSError:
+                pass
+        if self._owned_tempfile is not None:
+            try:
+                p = Path(self._owned_tempfile)
+                if p.exists() and p.is_file():
+                    return p
+            except OSError:
+                pass
+        return None
 
 
 class SessionStore:
@@ -589,6 +629,8 @@ class SessionStore:
         # mandated extension, so the suffix drives the fast path for
         # PNG/TIFF/JPG and load_any falls back to HDF5 magic-byte sniffing.
         suffix = Path(name).suffix
+        upload_basename = Path(name).name
+        upload_size = int(len(data))
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
             f.write(data)
             tmp_path = Path(f.name)
@@ -603,6 +645,8 @@ class SessionStore:
                 with self._lock:
                     src._owned_tempfile = tmp_path
                     src.path = None  # don't expose the tempfile path to the UI
+                    src.upload_basename = upload_basename
+                    src.upload_size = upload_size
                 return src
             # Image source — frame 0 is the only frame, already in
             # src.channels. Safe to unlink the upload now.
@@ -613,6 +657,8 @@ class SessionStore:
             with self._lock:
                 src._h5_path = None
                 src.path = None
+                src.upload_basename = upload_basename
+                src.upload_size = upload_size
             return src
         except Exception:
             # Load failed — clean up the tempfile and re-raise.
@@ -764,6 +810,10 @@ class SessionStore:
             dark_channels=dark_snapshot,
             dark_name=parent.dark_name,
             dark_path=parent.dark_path,
+            # Pinned: transient handoff sources should not be silently
+            # evicted by an LRU-pressure burst. Frontend explicitly
+            # closes them via DELETE when done.
+            pinned=True,
         )
         with self._lock:
             self._items[transient.source_id] = transient
@@ -899,11 +949,17 @@ class SessionStore:
         ``was_evicted(sid)`` lets the server return 410 Gone (distinct
         from 404 for never-existed ids). See R-0009. Also closes any
         open h5 handle held by a Play-mode FrameReader.
+
+        ``pinned=True`` sources (transient handoff frames) are skipped
+        — without that, 65 right-click handoffs on a 64-cap STORE
+        would silently boot the user's loaded recordings to make room
+        for throwaway transients.
         """
-        if len(self._items) <= self._max:
+        evictable = [s for s in self._items.values() if not s.pinned]
+        if len(evictable) <= self._max:
             return
-        ordered = sorted(self._items.values(), key=lambda s: s.loaded_at)
-        for s in ordered[: len(self._items) - self._max]:
+        ordered = sorted(evictable, key=lambda s: s.loaded_at)
+        for s in ordered[: len(evictable) - self._max]:
             self._remember_evicted_locked(s.source_id)
             try:
                 s.close_frame_reader()

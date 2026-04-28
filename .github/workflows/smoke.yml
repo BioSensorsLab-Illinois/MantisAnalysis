@@ -153,18 +153,12 @@ jobs:
       - name: Pytest -m web_smoke
         run: python -m pytest -m web_smoke -q
 
-      # recording-inspection-implementation-v1 M12 — Tier 6 visual
-      # baselines: tests/web/test_playback_visual_baselines.py writes
-      # canonical PNGs to .agent/runs/recording-inspection-implementation-v1/
-      # screenshots/. Upload them as a CI artifact so reviewers can
-      # eyeball the rendered states without re-booting locally. This
-      # is *not* a diff-against-baseline gate — that's a follow-up
-      # initiative (visual-regression-infra-v1 in BACKLOG).
-      - name: Upload Playback visual baselines (artifact)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playback-visual-baselines-${{ github.run_id }}
-          path: .agent/runs/recording-inspection-implementation-v1/screenshots/*.png
-          if-no-files-found: warn
-          retention-days: 14
+      # The visual-baselines artifact step that lived here (originally
+      # uploading screenshots from the deleted `recording-inspection-
+      # implementation-v1` initiative) was removed in the polish-sweep
+      # audit (2026-04-28): the screenshot directory it pointed at no
+      # longer exists, the baseline test file (`test_playback_visual_
+      # baselines.py`) was retired in commit `0645d57`, and the
+      # `if-no-files-found: warn` setting masked the dead step. A
+      # replacement visual-regression flow (e.g. Storybook + Chromatic
+      # or Playwright snapshot diff) is tracked in BACKLOG.md.

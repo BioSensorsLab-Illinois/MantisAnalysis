@@ -4,6 +4,69 @@ Append-only log of agent sessions. One bullet per session, newest at top.
 
 ---
 
+**2026-04-28 (PM) — Polish-sweep audit + fix-everything pass before B-0010 push**
+
+A full /review on the 45-commit `origin/main..HEAD` range across four
+parallel reviewer agents (fastapi-backend-reviewer,
+frontend-react-engineer, test-coverage-reviewer, risk-skeptic),
+followed by a three-Explore-agent revalidation pass that filtered out
+3 hallucinations and confirmed ~24 real findings. The audit exposed:
+P0 path-containment gaps on the destructive disk routes, missing
+Pydantic discipline on the new Play surface, no Tier-4 boot test for
+the new Play tab, and a dozen P1/P2 hygiene items (silent ISP fan-out,
+duplicate-name dedup races, slider-drag warmer churn, etc).
+
+This session implemented Phase A (P0 must-fix) + most of Phase B/C
+(P1 + hygiene) under
+`/Users/zz4/.claude/plans/tranquil-growing-lollipop.md`:
+
+- **Path containment** on `/api/sources/{sid}/attach-path` (basename
+  + byte-size + extension match against trusted upload metadata; no
+  more arbitrary path binding) and on `/api/sources/delete-files`
+  (only paths tracked by a registered LoadedSource; capped at 50).
+- **Pydantic hardening** — new `ROIStatsRequest` typed body with
+  `extra='forbid'` + `field_validator` rejecting NaN/Inf vertices +
+  min/max polygon size; `extra='forbid'` swept across every request
+  BaseModel in `server.py` (27 models); `LocateFileRequest.size`
+  promoted from Optional to mandatory.
+- **Backend hygiene** — `channel_range` accepts `frame_index` query;
+  transient handoff sources `pinned=True` against LRU eviction;
+  `LoadedSource.resolve_disk_target()` public method replaces the
+  underscore-prefix access in `delete_source`; `/proc/meminfo` opened
+  with `encoding='utf-8'`.
+- **Frontend correctness + perf** — warmer effect 100 ms debounce
+  (slider drag no longer restarts it 50×/s; canvas stays responsive
+  via per-card AbortController); `viewConfigSig` memoized; TBR
+  polygon-vertex auto-recompute 120 ms debounce; play-loop deps
+  trimmed to `[playing, fps, loop, totalFrames]`; ISP fan-out
+  aggregate toast (success / partial / failure surface instead of
+  silent split-brain); `loadingDarks` / `loadingFiles` switched to
+  id-based dedup (was vulnerable to duplicate-basename races);
+  `<ContentErrorBoundary>` lifted to `shared.tsx` and wrapped
+  AnalysisShell tab body; `_AVG_BLOB_KB_ESTIMATE` 150 → 400 KB; cache
+  budget low-RAM safety (`min(1024, ceilingMb / 4)`); `useStatePb`
+  aliases dropped (146 call sites refactored).
+- **Testing** — 4 new polish-sweep contract tests + 6 new polygon
+  edge-case tests + Playwright `test_play_tab_boots` (closes the
+  Tier-4 gap on the new Play tab); Tier-3 smoke now exercises
+  `/api/sources/{sid}/frame/0/...` + `/api/playback/handoff` +
+  `/api/system/info`. pytest baseline 269 → 280 passing.
+- **Docs** — `D-0018` decision (axe-core / a11y gate dropped) +
+  `R-0010` risk (keyboard / SR regressions in Play uncaught by
+  automated suite) + `B-0037..B-0042` backlog entries (file split,
+  @ts-nocheck removal, a11y opt-in, HDR fusion toggle, rolling blob
+  estimate, send2trash undo). `.github/workflows/smoke.yml` dead
+  artifact-upload step removed.
+
+Deferred to backlog: `B-0038` (drop @ts-nocheck on 7 frontend files —
+type-error count too high for one session) and `B-0040` (HDR fusion
+UI toggle — multi-touch backend+frontend, warrants its own
+milestone).
+
+This is the last polish pass before the B-0010 initial push.
+
+---
+
 **2026-04-28 — TBR /roi-stats applies linear ISP chain; video-export overlay clipped to mask polygon**
 
 Two related Play-mode bug fixes. User reported (1) TBR ratios didn't

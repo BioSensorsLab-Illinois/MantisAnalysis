@@ -16,12 +16,24 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import math
 import numpy as np
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+# Whitelist of disk extensions the server is willing to bind a source
+# to (via `/api/sources/{sid}/attach-path`) or delete (via
+# `/api/sources/delete-files`). Refusing other extensions blocks the
+# obvious abuse path of pointing the destructive routes at unrelated
+# files (config, keys, source). Keep in sync with the formats accepted
+# by `image_io.load_any_detail` + `legacy_h5.is_legacy_gsbsi_h5`.
+_ALLOWED_DISK_EXTS = {".h5", ".hdf5", ".tif", ".tiff", ".png", ".jpg", ".jpeg"}
+# Hard cap on `delete-files` batch size so a malformed body can't ask
+# the server to enumerate STORE for thousands of paths.
+_DELETE_FILES_MAX_BATCH = 50
 
 from . import __version__
 from . import isp_modes as _isp
@@ -154,23 +166,34 @@ class ISPReconfigureRequest(BaseModel):
 
 
 class DarkLoadPathRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     path: str
     name: Optional[str] = None
 
 
 class LoadFromPathRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     path: str
     name: Optional[str] = None
 
 
 class LocateFileRequest(BaseModel):
+    """Body for ``/api/files/locate``. Both ``name`` and ``size`` are
+    REQUIRED — a name-only match would let the locator return
+    coincidentally-same-named files in ``~/Documents`` etc., which
+    the upload flow would then bind via ``attach-path`` and the
+    bulk-delete flow would unlink. Requiring byte-size match makes
+    the collision rate effectively zero for binary recordings.
+    """
+    model_config = ConfigDict(extra="forbid")
     name: str
-    size: Optional[int] = None
+    size: int = Field(ge=0)
     roots: Optional[List[str]] = None  # extra search roots beyond the defaults
     max_depth: int = 6
 
 
 class LineSpecIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     group: int
     element: int
     direction: str                        # "H" or "V"
@@ -288,6 +311,7 @@ class TiledExportRequest(BaseModel):
 
     play-tab-recording-inspection-rescue-v1 M23.
     """
+    model_config = ConfigDict(extra="forbid")
     views: List[TiledExportViewSpec]
     layout: str = "auto"                   # "1xN" | "2xM" | "3plus1" | "4x2" | "auto"
     gap_px: int = 6
@@ -304,6 +328,7 @@ class TiledExportVideoRequest(BaseModel):
     route advances frames in lock-step (clamped to each source's
     own frame_count so streams of differing lengths don't overshoot).
     """
+    model_config = ConfigDict(extra="forbid")
     views: List[TiledExportViewSpec]
     layout: str = "auto"
     gap_px: int = 6
@@ -327,6 +352,7 @@ class PlaybackPreset(BaseModel):
     grading, labels, ...). Frontend owns the schema; backend just
     round-trips it.
     """
+    model_config = ConfigDict(extra="forbid")
     id: str
     name: str
     view_type: str
@@ -337,6 +363,7 @@ class PlaybackPreset(BaseModel):
 class PlaybackPresetsBody(BaseModel):
     """PUT body for replacing the whole presets list. Atomic: backend
     writes to a tmp file then renames over the canonical path."""
+    model_config = ConfigDict(extra="forbid")
     presets: List[PlaybackPreset]
 
 
@@ -349,6 +376,7 @@ class PlaybackHandoffRequest(BaseModel):
     transient source. Frame index is clamped to the parent's
     ``frame_count`` server-side.
     """
+    model_config = ConfigDict(extra="forbid")
     source_id: str
     frame_index: int = 0
     target_mode: str = "usaf"  # "usaf" | "fpn" | "dof"
@@ -369,11 +397,89 @@ class DeleteFilesRequest(BaseModel):
     The frontend MUST present a confirmation dialog listing the paths
     before calling this route — the route itself does no second-guess
     confirmation. Restricted to regular files; refuses directories.
+
+    Defence-in-depth: the route additionally requires every path to
+    correspond to a path tracked by a registered ``LoadedSource``
+    (either ``src.path`` or ``src._owned_tempfile``). The frontend's
+    bulk-delete flow operates on the FilePill set so this is invisible
+    in normal use, but it blocks the pathological "attacker controls
+    a single body" case from unlinking arbitrary files.
     """
-    paths: List[str]
+    model_config = ConfigDict(extra="forbid")
+    paths: List[str] = Field(min_length=0, max_length=_DELETE_FILES_MAX_BATCH)
+
+
+class ROIStatsViewConfig(BaseModel):
+    """Optional ISP/grading state attached to an ROI-stats request.
+
+    Mirrors the canvas thumbnail's linear chain (sharpen + denoise +
+    FPN, then black_level + gain + offset) so the TBR ratio reflects
+    what the user sees.
+    """
+    model_config = ConfigDict(extra="forbid")
+    gain: float = 1.0
+    offset: float = 0.0
+    sharpen_method: Optional[str] = None
+    sharpen_amount: float = 1.0
+    sharpen_radius: float = 2.0
+    denoise_sigma: float = 0.0
+    median_size: int = 0
+    gaussian_sigma: float = 0.0
+    hot_pixel_thr: float = 0.0
+    bilateral: bool = False
+
+
+class ROIStatsRequest(BaseModel):
+    """POST body for the per-frame channel ROI-stats route.
+
+    Polygon vertices are validated to be finite (rejects NaN/Inf so
+    the rasterizer never sees garbage), the list size is bounded
+    (3–2000 vertices), and unknown body fields are rejected.
+    play-tab-recording-inspection-rescue-v1 polish-sweep hardening.
+    """
+    model_config = ConfigDict(extra="forbid")
+    polygon: List[Tuple[float, float]] = Field(min_length=3, max_length=2000)
+    method: str = Field("mean", pattern=r"^(mean|percentile|mode)$")
+    percentile: float = Field(50.0, ge=0.0, le=100.0)
+    apply_dark: bool = True
+    black_level: float = 0.0
+    view_config: Optional[ROIStatsViewConfig] = None
+
+    @field_validator("polygon")
+    @classmethod
+    def _finite_polygon(cls, v: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
+        for i, p in enumerate(v):
+            x, y = p
+            if not (math.isfinite(x) and math.isfinite(y)):
+                raise ValueError(f"polygon vertex {i} contains non-finite value")
+        return v
+
+
+class AttachPathRequest(BaseModel):
+    """POST body for ``/api/sources/{source_id}/attach-path``.
+
+    Binds an absolute disk path to an already-loaded upload source so
+    the DELETE flow can unlink the user's original file rather than
+    just the upload tempfile. The route enforces three guards:
+
+      1. The candidate path must have an extension in
+         ``_ALLOWED_DISK_EXTS`` (no binding ``/etc/passwd`` etc.).
+      2. The candidate's basename must equal the source's
+         ``upload_basename`` captured at upload time.
+      3. The candidate's byte-size must equal the source's
+         ``upload_size``.
+
+    All three values come from server-trusted state (UploadFile
+    metadata + filesystem ``stat()``), not from the request body, so an
+    attacker who controls only the body cannot forge a match. The body
+    carries only the discovered path.
+    """
+    model_config = ConfigDict(extra="forbid")
+    path: str
 
 
 class MeasureRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     source_id: str
     channel: str
     line: LineSpecIn
@@ -387,6 +493,7 @@ class MeasureRequest(BaseModel):
 
 
 class MeasureResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     lp_mm: float
     modulation: float
     modulation_pct: float
@@ -411,6 +518,7 @@ class MeasureResponse(BaseModel):
 
 
 class USAFAnalyzeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     source_id: str
     channels: Optional[List[str]] = None  # None = all
     lines: List[LineSpecIn]
@@ -421,6 +529,7 @@ class USAFAnalyzeRequest(BaseModel):
 
 
 class FPNComputeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     source_id: str
     channel: str
     roi: Tuple[int, int, int, int]        # (y0, x0, y1, x1)
@@ -475,6 +584,7 @@ class FPNMeasureBatchRequest(BaseModel):
 
 
 class FPNStabilityRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     source_id: str
     channel: str
     roi: Tuple[int, int, int, int]
@@ -486,6 +596,7 @@ class FPNAnalyzeRequest(BaseModel):
     """Full multi-channel FPN analysis, mirrors USAF's analyze shape.
     One or more channels, one or more ROIs; response is a rich JSON
     dataset plus base64 PNGs for offline export."""
+    model_config = ConfigDict(extra="forbid")
     source_id: str
     channels: Optional[List[str]] = None   # default = all
     rois: List[Tuple[int, int, int, int]]
@@ -495,17 +606,20 @@ class FPNAnalyzeRequest(BaseModel):
 
 
 class DoFPointIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     x: float
     y: float
     label: str = ""
 
 
 class DoFLineIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     p0: Tuple[float, float]
     p1: Tuple[float, float]
 
 
 class DoFComputeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     source_id: str
     channel: str
     points: List[DoFPointIn] = Field(default_factory=list)
@@ -528,6 +642,7 @@ class DoFAnalyzeRequest(BaseModel):
     a list of channels, run the full pipeline per channel, and return
     a grid of per-channel DoFChannelResult dicts plus base64 PNGs for
     offline export."""
+    model_config = ConfigDict(extra="forbid")
     source_id: str
     channels: Optional[List[str]] = None   # None = all
     points: List[DoFPointIn] = Field(default_factory=list)
@@ -546,6 +661,7 @@ class DoFAnalyzeRequest(BaseModel):
 
 
 class DoFStabilityRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     source_id: str
     channel: str
     p0: Tuple[float, float]
@@ -693,7 +809,13 @@ def _mount_api(app: FastAPI) -> None:
                                 if ent.name == target_name:
                                     try:
                                         st = ent.stat(follow_symlinks=False)
-                                        if target_size is None or st.st_size == target_size:
+                                        # Size is mandatory in the
+                                        # request now; only matching
+                                        # files of identical byte-size
+                                        # qualify so name-collision
+                                        # in ~/Documents can't return
+                                        # the wrong file.
+                                        if st.st_size == target_size:
                                             matches.append({
                                                 "path": str(Path(ent.path).resolve()),
                                                 "size": st.st_size,
@@ -717,24 +839,56 @@ def _mount_api(app: FastAPI) -> None:
         return {"matches": matches[:8]}
 
     @app.post("/api/sources/{source_id}/attach-path")
-    def attach_disk_path(source_id: str, body: Dict[str, str]):
+    def attach_disk_path(source_id: str, body: AttachPathRequest):
         """Bind an absolute disk path to an already-loaded source so the
         DELETE route can unlink that path (not just the upload tempfile).
 
         Used after `/api/files/locate` finds the user's original file
         post-upload. Idempotent — re-attaching with the same path is a
-        no-op.
+        no-op. The candidate must match the source's
+        ``upload_basename`` + ``upload_size`` captured at upload time;
+        without those guards the route would let any caller bind any
+        readable file (e.g. ~/.ssh/id_ed25519) so the destructive
+        DELETE flow could unlink it.
         """
-        path_str = (body or {}).get("path")
-        if not path_str:
-            raise HTTPException(400, "missing 'path'")
-        candidate = Path(path_str).expanduser().resolve()
+        candidate = Path(body.path).expanduser().resolve()
         if not candidate.exists() or not candidate.is_file():
             raise HTTPException(404, f"no such file: {candidate}")
+        if candidate.suffix.lower() not in _ALLOWED_DISK_EXTS:
+            raise HTTPException(
+                400,
+                f"refusing to attach extension {candidate.suffix!r}; "
+                f"allowed: {sorted(_ALLOWED_DISK_EXTS)}",
+            )
         with STORE._lock:
             src = STORE._items.get(source_id)
             if src is None:
                 raise HTTPException(404, "unknown source")
+            if src.upload_basename is None or src.upload_size is None:
+                raise HTTPException(
+                    400,
+                    "source has no upload metadata; attach-path is only "
+                    "valid post-upload (load_from_path sources already "
+                    "carry an authoritative path).",
+                )
+            if candidate.name != src.upload_basename:
+                raise HTTPException(
+                    400,
+                    f"basename mismatch: candidate {candidate.name!r} != "
+                    f"upload {src.upload_basename!r}",
+                )
+            try:
+                actual_size = candidate.stat().st_size
+            except OSError as exc:
+                raise HTTPException(
+                    500, f"stat failed: {type(exc).__name__}: {exc}"
+                ) from exc
+            if actual_size != src.upload_size:
+                raise HTTPException(
+                    400,
+                    f"size mismatch: candidate {actual_size} bytes != "
+                    f"upload {src.upload_size} bytes",
+                )
             src.path = str(candidate)
         return {"ok": True, "path": str(candidate)}
 
@@ -762,10 +916,12 @@ def _mount_api(app: FastAPI) -> None:
                 total_ram_bytes = int(out)
             except Exception:
                 total_ram_bytes = None
-        # Final fallback to /proc/meminfo on Linux.
+        # Final fallback to /proc/meminfo on Linux. Force UTF-8 with
+        # replace-on-error so a non-UTF-8 locale on a hardened host
+        # can't UnicodeDecodeError → 500 the route.
         if total_ram_bytes is None:
             try:
-                with open("/proc/meminfo", "r") as f:
+                with open("/proc/meminfo", "r", encoding="utf-8", errors="replace") as f:
                     for line in f:
                         if line.startswith("MemTotal:"):
                             kb = int(line.split()[1])
@@ -866,16 +1022,9 @@ def _mount_api(app: FastAPI) -> None:
             src = STORE._items.get(source_id)
             if src is None:
                 raise HTTPException(404, "unknown source")
-            disk_target: Optional[Path] = None
-            if delete_disk_file:
-                if src.path:
-                    candidate = Path(src.path)
-                    if candidate.exists() and candidate.is_file():
-                        disk_target = candidate
-                elif getattr(src, "_owned_tempfile", None) is not None:
-                    candidate = Path(src._owned_tempfile)
-                    if candidate.exists() and candidate.is_file():
-                        disk_target = candidate
+            disk_target: Optional[Path] = (
+                src.resolve_disk_target() if delete_disk_file else None
+            )
         # close_frame_reader (called inside STORE.remove) auto-unlinks the
         # _owned_tempfile, so we deliberately resolve `disk_target` BEFORE
         # the remove so we know whether we're deleting the user's
@@ -1105,13 +1254,52 @@ def _mount_api(app: FastAPI) -> None:
                         headers={"Cache-Control": "no-store"})
 
     @app.get("/api/sources/{source_id}/channel/{channel}/range")
-    def channel_range(source_id: str, channel: str):
+    def channel_range(
+        source_id: str,
+        channel: str,
+        frame_index: int = Query(
+            0, ge=0,
+            description=(
+                "Frame to compute the range from. Defaults to 0 for "
+                "back-compat with the analysis modes (which only see "
+                "frame 0). Play mode passes the active frame so the "
+                "slider seed reflects the displayed frame, not frame 0."
+            ),
+        ),
+    ):
         """Return min/max + low/high percentiles of the channel pixel
         values. Used by the frontend to seed sensible vmin/vmax defaults
         and bound the slider range. Dark subtraction is applied first so
-        the reported values match what the colormap actually sees."""
+        the reported values match what the colormap actually sees.
+
+        For ``frame_index > 0`` (Play mode) the channel is extracted
+        from that frame via ``LoadedSource.extract_frame``; if the
+        source has only a single frame (image / synthetic), the
+        ``frame_index=0`` path uses the cached ``src.channels`` so the
+        existing analysis-mode call sites remain byte-identical.
+        """
         src = _must_get(source_id)
-        a = _channel_image(src, channel).astype(np.float32, copy=False)
+        if frame_index == 0:
+            a = _channel_image(src, channel).astype(np.float32, copy=False)
+        else:
+            try:
+                chs = src.extract_frame(int(frame_index))
+            except IndexError as e:
+                raise HTTPException(404, str(e)) from e
+            except RuntimeError as e:
+                raise HTTPException(409, str(e)) from e
+            if channel not in chs:
+                raise HTTPException(
+                    404,
+                    f"channel {channel!r} not in frame {frame_index} of source {source_id!r}; "
+                    f"available: {sorted(chs)!r}",
+                )
+            image = chs[channel]
+            if src.has_dark and src.dark_channels is not None:
+                d = src.dark_channels.get(channel)
+                if d is not None:
+                    image = subtract_dark(image, d)
+            a = np.asarray(image, dtype=np.float32)
         return {
             "min":  float(a.min()),
             "max":  float(a.max()),
@@ -1475,26 +1663,10 @@ def _mount_api(app: FastAPI) -> None:
         source_id: str,
         frame_index: int,
         channel: str,
-        body: Dict[str, Any],
+        body: ROIStatsRequest,
     ):
         """Compute ROI statistics on one channel of one frame for the
         TBR Analysis tool in Play mode.
-
-        Body shape:
-            {
-              "polygon": [[x, y], ...],         # ≥ 3 vertices, image-px
-              "method": "mean" | "percentile" | "mode",
-              "percentile": 50,                 # only for method=percentile
-              "apply_dark": true,
-              "black_level": 0,
-              "view_config": {                  # optional, additive
-                "gain": 1.0, "offset": 0.0,
-                "sharpen_method": null|str, "sharpen_amount": 1.0,
-                "sharpen_radius": 2.0, "denoise_sigma": 0.0,
-                "median_size": 0, "gaussian_sigma": 0.0,
-                "hot_pixel_thr": 0.0, "bilateral": false
-              }
-            }
 
         Pipeline matches the canvas thumbnail's linear chain at
         ``frame_channel_thumbnail`` (server.py:1332-1343):
@@ -1524,37 +1696,22 @@ def _mount_api(app: FastAPI) -> None:
                     f"channel {channel!r} not in frame {frame_index} of source {source_id!r}; "
                     f"available: {sorted(chs)!r}",
                 )
-            polygon = body.get("polygon") or []
-            if not isinstance(polygon, list) or len(polygon) < 3:
-                raise HTTPException(400, "polygon must be a list of >= 3 [x, y] pairs")
-            method = (body.get("method") or "mean").lower()
-            if method not in ("mean", "percentile", "mode"):
-                raise HTTPException(400, "method must be 'mean', 'percentile', or 'mode'")
-            percentile = float(body.get("percentile") or 50.0)
-            if not 0.0 <= percentile <= 100.0:
-                raise HTTPException(400, "percentile must be in [0, 100]")
-            apply_dark = bool(body.get("apply_dark", True))
-            black_level = float(body.get("black_level", 0.0) or 0.0)
-            # Optional view_config carrying gain/offset + the non-linear
-            # ISP chain (sharpen + denoise + FPN). Absent = back-compat.
-            vc = body.get("view_config") or {}
-            if not isinstance(vc, dict):
-                raise HTTPException(400, "view_config must be an object when present")
-            try:
-                vc_gain = float(vc.get("gain", 1.0))
-                vc_offset = float(vc.get("offset", 0.0))
-                vc_sharpen_amount = float(vc.get("sharpen_amount", 1.0))
-                vc_sharpen_radius = float(vc.get("sharpen_radius", 2.0))
-                vc_denoise_sigma = float(vc.get("denoise_sigma", 0.0))
-                vc_median_size = int(vc.get("median_size", 0) or 0)
-                vc_gaussian_sigma = float(vc.get("gaussian_sigma", 0.0))
-                vc_hot_pixel_thr = float(vc.get("hot_pixel_thr", 0.0))
-            except (TypeError, ValueError) as exc:
-                raise HTTPException(400, f"view_config has non-numeric field: {exc}")
-            vc_sharpen_method = vc.get("sharpen_method")
-            if vc_sharpen_method is not None and not isinstance(vc_sharpen_method, str):
-                raise HTTPException(400, "view_config.sharpen_method must be a string or null")
-            vc_bilateral = bool(vc.get("bilateral", False))
+            polygon = list(body.polygon)
+            method = body.method
+            percentile = float(body.percentile)
+            apply_dark = bool(body.apply_dark)
+            black_level = float(body.black_level)
+            vc = body.view_config
+            vc_gain = float(vc.gain) if vc else 1.0
+            vc_offset = float(vc.offset) if vc else 0.0
+            vc_sharpen_method = vc.sharpen_method if vc else None
+            vc_sharpen_amount = float(vc.sharpen_amount) if vc else 1.0
+            vc_sharpen_radius = float(vc.sharpen_radius) if vc else 2.0
+            vc_denoise_sigma = float(vc.denoise_sigma) if vc else 0.0
+            vc_median_size = int(vc.median_size) if vc else 0
+            vc_gaussian_sigma = float(vc.gaussian_sigma) if vc else 0.0
+            vc_hot_pixel_thr = float(vc.hot_pixel_thr) if vc else 0.0
+            vc_bilateral = bool(vc.bilateral) if vc else False
             isp_pre_chain = _isp_chain_from_query(
                 sharpen_method=vc_sharpen_method,
                 sharpen_amount=vc_sharpen_amount,
@@ -2892,17 +3049,42 @@ def _mount_api(app: FastAPI) -> None:
         DESTRUCTIVE. The frontend must show a confirmation dialog
         listing the paths before calling. Per path:
 
-          1. Drop any loaded source whose `path` resolves to this path
+          1. Verify the path corresponds to a tracked source (either
+             ``src.path`` or ``src._owned_tempfile``). Untracked paths
+             are refused so a malformed body can't unlink arbitrary
+             user files (~/.ssh/id_ed25519 etc.).
+          2. Verify the extension is in ``_ALLOWED_DISK_EXTS``.
+          3. Drop any loaded source whose `path` resolves to this path
              (closes the FrameReader so the file isn't held open).
-          2. ``Path.unlink()``. ``follow_symlinks=False`` semantics —
+          4. ``Path.unlink()``. ``follow_symlinks=False`` semantics —
              only the link is removed if the path is itself a symlink;
              we never delete the target of a symlink.
-          3. Return a per-path status so partial failures (permission
+          5. Return a per-path status so partial failures (permission
              error on one file) don't poison the rest.
 
-        Refuses to delete directories or non-existent paths.
+        Refuses to delete directories or non-existent paths. The body
+        is capped at ``_DELETE_FILES_MAX_BATCH`` paths so a malformed
+        request can't enumerate STORE for thousands of paths at once.
         """
         from pathlib import Path as _P
+        # Build the allow-set: every disk path the server's STORE
+        # currently tracks. Resolved up-front so the comparison below
+        # is by absolute Path equality, not by string. One source can
+        # contribute up to two entries (user path + owned tempfile).
+        allowed: Dict[Path, List[str]] = {}
+        with STORE._lock:
+            for sid, src in STORE._items.items():
+                for cand in (
+                    getattr(src, "path", None),
+                    getattr(src, "_owned_tempfile", None),
+                ):
+                    if not cand:
+                        continue
+                    try:
+                        rp = _P(cand).resolve()
+                    except (OSError, RuntimeError, ValueError):
+                        continue
+                    allowed.setdefault(rp, []).append(sid)
         results = []
         for raw in req.paths:
             try:
@@ -2913,18 +3095,30 @@ def _mount_api(app: FastAPI) -> None:
                     "detail": f"path resolve failed: {type(e).__name__}: {e}",
                 })
                 continue
-            # Drop any loaded source whose path matches.
+            if resolved.suffix.lower() not in _ALLOWED_DISK_EXTS:
+                results.append({
+                    "path": str(resolved), "status": "error",
+                    "detail": (
+                        f"refusing extension {resolved.suffix!r}; "
+                        f"allowed: {sorted(_ALLOWED_DISK_EXTS)}"
+                    ),
+                })
+                continue
+            if resolved not in allowed:
+                results.append({
+                    "path": str(resolved), "status": "error",
+                    "detail": (
+                        "refusing — path is not tracked by any loaded "
+                        "source. Bulk-delete is restricted to paths the "
+                        "frontend has loaded as sources."
+                    ),
+                })
+                continue
+            # Drop the loaded source(s) that own this path so the
+            # FrameReader closes (releasing any Windows-style file lock
+            # before unlink).
+            drop_ids = list(allowed.get(resolved, []))
             with STORE._lock:
-                drop_ids = []
-                for sid, src in STORE._items.items():
-                    sp = getattr(src, "path", None)
-                    if not sp:
-                        continue
-                    try:
-                        if _P(sp).resolve() == resolved:
-                            drop_ids.append(sid)
-                    except OSError:
-                        continue
                 for sid in drop_ids:
                     src = STORE._items.pop(sid, None)
                     if src is not None:
@@ -2934,21 +3128,29 @@ def _mount_api(app: FastAPI) -> None:
                             pass
             # Now unlink the file.
             if not resolved.exists() and not resolved.is_symlink():
-                results.append({"path": str(resolved), "status": "missing"})
+                results.append({
+                    "path": str(resolved), "status": "missing",
+                    "dropped_source_ids": drop_ids,
+                })
                 continue
             if resolved.is_dir() and not resolved.is_symlink():
                 results.append({
                     "path": str(resolved), "status": "error",
                     "detail": "refusing to delete a directory",
+                    "dropped_source_ids": drop_ids,
                 })
                 continue
             try:
                 resolved.unlink()
-                results.append({"path": str(resolved), "status": "deleted"})
+                results.append({
+                    "path": str(resolved), "status": "deleted",
+                    "dropped_source_ids": drop_ids,
+                })
             except OSError as e:
                 results.append({
                     "path": str(resolved), "status": "error",
                     "detail": f"{type(e).__name__}: {e}",
+                    "dropped_source_ids": drop_ids,
                 })
         return {"results": results}
 

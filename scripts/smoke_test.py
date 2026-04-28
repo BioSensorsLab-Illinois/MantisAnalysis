@@ -486,7 +486,41 @@ def tier3() -> Tuple[bool, str]:
     if ch not in (ana.get("figures") or {}):
         return False, f"dof analyze missing figures for {ch}"
 
-    return True, "OK — FastAPI endpoints exercised end-to-end."
+    # Play tab — confirm the per-frame channel render route is wired
+    # end-to-end (post-rebuild Tier-4 alone left this surface untested
+    # at smoke time).
+    r = client.get(f"/api/sources/{sid}/frame/0/channel/{ch}/thumbnail.png")
+    if r.status_code != 200:
+        return False, f"/api/sources/{sid}/frame/0/channel/{ch}/thumbnail.png -> {r.status_code}"
+    if r.headers.get("content-type") != "image/png":
+        return False, f"play frame thumbnail content-type is {r.headers.get('content-type')}"
+    if r.content[:8] != b"\x89PNG\r\n\x1a\n":
+        return False, "play frame thumbnail is not a PNG (magic bytes mismatch)"
+
+    # Play handoff — synthetic source has frame_count=1, so frame 0 is
+    # always valid. This proves the transient-source pinning + summary
+    # serialisation survive the round trip.
+    r = client.post("/api/playback/handoff", json={
+        "source_id": sid, "frame_index": 0, "target_mode": "usaf",
+    })
+    if r.status_code != 200:
+        return False, f"/api/playback/handoff -> {r.status_code} :: {r.text[:200]}"
+    transient = r.json()
+    if not transient.get("source_id") or transient.get("source_id") == sid:
+        return False, f"handoff returned bad transient summary: {transient}"
+
+    # System info — used by Play's cache-budget slider. /proc/meminfo
+    # path may return null on macOS without psutil; either way the
+    # route should always 200 with a well-formed body.
+    r = client.get("/api/system/info")
+    if r.status_code != 200:
+        return False, f"/api/system/info -> {r.status_code}"
+    info = r.json()
+    for key in ("platform", "total_ram_bytes", "total_ram_mb"):
+        if key not in info:
+            return False, f"system info missing {key!r}: {info}"
+
+    return True, "OK — FastAPI endpoints exercised end-to-end (Play included)."
 
 
 # ---------------------------------------------------------------------------

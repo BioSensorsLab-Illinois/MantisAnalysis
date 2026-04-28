@@ -717,3 +717,87 @@ def test_frame_channel_thumbnail_no_sharpen_params_byte_identical(
     assert a.content == b.content, (
         "no-op sharpen params must not perturb the rendered PNG"
     )
+
+
+# ---------------------------------------------------------------------------
+# polish-sweep hardening — channel_range + attach-path contract
+
+
+def test_channel_range_back_compat_no_frame_index(client, loaded_h5):
+    """Default behaviour (no frame_index query) operates on frame 0 via
+    src.channels — byte-identical to the pre-polish contract."""
+    sid = loaded_h5["source_id"]
+    r = client.get(f"/api/sources/{sid}/channel/HG-G/range")
+    assert r.status_code == 200
+    body = r.json()
+    for k in ("min", "max", "p1", "p99", "mean", "std"):
+        assert k in body
+
+
+def test_channel_range_with_frame_index(client, loaded_h5):
+    """frame_index>0 routes through extract_frame so the slider seed
+    reflects the displayed frame, not frame 0."""
+    sid = loaded_h5["source_id"]
+    r0 = client.get(f"/api/sources/{sid}/channel/HG-G/range?frame_index=0")
+    r1 = client.get(f"/api/sources/{sid}/channel/HG-G/range?frame_index=1")
+    assert r0.status_code == 200
+    assert r1.status_code == 200
+    # Synthetic fixture is per-frame distinct (seed varies); ranges
+    # need not be identical — just both well-formed.
+    assert isinstance(r1.json()["mean"], float)
+
+
+def test_channel_range_oob_frame_returns_404(client, loaded_h5):
+    sid = loaded_h5["source_id"]
+    r = client.get(
+        f"/api/sources/{sid}/channel/HG-G/range?frame_index=99999"
+    )
+    assert r.status_code == 404
+
+
+def test_attach_path_basename_size_required(client, tmp_path):
+    """attach-path requires the candidate file's basename + byte-size
+    to match the upload metadata captured at /api/sources/upload time.
+    Without those guards the route would let any caller bind any file
+    so DELETE could unlink it."""
+    # Upload a small bytes payload as if it were an H5 by giving it an
+    # .h5 suffix. The server captures upload_basename + upload_size at
+    # this point.
+    from io import BytesIO
+    payload = b"\x89HDF\r\n\x1a\n" + b"\x00" * 200
+    files = {"file": ("upload-test.h5", BytesIO(payload), "application/octet-stream")}
+    # The upload route calls h5py to load — synthesize a real H5 first.
+    p = tmp_path / "upload-test.h5"
+    from tests.unit.test_session_frames import _make_synthetic_h5
+    _make_synthetic_h5(p, n_frames=2, exposure_s=0.1, seed=7)
+    real_bytes = p.read_bytes()
+    files = {"file": ("upload-test.h5", BytesIO(real_bytes), "application/octet-stream")}
+    r = client.post("/api/sources/upload", files=files)
+    assert r.status_code == 200, r.text
+    sid = r.json()["source_id"]
+
+    # Attempt to attach a different file (rogue.h5, different basename) —
+    # rejected.
+    rogue = tmp_path / "rogue.h5"
+    _make_synthetic_h5(rogue, n_frames=2, exposure_s=0.1, seed=99)
+    r = client.post(
+        f"/api/sources/{sid}/attach-path", json={"path": str(rogue)}
+    )
+    assert r.status_code == 400
+    assert "basename" in r.json()["detail"].lower()
+
+    # Attempt to attach a file with a non-recording extension — rejected.
+    secret = tmp_path / "upload-test.txt"
+    secret.write_text("nope")
+    r = client.post(
+        f"/api/sources/{sid}/attach-path", json={"path": str(secret)}
+    )
+    assert r.status_code == 400
+    assert "extension" in r.json()["detail"].lower()
+
+    # Now attach the matching file — succeeds.
+    r = client.post(
+        f"/api/sources/{sid}/attach-path", json={"path": str(p)}
+    )
+    assert r.status_code == 200
+    assert r.json()["path"] == str(p.resolve())

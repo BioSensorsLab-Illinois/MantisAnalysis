@@ -1,17 +1,75 @@
 # HANDOFF — current live state pointer
 
-Last updated: **2026-04-28**, after a CI/CD audit + Linux/Ubuntu binary
-gap fix layered on top of the prior day's Play polish sweep on
-**play-tab-recording-inspection-rescue-v1**. The CI/CD work is
-isolated from the still-uncommitted Play work and touches only
-`.github/workflows/release.yml`, `packaging/README.md`, and these
-agent docs.
+Last updated: **2026-04-28** (PM session) — comprehensive
+ultrareview + fix-everything sweep on `main`. Four parallel reviewer
+agents (fastapi-backend-reviewer, frontend-react-engineer,
+test-coverage-reviewer, risk-skeptic) ran a full-branch audit;
+findings were validated (3 hallucinations filtered, ~24 confirmed)
+and a 27-item plan was authored at
+`/Users/zz4/.claude/plans/tranquil-growing-lollipop.md`. This
+session implemented Phase A (P0 must-fix-before-push, 4 items) and
+most of Phase B/C (P1 + hygiene, ~16 items). Phase B11 (drop
+@ts-nocheck on 7 files) and Phase C8 (HDR fusion UI toggle) were
+deferred to backlog (B-0038, B-0040) as the type-error count and
+backend+frontend coupling exceeded the polish-sweep scope.
 
 ## Current state of the working tree
 
-- Branch: `main` (45 commits ahead of `origin/main`, never pushed —
-  B-0010 still open).
-- **Two layered changes on `main`, both uncommitted**:
+- Branch: `main` (still 45 commits ahead of `origin/main`, never
+  pushed — B-0010 still open). The polish-sweep changes layer on top
+  of the prior 11 modified files; nothing is committed yet pending
+  user review.
+- **Three layered changes on `main`, all uncommitted**:
+  0. **Polish-sweep audit fixes** (this session, 2026-04-28 PM) —
+     reviewer-driven correctness + hardening pass:
+     * Path-containment on `/api/sources/{sid}/attach-path`
+       (basename + size + extension match against upload metadata
+       captured at `/api/sources/upload` time) and on
+       `/api/sources/delete-files` (only paths tracked by a
+       registered LoadedSource; capped at 50 paths/call).
+     * `ROIStatsRequest` Pydantic model with `extra='forbid'` +
+       per-vertex `math.isfinite` validator + min/max polygon size.
+     * `extra='forbid'` swept across every request BaseModel in
+       `server.py` (27 models). Response models (SourceSummary,
+       FrameMetadata, ISPChannelSpecOut, ISPModeOut,
+       MeasureResponse, FPNComputeResponse) intentionally allow
+       extras — the response_model serializer needs them.
+     * `LocateFileRequest.size` made mandatory (was Optional).
+     * `channel_range` accepts `frame_index` query param (defaults
+       to 0 for back-compat with analysis modes).
+     * Transient handoff sources flagged `pinned=True` in the
+       LRU so heavy right-click usage can't evict the user's real
+       recordings.
+     * `/proc/meminfo` opened with `encoding='utf-8'`.
+     * `LoadedSource.resolve_disk_target()` public method —
+       `delete_source` no longer reaches into `_owned_tempfile`.
+     * Frontend: warmer effect 100 ms debounce (slider drag stops
+       restarting it 50×/s; per-card AbortController fetch unaffected
+       so canvas stays responsive); `viewConfigSig` memoized; TBR
+       polygon-vertex auto-recompute 120 ms debounce; play-loop deps
+       trimmed to `[playing, fps, loop, totalFrames]`;
+       `_AVG_BLOB_KB_ESTIMATE` 150 → 400 KB; cache budget low-RAM
+       safety (`min(1024, ceilingMb / 4)`); `useStatePb` aliases
+       dropped (146 call sites refactored to `React.useState`);
+       `loadingDarks` / `loadingFiles` switched to id-based
+       deduplication (was vulnerable to duplicate-name collisions);
+       ISP fan-out aggregate toast (single result toast at end of
+       multi-source PUT loop instead of silent partial failure).
+     * `<ContentErrorBoundary>` lifted from `playback.tsx` into
+       `shared.tsx` and wrapped around the AnalysisShell tab body.
+     * Tier-3 smoke now exercises `/api/sources/{sid}/frame/0/...`
+       + `/api/playback/handoff` + `/api/system/info`.
+     * `tests/web/test_web_boot.py::test_play_tab_boots` —
+       Playwright boot smoke for the Play tab.
+     * 6 new unit tests for the polygon edge cases + 4 new tests
+       for the polish-sweep contracts (transient pinning, channel
+       range with frame index, attach-path basename+size guard).
+     * `.github/workflows/smoke.yml` — dead artifact-upload step
+       removed.
+     * `D-0018` decision + `R-0010` risk + `B-0037..B-0042`
+       backlog entries logged.
+     * pytest baseline 269 → 280 passing tests.
+  1. **Two layered changes on `main`, both uncommitted (prior session)**:
   1. **CI/CD: Linux binary + 2 real bugs caught locally** —
      `.github/workflows/release.yml` gained a `linux-x86_64` matrix
      entry on `ubuntu-22.04`, system-deps install, concurrency

@@ -49,6 +49,15 @@ const renderChartToPng = _s.renderChartToPng as (
     themeFallbackBg?: string;
   }
 ) => Promise<{ format: 'png' | 'svg'; scale: number } | undefined>;
+// Generic recoverable error pane lifted from playback.tsx in the
+// polish sweep. Without this wrap, a throw inside any tab body
+// unmounts the entire shell to a white screen.
+const ContentErrorBoundary = _s.ContentErrorBoundary as React.ComponentType<{
+  subject: string;
+  helpText?: string;
+  onReset?: () => void;
+  children?: React.ReactNode;
+}>;
 
 interface Theme {
   panel: string;
@@ -341,7 +350,15 @@ export const AnalysisShell: React.FC<AnalysisShellProps> = ({ run, onClose, onTo
               ...tabBodyBgStyle(bgColor, effectiveBg),
             }}
           >
-            {view.renderTab()}
+            <ContentErrorBoundary
+              subject={`${run.mode.toUpperCase()} analysis tab`}
+              helpText={
+                'A render error inside this tab was caught. ' +
+                'Switch tabs and back to retry, or close the modal.'
+              }
+            >
+              {view.renderTab()}
+            </ContentErrorBoundary>
           </div>
         </div>
       </div>

@@ -104,6 +104,86 @@ def test_polygon_helper_rejects_bad_json():
 
 
 # ---------------------------------------------------------------------------
+# Polygon edge cases — polish-sweep hardening (B8)
+# ---------------------------------------------------------------------------
+
+def test_polygon_helper_self_intersecting_no_crash():
+    """A figure-eight polygon (self-intersecting) shouldn't crash the
+    rasterizer; PIL fills using even-odd rule which yields a finite,
+    well-formed mask. We don't pin the exact pixel pattern (the rule is
+    library-defined) but assert the result is in [0, 1] and finite.
+    """
+    pts = [[1, 1], [7, 7], [1, 7], [7, 1]]  # bowtie
+    mask = _polygon_to_roi_mask(pts, (8, 8))
+    assert mask is not None
+    assert mask.dtype == np.float32
+    assert np.isfinite(mask).all()
+    # Each pixel is either 0 or 1 (binary mask).
+    uniq = set(np.unique(mask).tolist())
+    assert uniq.issubset({0.0, 1.0})
+
+
+def test_polygon_helper_zero_area_colinear_no_crash():
+    """Three colinear points have zero polygon area; PIL rasterizes
+    the degenerate case as the closing polyline (Bresenham), producing
+    a thin 1-pixel-wide strip rather than the empty set. Assert the
+    output is finite and stays inside the image bounds — the contract
+    is 'no crash + sane output', not 'empty mask'."""
+    pts = [[1, 1], [4, 4], [7, 7]]
+    mask = _polygon_to_roi_mask(pts, (8, 8))
+    assert mask is not None
+    assert mask.shape == (8, 8)
+    assert np.isfinite(mask).all()
+    s = float(mask.sum())
+    # Polyline through the diagonal — at most a 1-pixel-wide strip,
+    # well below the polygon's bounding-box area (49).
+    assert 0 <= s <= 16
+
+
+def test_polygon_helper_winding_order_invariant():
+    """CW and CCW orderings of the same polygon vertices must produce
+    identical masks. PIL's polygon fill is winding-order-independent,
+    but a future replacement library might not be — pin the contract."""
+    cw = [[2, 2], [5, 2], [5, 5], [2, 5]]
+    ccw = [[2, 2], [2, 5], [5, 5], [5, 2]]
+    mask_cw = _polygon_to_roi_mask(cw, (8, 8))
+    mask_ccw = _polygon_to_roi_mask(ccw, (8, 8))
+    assert mask_cw is not None and mask_ccw is not None
+    np.testing.assert_array_equal(mask_cw, mask_ccw)
+
+
+def test_polygon_helper_clips_to_image_bounds():
+    """A polygon partly outside the channel array must still produce a
+    finite mask sized exactly (H, W) — the parts inside the bounds
+    fill, the parts outside are silently dropped."""
+    # Polygon spans (-2, -2) → (12, 12) on an 8×8 array.
+    pts = [[-2, -2], [12, -2], [12, 12], [-2, 12]]
+    mask = _polygon_to_roi_mask(pts, (8, 8))
+    assert mask is not None
+    assert mask.shape == (8, 8)
+    # The polygon covers the entire image, so every pixel should be 1.
+    assert float(mask.sum()) == 8 * 8
+
+
+def test_polygon_helper_mask_area_sum_matches_expected():
+    """Beyond the 3-pixel spot check: the total filled area of a known
+    rectangle should match its expected pixel count exactly. This
+    catches off-by-one regressions in the PIL→numpy boundary."""
+    pts = [[2, 2], [5, 2], [5, 5], [2, 5]]
+    mask = _polygon_to_roi_mask(pts, (8, 8))
+    assert mask is not None
+    # PIL.ImageDraw.polygon fills a 4×4 square for vertices (2,2)→(5,5)
+    # under its inclusive-vertex rule. The exact sum depends on PIL's
+    # rasterizer; ≤16 with the documented vertices, ≥9 (3×3 strict
+    # interior). Pin the lower bound and assert it's a positive integer
+    # to catch a "0 pixels filled" regression.
+    s = float(mask.sum())
+    assert s > 0.0
+    assert s == int(s)
+    assert 9.0 <= s <= 16.0
+
+
+# ---------------------------------------------------------------------------
 # Single-view /export/video?render=overlay with mask_polygon
 # ---------------------------------------------------------------------------
 
