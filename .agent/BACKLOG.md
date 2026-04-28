@@ -779,7 +779,16 @@ analysis (B-0013), visual regressions and logic bugs will bite.
 <!-- /qt-allowed -->
 
 
-## B-0037 — Split `web/src/playback.tsx` into modules (2026-04-28)
+## B-0037 — Split `web/src/playback.tsx` into modules — **PARTIALLY CLOSED 2026-04-28**
+
+Phase 1 closed: `web/src/playback/frameCache.ts` extracted (210 LOC of
+module-level cache state + EWMA + prefetch semaphore + telemetry
+events). Public surface imported by playback.tsx via aliased names
+so existing call sites were unchanged. Tier 0/1/2/3/4 + live preview
+all green. Remaining extractions (still backlog):
+
+
+## B-0037 (orig) — Split `web/src/playback.tsx` into modules (2026-04-28)
 
 The polish-sweep audit confirmed `web/src/playback.tsx` is 13,193
 lines in one file. Module-level mutable state (`_frameBlobCache`,
@@ -791,9 +800,8 @@ touches code 5,000+ lines apart.
 
 Extraction candidates, in priority order:
 
-1. `playback/frameCache.ts` — module-level `_frameBlobCache`,
-   `_prefetchInflight`, `_prefetchActive` + the trim/get/put/purge
-   helpers (currently lines 42–243).
+1. `playback/frameCache.ts` — **DONE 2026-04-28**. 210 LOC pulled
+   out; playback.tsx imports the public surface.
 2. `playback/sourceModes.ts` — `SOURCE_MODES` catalog +
    `sourceModeMeta` + `splitSourceMode` (currently lines 469–818).
 3. `playback/RoiOverlay.tsx` — polygon hit-test math + SVG overlay
@@ -845,7 +853,17 @@ ticket re-introduces a *targeted* axe scan over the mounted Play
 tab. Not a blocker; opt-in per future initiative.
 
 
-## B-0040 — HDR fusion mode toggle (Inspector) (2026-04-28)
+## B-0040 — HDR fusion mode toggle (Inspector) — **CLOSED 2026-04-28**
+
+Inspector toggle live (Segmented `Hard switch` / `Smooth (Mertens)`
+in the Source → Raw card when activeGain == HDR). Backend per-frame
+channel + RGB + histogram + ROI-stats routes accept `hdr_fusion=
+switch|mertens`; new `_resolve_hdr_channels` helper re-fuses on top
+of the cached HDR-* channels at render time. Warmer key folds in
+`hdrFusion` so toggling restarts pre-warming. 3 new unit tests.
+
+
+## B-0040 (orig) — HDR fusion mode toggle (Inspector) (2026-04-28)
 
 `mantisanalysis/hdr_fusion.py` has two modes — `"switch"` (hard,
 default) and `"mertens"` (smooth, no seam at HG saturation). The
@@ -864,7 +882,16 @@ Deferred from the polish sweep because it crosses backend + frontend
 boundaries and warrants its own milestone (estimate 0.5 day).
 
 
-## B-0041 — Replace `_AVG_BLOB_KB_ESTIMATE` with rolling measurement (2026-04-28)
+## B-0041 — Replace `_AVG_BLOB_KB_ESTIMATE` with rolling measurement — **CLOSED 2026-04-28**
+
+Now an EWMA (alpha=0.1, ~10-frame half-life, 32 KB floor) updated
+from real `Blob.size` on every cache populate. Cache-budget trim
+converges to actual compressed-PNG size within ~10 frames. Static
+constant retired; `getAvgBlobKbEstimate()` exported from
+`web/src/playback/frameCache.ts`.
+
+
+## B-0041 (orig) — Replace `_AVG_BLOB_KB_ESTIMATE` with rolling measurement (2026-04-28)
 
 The frontend frame-cache trim loop converts MB budget → entry count
 via a fixed `_AVG_BLOB_KB_ESTIMATE` (now 400 KB after the polish
@@ -875,7 +902,18 @@ give an accurate trim even when the user mixes a 512×512 grayscale
 source with a 4 K RGB legacy file.
 
 
-## B-0042 — Real-disk delete: undo (Trash) path on macOS via `send2trash` (2026-04-28)
+## B-0042 — Real-disk delete: undo (Trash) path via `send2trash` — **CLOSED 2026-04-28**
+
+`send2trash>=1.8` added as main dependency. `POST /api/sources/delete-
+files` now defaults to `use_trash=True`. Falls back to hard
+`Path.unlink` if the library isn't importable or the OS-level call
+fails (e.g. removable volume without a Trash). Per-row response
+carries `deleted_via: "trash" | "unlink"` and an optional
+`trash_error` so the frontend can label the action accurately.
+2 new tests cover both paths.
+
+
+## B-0042 (orig) — Real-disk delete: undo (Trash) path on macOS via `send2trash` (2026-04-28)
 
 `POST /api/sources/delete-files` currently issues hard `unlink`.
 There is no undo. On macOS we could use `send2trash` (or a custom

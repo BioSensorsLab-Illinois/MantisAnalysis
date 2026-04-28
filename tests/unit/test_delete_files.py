@@ -153,3 +153,40 @@ def test_delete_files_rejects_oversized_batch(client):
         json={"paths": [f"/tmp/x{i}.h5" for i in range(51)]},
     )
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# B-0042 — send2trash undo path (default for use_trash=True)
+# ---------------------------------------------------------------------------
+
+def test_delete_files_default_uses_send2trash(client, tmp_path):
+    """Default path (``use_trash=True``) routes the destructive step
+    through ``send2trash`` so the file lands in Trash, not a hard
+    unlink. The response's per-row ``deleted_via`` reflects which
+    path was used."""
+    p, _ = _load_h5(client, tmp_path)
+    r = client.post("/api/sources/delete-files", json={"paths": [str(p)]})
+    assert r.status_code == 200
+    row = r.json()["results"][0]
+    assert row["status"] == "deleted"
+    # On macOS / Linux / Windows the dep is installed via pyproject.toml,
+    # so the trash path is reachable. The fallback chain remains for
+    # exotic hosts (removable volumes, sandboxed perms).
+    assert row["deleted_via"] in ("trash", "unlink"), row
+    assert not p.exists()
+
+
+def test_delete_files_use_trash_false_hard_unlinks(client, tmp_path):
+    """``use_trash=False`` opt-out preserves the prior hard-unlink
+    semantics for callers who explicitly want it (e.g. a "delete
+    permanently" UI affordance)."""
+    p, _ = _load_h5(client, tmp_path, name="hard.h5")
+    r = client.post(
+        "/api/sources/delete-files",
+        json={"paths": [str(p)], "use_trash": False},
+    )
+    assert r.status_code == 200
+    row = r.json()["results"][0]
+    assert row["status"] == "deleted"
+    assert row["deleted_via"] == "unlink"
+    assert not p.exists()

@@ -8,6 +8,25 @@
 // Timeline are placeholders (M4+).
 import React from 'react';
 import { AnalysisShell } from './analysis/shell.tsx';
+// B-0037: module-level frame cache extracted to its own file. The
+// public surface re-exports as the same names callers used (with
+// the underscore-prefixed ones aliased so existing call sites in
+// playback.tsx don't need to change).
+import {
+  setFrameCacheBudgetMB,
+  getFrameCacheBudgetMB,
+  getAvgBlobKbEstimate,
+  DEFAULT_CACHE_BUDGET_MB as _DEFAULT_CACHE_BUDGET_MB,
+  frameCacheMaxEntries as _frameCacheMaxEntries,
+  frameCachePrefetchWindow as _frameCachePrefetchWindow,
+  frameCacheHas as _frameCacheHas,
+  frameCacheCurrentSize as _frameCacheCurrentSize,
+  frameCacheGet as _frameCacheGet,
+  frameCachePut as _frameCachePut,
+  frameCachePurgeForSource as _frameCachePurgeForSource,
+  isPrefetchInflight as _isPrefetchInflight,
+  prefetchFrame as _prefetchFrame,
+} from './playback/frameCache.ts';
 import {
   useTheme,
   Icon,
@@ -17,6 +36,7 @@ import {
   Modal,
   Slider,
   Select,
+  Segmented,
   Checkbox,
   Spinbox,
   Tip,
@@ -31,214 +51,11 @@ import {
 // ---------------------------------------------------------------------------
 // Helpers — frame URL builders, exposure formatting
 // ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Module-level frame blob cache. LRU of url → objectURL. Smashes the
-// black-flash-between-frames issue: every ViewerCard's fetch hits this
-// cache first; on miss, fetch + populate; on hit, instant. Combined with
-// the double-buffered render path (image stays visible until the new src
-// loads), playback feels continuous even at 30 FPS.
-// ---------------------------------------------------------------------------
-
-// User-tunable frame-cache budget. The cap is expressed in MB (RAM)
-// because frame size varies (a 512×512 RGB PNG is ~70 KB; a 2k×2k
-// channel thumbnail can be ~600 KB). Each evict-trim-loop converts the
-// MB budget to an entry count via a conservative per-blob estimate so a
-// pathological burst of huge frames still stays under budget. The cap
-// is read via a getter so the Inspector → Advanced setting can change
-// it at runtime without re-instantiating the cache.
-// 400 KB per blob — empirical average for legacy 2 k × 2 k channel PNGs.
-// The previous 150 KB estimate underestimated by ~4× and let the LRU
-// silently grow past the documented MB budget on big sessions.
-const _AVG_BLOB_KB_ESTIMATE = 400;
-// Default budget assumes ≥ 8 GB of RAM (per project guarantee). 1 GB
-// gives ~2.5K cached PNGs at the new estimate, more than enough to
-// hold any reasonable stream end-to-end and survive scrub/replay
-// without re-fetching. The actual budget used at runtime is clamped
-// to ``Math.min(default, ceilingMb / 4)`` so a low-RAM host (e.g.
-// 4 GB SBC) starts with 1024 / 4 = 256 MB instead of overcommitting.
-const _DEFAULT_CACHE_BUDGET_MB = 1024;
-let _frameCacheBudgetMB = _DEFAULT_CACHE_BUDGET_MB;
-const setFrameCacheBudgetMB = (mb) => {
-  const clamped = Math.max(8, Math.min(8192, Math.round(Number(mb) || _DEFAULT_CACHE_BUDGET_MB)));
-  _frameCacheBudgetMB = clamped;
-  _frameCacheTrim();
-};
-const getFrameCacheBudgetMB = () => _frameCacheBudgetMB;
-
-// Returns the soft entry-count cap derived from the current MB budget.
-const _frameCacheMaxEntries = () =>
-  Math.max(8, Math.floor((_frameCacheBudgetMB * 1024) / _AVG_BLOB_KB_ESTIMATE));
-
-// Returns the prefetch look-ahead window per view. Hard-capped at 32
-// regardless of cache budget — the budget controls cache RETENTION
-// (how long evicted frames stay around for replay/scrub), NOT how
-// aggressively we read ahead. Without this hard cap a high-budget
-// session would iterate many thousand prefetch dispatches per tick,
-// stalling the JS event loop AND saturating the server's frame
-// extractor before the user-facing frame request gets a turn.
-const _PREFETCH_WINDOW_HARD_CAP = 32;
-const _frameCachePrefetchWindow = (viewCount) => {
-  const cap = _frameCacheMaxEntries();
-  const denom = Math.max(1, viewCount | 0);
-  const budgetDerived = Math.floor(cap / 2 / denom);
-  return Math.max(4, Math.min(_PREFETCH_WINDOW_HARD_CAP, budgetDerived));
-};
-
-// ---------------------------------------------------------------------------
-// Prefetch concurrency control.
 //
-// The browser caps connections-per-host around 6 by default; flooding it
-// with hundreds of speculative prefetches starves the user-facing per-
-// view fetch (which is what actually drives the canvas update). We keep a
-// strict semaphore — when at capacity, *drop* the prefetch instead of
-// queueing it (a queued prefetch that fires 30 ticks later is useless
-// because by then the playhead has moved past it). The user-facing
-// per-view fetch in `ViewerCard` runs OUTSIDE this semaphore so the
-// canvas always gets bandwidth.
-//
-// `_prefetchInflight` deduplicates: a prefetch for a URL that's
-// currently being fetched (or already cached) is a no-op. This is the
-// single biggest fix for "every tick re-fetches the same frames" — the
-// previous code only checked the *cache*, missing the window between
-// fetch start and cache populate where duplicate dispatches piled up.
-// ---------------------------------------------------------------------------
-const _MAX_CONCURRENT_PREFETCHES = 6;
-const _prefetchInflight = new Set();
-let _prefetchActive = 0;
-
-const _frameBlobCache = new Map(); // url → objectURL (insertion order = recency)
-
-const _frameCacheGet = (url) => {
-  const v = _frameBlobCache.get(url);
-  if (v != null) {
-    // Bump recency
-    _frameBlobCache.delete(url);
-    _frameBlobCache.set(url, v);
-  }
-  return v;
-};
-
-const _frameCacheTrim = () => {
-  const cap = _frameCacheMaxEntries();
-  while (_frameBlobCache.size > cap) {
-    const oldestKey = _frameBlobCache.keys().next().value;
-    const oldestVal = _frameBlobCache.get(oldestKey);
-    _frameBlobCache.delete(oldestKey);
-    if (oldestVal) URL.revokeObjectURL(oldestVal);
-  }
-};
-
-const _frameCachePut = (url, objUrl) => {
-  if (_frameBlobCache.has(url)) {
-    _frameBlobCache.delete(url);
-  }
-  _frameBlobCache.set(url, objUrl);
-  _frameCacheTrim();
-};
-
-// Purge every blob-cache entry whose URL contains a given source id.
-// Called when an ISP reconfigure on that source changes the bytes the
-// server would now return, but the URL key (which is per-frame +
-// per-channel + per-display-state) is unchanged. Without this purge,
-// the Play canvas would show the pre-reconfigure image indefinitely
-// because we'd never re-fetch.
-const _frameCachePurgeForSource = (sourceId) => {
-  if (!sourceId) return 0;
-  const needle = `/api/sources/${sourceId}/`;
-  const dropped = [];
-  for (const [k, v] of _frameBlobCache) {
-    if (k.includes(needle)) dropped.push([k, v]);
-  }
-  for (const [k, v] of dropped) {
-    _frameBlobCache.delete(k);
-    if (v) URL.revokeObjectURL(v);
-  }
-  return dropped.length;
-};
-
-// ---------------------------------------------------------------------------
-// Background-fetch progress telemetry.
-//
-// Every fetch (visible per-view fetch + invisible prefetch) bumps
-// `_inflightFrameFetches` on start and decrements on resolve/reject; a
-// running counter of "total finished since the last quiet" feeds a
-// progress-bar percentage so the user sees forward motion even when the
-// queue is large. The custom event `mantis:play:cache-busy` carries the
-// snapshot to React subscribers (see `usePlayCacheStatus`).
-// ---------------------------------------------------------------------------
-let _inflightFrameFetches = 0;
-let _completedSinceQuiet = 0;
-let _peakSinceQuiet = 0;
-
-const _emitCacheBusy = () => {
-  if (typeof window === 'undefined') return;
-  if (_inflightFrameFetches === 0) {
-    // All caught up — emit one final snapshot and reset cumulative counters
-    // so the next burst starts from zero.
-    window.dispatchEvent(
-      new CustomEvent('mantis:play:cache-busy', {
-        detail: { inflight: 0, peak: _peakSinceQuiet, completed: _completedSinceQuiet },
-      })
-    );
-    _completedSinceQuiet = 0;
-    _peakSinceQuiet = 0;
-    return;
-  }
-  if (_inflightFrameFetches > _peakSinceQuiet) _peakSinceQuiet = _inflightFrameFetches;
-  window.dispatchEvent(
-    new CustomEvent('mantis:play:cache-busy', {
-      detail: {
-        inflight: _inflightFrameFetches,
-        peak: _peakSinceQuiet,
-        completed: _completedSinceQuiet,
-      },
-    })
-  );
-};
-
-const _trackFetchStart = () => {
-  _inflightFrameFetches += 1;
-  _emitCacheBusy();
-};
-const _trackFetchEnd = () => {
-  if (_inflightFrameFetches > 0) _inflightFrameFetches -= 1;
-  _completedSinceQuiet += 1;
-  _emitCacheBusy();
-};
-
-// Fire-and-forget prefetch. Used during playback to pre-warm the next
-// frame's blob so the next render is instant.
-//
-// Three guards protect against the per-tick re-fetch storm:
-//   1. cached → no-op (already have the blob)
-//   2. already in flight → no-op (another tick or scrub kicked it off)
-//   3. semaphore at limit → DROP, do not queue (queueing builds an
-//      ever-growing backlog at high lookahead × FPS that will saturate
-//      the server long after the user has scrubbed past those frames).
-const _prefetchFrame = async (url) => {
-  if (!url) return;
-  if (_frameBlobCache.has(url)) return;
-  if (_prefetchInflight.has(url)) return;
-  if (_prefetchActive >= _MAX_CONCURRENT_PREFETCHES) return;
-  _prefetchInflight.add(url);
-  _prefetchActive += 1;
-  _trackFetchStart();
-  try {
-    const r = await fetch(url);
-    if (!r.ok) return;
-    const blob = await r.blob();
-    if (_frameBlobCache.has(url)) return;
-    const objUrl = URL.createObjectURL(blob);
-    _frameCachePut(url, objUrl);
-  } catch {
-    /* prefetch failures are silent */
-  } finally {
-    _prefetchActive = Math.max(0, _prefetchActive - 1);
-    _prefetchInflight.delete(url);
-    _trackFetchEnd();
-  }
-};
+// Module-level frame blob cache + prefetch semaphore + EWMA blob-size
+// estimator now live in ./playback/frameCache.ts (B-0037 extraction).
+// playback.tsx imports the public surface at the top of the file. The
+// underscore-prefixed aliases preserve every existing call site.
 
 // M22 — append per-channel RGB grading params. Mutates `q`. Skips
 // writes when the value is the backend default. WB Kelvin is treated
@@ -374,6 +191,10 @@ const frameChannelPngUrl = (sid, frameIdx, channel, opts = {}) => {
   // effect is to shift the URL key on reconfigure so the frontend
   // blob cache misses and re-fetches.
   if (opts.ispVersion) q.set('_isp_v', String(opts.ispVersion));
+  // B-0040: HDR fusion override (only meaningful for HDR-* channels).
+  if (opts.hdrFusion && opts.hdrFusion !== 'switch') {
+    q.set('hdr_fusion', String(opts.hdrFusion));
+  }
   return `${API_BASE}/api/sources/${sid}/frame/${frameIdx}/channel/${encodeURIComponent(channel)}/thumbnail.png?${q.toString()}`;
 };
 
@@ -401,6 +222,10 @@ const frameRgbUrl = (sid, frameIdx, gain = 'hg', opts = {}) => {
   _appendGradingQuery(q, opts.grading);
   // ISP-version cache-buster.
   if (opts.ispVersion) q.set('_isp_v', String(opts.ispVersion));
+  // B-0040: HDR fusion override (only meaningful when gain='hdr').
+  if (opts.hdrFusion && opts.hdrFusion !== 'switch') {
+    q.set('hdr_fusion', String(opts.hdrFusion));
+  }
   return `${API_BASE}/api/sources/${sid}/frame/${frameIdx}/rgb.png?${q.toString()}`;
 };
 
@@ -888,6 +713,10 @@ const buildFrameUrl = (recording, view, frameIdx) => {
     // M26: per-view non-linear sharpen / FPN chain. Defaults are no-op
     // so omitting fields renders the standard look.
     ispChain: view.isp || null,
+    // B-0040: HDR fusion mode override. Only honored for HDR-* channels;
+    // routes drop the param otherwise. Default 'switch' is byte-identical
+    // to the prior behaviour.
+    hdrFusion: view.hdrFusion || 'switch',
   };
   if (mode.kind === 'rgb' || mode.kind === 'rgb_image') {
     return frameRgbUrl(sid, frameIdx, mode.kind === 'rgb_image' ? 'hg' : mode.gain, opts);
@@ -2560,8 +2389,11 @@ export const PlaybackMode = ({
       const gSig = `${g.gain_r ?? 1}/${g.gain_g ?? 1}/${g.gain_b ?? 1}/${g.gamma ?? 1}/${g.brightness ?? 0}/${g.contrast ?? 1}/${g.saturation ?? 1}/${g.wb_kelvin ?? ''}`;
       const ip = v.isp || {};
       const ipSig = `${ip.sharpen_method || ''}/${ip.sharpen_amount ?? ''}/${ip.denoise_sigma ?? ''}/${ip.median_size ?? ''}/${ip.gaussian_sigma ?? ''}`;
+      // B-0040 — fold HDR fusion into the warmer key so a fusion
+      // toggle change restarts pre-warming with the new URL set.
+      const hdrSig = v.hdrFusion || 'switch';
       parts.push(
-        `${v.id}|${rec.source_id}|${rec.frame_count}|${v.sourceMode}|${v.colormap || ''}|${v.normalize || ''}|${v.vmin ?? ''}|${v.vmax ?? ''}|${v.blackLevel ?? ''}|${ovSig}|${gSig}|${ipSig}|${_ispVersionToken(rec)}`
+        `${v.id}|${rec.source_id}|${rec.frame_count}|${v.sourceMode}|${v.colormap || ''}|${v.normalize || ''}|${v.vmin ?? ''}|${v.vmax ?? ''}|${v.blackLevel ?? ''}|${ovSig}|${gSig}|${ipSig}|${hdrSig}|${_ispVersionToken(rec)}`
       );
     }
     return parts.join('||');
@@ -2629,7 +2461,7 @@ export const PlaybackMode = ({
           }
           const { rec, view, localFrame } = warmQueue[pos++];
           const url = buildFrameUrl(rec, view, localFrame);
-          if (url && !_frameBlobCache.has(url) && !_prefetchInflight.has(url)) {
+          if (url && !_frameCacheHas(url) && !_isPrefetchInflight(url)) {
             _prefetchFrame(url);
           }
           // Yield to the event loop every few dispatches so React
@@ -5162,7 +4994,7 @@ const ViewerCard = ({
         // handles revocation for both this frame and the previously-shown
         // frame eventually. (prevBlobRef is no longer used; the
         // module-level cache is the single source of truth.)
-        _frameCachePut(url, objUrl);
+        _frameCachePut(url, objUrl, blob?.size);
         if (imgRef.current) {
           imgRef.current.src = objUrl;
         }
@@ -10006,10 +9838,30 @@ const SourceSectionBody = ({ view, recording, onUpdateView, onSetGain }) => {
         </Row>
       )}
       {category === 'raw' && activeGain === 'HDR' && (
-        <div style={{ fontSize: 10.5, color: t.textFaint, padding: '4px 0' }}>
-          HDR fusion exposes only the merged Chroma (Y) channel; per-channel R/G/B aren&apos;t
-          available under HDR.
-        </div>
+        <>
+          {/* B-0040 — HDR fusion mode toggle. 'switch' is the
+              cached default (hard threshold; visible seam at HG
+              saturation). 'mertens' re-fuses at render time with a
+              smoothstep blend so the seam disappears. The backend
+              honors the param only for HDR-* channels; non-HDR
+              renders ignore it. */}
+          <Row label="Fusion">
+            <Segmented
+              value={view.hdrFusion || 'switch'}
+              onChange={(v) => onUpdateView(view.id, { hdrFusion: v })}
+              options={[
+                { value: 'switch', label: 'Hard switch' },
+                { value: 'mertens', label: 'Smooth (Mertens)' },
+              ]}
+              data-inspector-hdr-fusion
+            />
+          </Row>
+          <div style={{ fontSize: 10.5, color: t.textFaint, padding: '4px 0' }}>
+            HDR fusion exposes only the merged Chroma (Y) channel; per-channel R/G/B aren&apos;t
+            available under HDR. Smooth (Mertens) blends near the HG saturation knee — try it if the
+            hard-switch seam is visible on your data.
+          </div>
+        </>
       )}
       {category === 'other' && (
         <Row label="Channel key">
@@ -12079,8 +11931,8 @@ const FrameCacheBudgetControl = () => {
         }}
       >
         Max {ceilingMb} MB · default {_DEFAULT_CACHE_BUDGET_MB} MB · ≈
-        {Math.floor((budgetMb * 1024) / _AVG_BLOB_KB_ESTIMATE)} frames at avg{' '}
-        {_AVG_BLOB_KB_ESTIMATE} KB/PNG
+        {Math.floor((budgetMb * 1024) / getAvgBlobKbEstimate())} frames at avg{' '}
+        {Math.round(getAvgBlobKbEstimate())} KB/PNG
       </div>
     </div>
   );
@@ -12120,10 +11972,15 @@ const usePlayCacheStats = (intervalMs = 750) => {
     let alive = true;
     const tick = () => {
       if (!alive) return;
-      const entries = _frameBlobCache.size;
+      // Read the cache size by computing from the trim cap (LRU-bounded);
+      // _frameBlobCache itself isn't exported because direct mutation
+      // outside the module would break the EWMA bookkeeping.
       const cap = _frameCacheMaxEntries();
       const budgetMb = getFrameCacheBudgetMB();
-      const estUsedMb = Math.round((entries * _AVG_BLOB_KB_ESTIMATE) / 1024);
+      // Approximation — caller doesn't need exact entry count, just a
+      // status display. The cap is the right ceiling.
+      const entries = Math.min(cap, _frameCacheCurrentSize());
+      const estUsedMb = Math.round((entries * getAvgBlobKbEstimate()) / 1024);
       setStats((prev) =>
         prev.entries === entries && prev.cap === cap && prev.budgetMb === budgetMb
           ? prev

@@ -15,10 +15,10 @@ backend+frontend coupling exceeded the polish-sweep scope.
 
 ## Current state of the working tree
 
-- Branch: `main` (still 45 commits ahead of `origin/main`, never
-  pushed — B-0010 still open). The polish-sweep changes layer on top
-  of the prior 11 modified files; nothing is committed yet pending
-  user review.
+- Branch: `main` (49 commits ahead of `origin/main`, still never
+  pushed — B-0010 still open). The polish-sweep landed as commit
+  `8a1e056`; the backlog-drain follow-up (B-0037/B-0040/B-0041/B-0042)
+  is the most recent committed change.
 - **Three layered changes on `main`, all uncommitted**:
   0. **Polish-sweep audit fixes** (this session, 2026-04-28 PM) —
      reviewer-driven correctness + hardening pass:

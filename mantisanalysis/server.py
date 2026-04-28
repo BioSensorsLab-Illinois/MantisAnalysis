@@ -404,9 +404,16 @@ class DeleteFilesRequest(BaseModel):
     bulk-delete flow operates on the FilePill set so this is invisible
     in normal use, but it blocks the pathological "attacker controls
     a single body" case from unlinking arbitrary files.
+
+    B-0042: ``use_trash`` (default True) routes the destructive step
+    through ``send2trash`` so deletes land in the user's Trash /
+    Recycle Bin instead of permanently unlinking. Falls back to
+    ``Path.unlink()`` if send2trash is missing or fails (logged in
+    the per-row ``trash_error`` field).
     """
     model_config = ConfigDict(extra="forbid")
     paths: List[str] = Field(min_length=0, max_length=_DELETE_FILES_MAX_BATCH)
+    use_trash: bool = True
 
 
 class ROIStatsViewConfig(BaseModel):
@@ -444,6 +451,10 @@ class ROIStatsRequest(BaseModel):
     apply_dark: bool = True
     black_level: float = 0.0
     view_config: Optional[ROIStatsViewConfig] = None
+    # B-0040 — HDR fusion override (honored when the requested channel
+    # is HDR-*). Defaults to "switch" so existing TBR entries match
+    # the cached extraction byte-for-byte.
+    hdr_fusion: str = Field("switch", pattern=r"^(switch|mertens)$")
 
     @field_validator("polygon")
     @classmethod
@@ -1460,12 +1471,25 @@ def _mount_api(app: FastAPI) -> None:
         contrast_g: float = Query(1.0, ge=0.0, le=4.0),
         saturation_g: float = Query(1.0, ge=0.0, le=4.0),
         wb_kelvin: Optional[float] = Query(None, ge=1500.0, le=12000.0),
+        # B-0040: HDR fusion mode override. Default "switch" (hard
+        # threshold; cached at extract time) is byte-identical to the
+        # previous behaviour. "mertens" re-fuses at render time with a
+        # smoothstep blend so HG-saturated regions transition smoothly
+        # into LG-scaled values instead of producing the hard seam.
+        # Honored only when the requested channel is HDR-*.
+        hdr_fusion: str = Query("switch", pattern=_HDR_FUSION_PATTERN,
+            description="'switch' (default, hard threshold) or 'mertens' "
+                        "(smooth knee). Re-fuses HDR channels at render time."),
     ):
         """Per-frame variant of channel_thumbnail — same contract,
         different frame index. ISP / sharpen chain is intentionally
         omitted (Play mode is for inspection, not analysis pre-processing).
         ``rgb_composite=true`` returns an R/G/B composite of the frame's
         RGB channels (HG- or LG- depending on the prefix on ``channel``).
+
+        When ``hdr_fusion`` differs from ``"switch"`` (the cached
+        default) and the requested channel is HDR-*, the HDR triplet
+        is re-fused at render time via ``_resolve_hdr_channels``.
         """
         try:
             src = _must_get(source_id)
@@ -1476,6 +1500,7 @@ def _mount_api(app: FastAPI) -> None:
             except RuntimeError as e:
                 # Source loaded from upload (no path) — frame > 0 unavailable.
                 raise HTTPException(409, str(e))
+            chs = _resolve_hdr_channels(chs, hdr_fusion)
             labels_cfg = {
                 "timestamp": labels_timestamp,
                 "frame": labels_frame,
@@ -1590,6 +1615,8 @@ def _mount_api(app: FastAPI) -> None:
         gaussian_sigma: float = Query(0.0),
         hot_pixel_thr: float = Query(0.0),
         bilateral: bool = Query(False),
+        # B-0040 — HDR fusion mode override; honored only for HDR-* channels.
+        hdr_fusion: str = Query("switch", pattern=_HDR_FUSION_PATTERN),
     ):
         """64-bin histogram of one channel of one frame.
 
@@ -1610,6 +1637,7 @@ def _mount_api(app: FastAPI) -> None:
                 raise HTTPException(404, str(e))
             except RuntimeError as e:
                 raise HTTPException(409, str(e))
+            chs = _resolve_hdr_channels(chs, hdr_fusion)
             if channel not in chs:
                 raise HTTPException(
                     404,
@@ -1690,6 +1718,7 @@ def _mount_api(app: FastAPI) -> None:
                 raise HTTPException(404, str(e))
             except RuntimeError as e:
                 raise HTTPException(409, str(e))
+            chs = _resolve_hdr_channels(chs, body.hdr_fusion)
             if channel not in chs:
                 raise HTTPException(
                     404,
@@ -1922,6 +1951,10 @@ def _mount_api(app: FastAPI) -> None:
         contrast_g: float = Query(1.0, ge=0.0, le=4.0),
         saturation_g: float = Query(1.0, ge=0.0, le=4.0),
         wb_kelvin: Optional[float] = Query(None, ge=1500.0, le=12000.0),
+        # B-0040: see frame_channel_thumbnail for description. Honored
+        # when gain="hdr" — re-fuses the HDR-R/G/B/NIR triplet under
+        # the requested fusion mode before the RGB composite.
+        hdr_fusion: str = Query("switch", pattern=_HDR_FUSION_PATTERN),
     ):
         """Convenience endpoint that auto-resolves the RGB triplet for a
         dual-gain RGB-NIR source. Equivalent to calling the per-channel
@@ -1936,6 +1969,7 @@ def _mount_api(app: FastAPI) -> None:
                 raise HTTPException(404, str(e))
             except RuntimeError as e:
                 raise HTTPException(409, str(e))
+            chs = _resolve_hdr_channels(chs, hdr_fusion)
             prefix = "HG-" if gain.lower() == "hg" else "LG-" if gain.lower() == "lg" else "HDR-"
             # Use the prefix-aware composite helper. Channel arg is just used
             # to pick the gain prefix.
@@ -3140,18 +3174,48 @@ def _mount_api(app: FastAPI) -> None:
                     "dropped_source_ids": drop_ids,
                 })
                 continue
+            # B-0042: prefer send2trash (cross-platform undo path).
+            # Fall back to a hard unlink if either send2trash isn't
+            # importable on this host or the OS-level call fails (e.g.
+            # the file is on a removable volume without a Trash). The
+            # per-row response carries which path was used so the
+            # frontend can show "Sent to Trash" vs "Permanently
+            # deleted" copy.
+            mode_used = None
+            trash_error = None
             try:
-                resolved.unlink()
-                results.append({
+                if req.use_trash:
+                    try:
+                        from send2trash import send2trash as _trash
+                        _trash(str(resolved))
+                        mode_used = "trash"
+                    except Exception as exc:
+                        trash_error = (
+                            f"{type(exc).__name__}: {exc} "
+                            "(falling back to permanent delete)"
+                        )
+                        resolved.unlink()
+                        mode_used = "unlink"
+                else:
+                    resolved.unlink()
+                    mode_used = "unlink"
+                row = {
                     "path": str(resolved), "status": "deleted",
+                    "deleted_via": mode_used,
                     "dropped_source_ids": drop_ids,
-                })
+                }
+                if trash_error:
+                    row["trash_error"] = trash_error
+                results.append(row)
             except OSError as e:
-                results.append({
+                row = {
                     "path": str(resolved), "status": "error",
                     "detail": f"{type(e).__name__}: {e}",
                     "dropped_source_ids": drop_ids,
-                })
+                }
+                if trash_error:
+                    row["trash_error"] = trash_error
+                results.append(row)
         return {"results": results}
 
     @app.post("/api/playback/handoff", response_model=SourceSummary)
@@ -3386,6 +3450,48 @@ def _channel_image(src, channel: str, *, apply_dark: bool = True) -> np.ndarray:
         if dark is not None:
             return subtract_dark(src.channels[channel], dark)
     return src.channels[channel]
+
+
+def _resolve_hdr_channels(
+    chs: Dict[str, np.ndarray],
+    hdr_fusion: str,
+) -> Dict[str, np.ndarray]:
+    """Optionally replace cached HDR-* channels with a re-fusion under a
+    different fusion mode.
+
+    ``extract_frame`` populates ``HDR-{R,G,B,NIR,Y}`` using the source
+    default fusion mode (``"switch"`` — hard threshold; cache key
+    stays stable per frame). When the user picks a different mode in
+    the Inspector ("mertens" — smoothstep blend), this helper re-fuses
+    on top of the cache without invalidating it. Cost: 4 NumPy
+    re-fusions + a Rec-601 Y recompute, well under 5 ms on
+    1024×1024 channels.
+
+    No-op when ``hdr_fusion`` is empty / "switch" (the default fusion
+    is already in the cache) or when the source isn't a dual-gain
+    RGB-NIR layout (no HG-/LG- pairs to re-fuse).
+    """
+    if not hdr_fusion or hdr_fusion.lower() == "switch":
+        return chs
+    needed = ("HG-R", "HG-G", "HG-B", "HG-NIR",
+              "LG-R", "LG-G", "LG-B", "LG-NIR")
+    if not all(k in chs for k in needed):
+        return chs
+    from .hdr_fusion import fuse_hdr
+    params = {"fusion": hdr_fusion.lower()}
+    out = dict(chs)
+    for c in ("R", "G", "B", "NIR"):
+        out[f"HDR-{c}"] = fuse_hdr(chs[f"HG-{c}"], chs[f"LG-{c}"], params=params)
+    r = out["HDR-R"].astype(np.float32, copy=False)
+    g = out["HDR-G"].astype(np.float32, copy=False)
+    b = out["HDR-B"].astype(np.float32, copy=False)
+    out["HDR-Y"] = (0.299 * r + 0.587 * g + 0.114 * b).astype(np.float32, copy=False)
+    return out
+
+
+# Reusable Query schema for the per-render HDR fusion mode. Keeping
+# the pattern in one place so every route honors the same allow-list.
+_HDR_FUSION_PATTERN = r"^(switch|mertens)$"
 
 
 def _isp_chain_from_query(*, sharpen_method: Optional[str],

@@ -4,6 +4,67 @@ Append-only log of agent sessions. One bullet per session, newest at top.
 
 ---
 
+**2026-04-28 (Late PM) — Backlog-drain pass: B-0037 / B-0040 / B-0041 / B-0042**
+
+Follow-up to the polish-sweep commit. User asked to "continue with all
+proposed fixes" so this session worked through the remaining backlog
+items from the prior commit's deferred list:
+
+- **B-0040 — HDR fusion UI toggle.** Inspector → Source → Raw category
+  now exposes a Segmented toggle (`Hard switch` / `Smooth (Mertens)`)
+  when activeGain == HDR; backend per-frame channel + RGB + histogram
+  + ROI-stats routes accept `hdr_fusion=switch|mertens` and re-fuse
+  the cached HDR-* channels at render time via the new
+  `_resolve_hdr_channels` helper. Cache stays valid (fast default
+  path); slow path costs ~5 ms for the 4-channel re-fusion.
+  Warmer key folds in `hdrFusion` so toggling restarts pre-warming
+  with the new URL set. 3 new unit tests cover the helper directly
+  (no-op for switch, mertens re-fuses + Y-recompute consistency,
+  no-op when HG/LG pairs are missing).
+
+- **B-0041 — Rolling blob-size estimate.** `_AVG_BLOB_KB_ESTIMATE`
+  is now an EWMA (alpha=0.1, ~10-frame half-life, floor 32 KB)
+  updated from real Blob sizes on every cache populate. Cache-budget
+  panel and trim loop converge to actual compressed-PNG size within
+  ~10 frames instead of relying on a static 400 KB guess.
+
+- **B-0042 — send2trash undo path.** `send2trash>=1.8` added as a
+  main dependency. `POST /api/sources/delete-files` now defaults to
+  `use_trash=true` and routes through `send2trash` (cross-platform
+  Trash / Recycle Bin). Falls back to hard `Path.unlink` if the
+  library isn't importable or fails (e.g. removable volume without a
+  Trash). Per-row response carries `deleted_via: "trash"|"unlink"`
+  and an optional `trash_error` so the frontend can label the action
+  accurately. 2 new tests verify both paths.
+
+- **B-0037 — frameCache module extraction.** `web/src/playback.tsx`
+  module-level cache state (200+ lines: `_frameBlobCache` LRU,
+  `_prefetchInflight` set, `_prefetchActive` semaphore, EWMA
+  estimator, telemetry events) extracted to
+  `web/src/playback/frameCache.ts` as a typed module. Exports a
+  clean public surface (`frameCacheGet/Put/Has/PurgeForSource`,
+  `prefetchFrame`, `setFrameCacheBudgetMB`, `frameCacheMaxEntries`,
+  `frameCachePrefetchWindow`, `getAvgBlobKbEstimate`,
+  `frameCacheCurrentSize`). Single owner for cache mutation —
+  future eviction bugs have a known surface to read.
+
+- **B-0038 — DEFERRED again.** Removing `@ts-nocheck` from
+  `web/src/app.tsx` surfaced **101 type errors** in a single file
+  (implicit-any params, never-typed React refs, missing typings on
+  every callback). Each of the 6 nocheck'd files is its own
+  multi-hour milestone; not feasible inside one session. Backlog
+  entry left in place.
+
+- **B-0039 — SKIPPED.** D-0018 specifies the a11y opt-in is
+  user-driven; no user trigger this session.
+
+Verification: pytest 290 passed, smoke Tier 0/1/2/3 PASS, Tier 4
+Playwright 4 passed in 21.78s, tsc clean, vite build clean,
+live preview confirmed Play tab boots with the new module wiring
+("CACHE Idle · 0/2621 frames cached · ~0 MB / 1024 MB budget").
+
+---
+
 **2026-04-28 (PM) — Polish-sweep audit + fix-everything pass before B-0010 push**
 
 A full /review on the 45-commit `origin/main..HEAD` range across four

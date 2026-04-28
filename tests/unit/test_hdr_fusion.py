@@ -212,3 +212,64 @@ def test_hdr_y_over_mixed_saturation_patch_matches_switch_expectation():
     # Sanity: the two halves differ by the recovery margin (otherwise the
     # fixture wouldn't actually exercise the switch boundary).
     assert abs(expected_unclipped - expected_clipped) > 1.0
+
+
+# ---------------------------------------------------------------------------
+# B-0040 — per-render HDR fusion override (route-level)
+# ---------------------------------------------------------------------------
+
+def test_resolve_hdr_channels_no_op_for_switch():
+    """The default 'switch' fusion is what the cache holds; the helper
+    must return the input dict unchanged so we don't burn CPU re-fusing
+    on every frame request."""
+    from mantisanalysis.server import _resolve_hdr_channels
+    chs = {
+        "HG-R": np.zeros((4, 4), dtype=np.uint16),
+        "LG-R": np.zeros((4, 4), dtype=np.uint16),
+        "HG-G": np.zeros((4, 4), dtype=np.uint16),
+        "LG-G": np.zeros((4, 4), dtype=np.uint16),
+        "HG-B": np.zeros((4, 4), dtype=np.uint16),
+        "LG-B": np.zeros((4, 4), dtype=np.uint16),
+        "HG-NIR": np.zeros((4, 4), dtype=np.uint16),
+        "LG-NIR": np.zeros((4, 4), dtype=np.uint16),
+        "HDR-R": np.full((4, 4), 99.0, dtype=np.float32),
+    }
+    out = _resolve_hdr_channels(chs, "switch")
+    assert out is chs
+    assert out["HDR-R"][0, 0] == 99.0
+
+
+def test_resolve_hdr_channels_mertens_re_fuses():
+    """When fusion='mertens' the helper rebuilds HDR-R/G/B/NIR + HDR-Y
+    from the cached HG/LG pairs; near-saturation pixels differ from the
+    hard-switch result."""
+    from mantisanalysis.server import _resolve_hdr_channels
+    # HG near saturation → mertens blends with LG*ratio; switch picks
+    # one or the other based on threshold. Use a value close to 60000.
+    hg = np.full((2, 2), 59000.0, dtype=np.float32)
+    lg = np.full((2, 2), 4000.0, dtype=np.float32)
+    chs = {f"HG-{c}": hg.copy() for c in ("R", "G", "B", "NIR")}
+    chs.update({f"LG-{c}": lg.copy() for c in ("R", "G", "B", "NIR")})
+    # Pre-seed HDR-* with the hard-switch result.
+    chs["HDR-R"] = hg.copy()
+    chs["HDR-G"] = hg.copy()
+    chs["HDR-B"] = hg.copy()
+    chs["HDR-NIR"] = hg.copy()
+    chs["HDR-Y"] = hg.copy()
+    out = _resolve_hdr_channels(chs, "mertens")
+    # HDR-R changed (smoothstep blend)
+    assert not np.array_equal(out["HDR-R"], hg)
+    # Re-computed Y is consistent with R/G/B (Rec 601 luma).
+    expected_y = (
+        0.299 * out["HDR-R"] + 0.587 * out["HDR-G"] + 0.114 * out["HDR-B"]
+    ).astype(np.float32)
+    np.testing.assert_allclose(out["HDR-Y"], expected_y, rtol=1e-5)
+
+
+def test_resolve_hdr_channels_skips_when_pairs_missing():
+    """Sources that don't carry HG-/LG- pairs (e.g. image sources) just
+    return the input unchanged, even with fusion='mertens'."""
+    from mantisanalysis.server import _resolve_hdr_channels
+    chs = {"R": np.zeros((4, 4)), "G": np.zeros((4, 4)), "B": np.zeros((4, 4))}
+    out = _resolve_hdr_channels(chs, "mertens")
+    assert out is chs

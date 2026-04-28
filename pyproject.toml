@@ -44,6 +44,10 @@ dependencies = [
     # for the Play / Recording Inspection mode. imageio[ffmpeg] bundles
     # imageio-ffmpeg which downloads a static ffmpeg on first use.
     "imageio[ffmpeg]>=2.30",
+    # B-0042: cross-platform "Send to Trash" so the destructive Sources-
+    # panel "Delete from disk" flow has an undo path. Maps to ~/.Trash on
+    # macOS, $XDG_DATA_HOME/Trash on Linux, and Recycle Bin on Windows.
+    "send2trash>=1.8",
 ]
 
 [project.optional-dependencies]
