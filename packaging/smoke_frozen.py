@@ -85,9 +85,12 @@ def main() -> int:
         # Quick root check — must serve the actual Vite-built SPA, NOT the
         # "build the frontend first" placeholder. Post bundler-migration-v1
         # Phase 3 the real bundle always references a hashed asset under
-        # /assets/, so we assert that as proof we shipped the dist.
+        # /assets/, so we assert that as proof we shipped the dist. Read
+        # the FULL response — Vite emits the `<script type="module"
+        # src="/assets/...">` tag near the bottom of <body>, well past the
+        # first 2 KB.
         with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/", timeout=5.0) as resp:
-            body = resp.read(2048).decode("utf-8", "replace")
+            body = resp.read().decode("utf-8", "replace")
             if "<html" not in body.lower():
                 raise SystemExit(f"root did not return HTML:\n{body!r}")
             if "Frontend bundle not built" in body or "/assets/" not in body:

@@ -4,6 +4,84 @@ Append-only log of agent sessions. One bullet per session, newest at top.
 
 ---
 
+**2026-04-28 — CI/CD: Linux binary added; release workflow hardened; 2 real bugs caught + fixed by local validation**
+
+User-driven CI/CD audit. The release matrix shipped Windows + macOS
+(Intel + Apple Silicon) but **was missing a Linux binary** even though
+`packaging/build.py` and the PyInstaller spec already supported it.
+Added `linux-x86_64` on `ubuntu-22.04` (GLIBC 2.35 = compatible with
+Ubuntu 22.04+, Debian 12+, RHEL 9+) so the binary reaches a wide
+distro window without rebuilding per-distro.
+
+`release.yml`:
+
+- New matrix entry: `linux-x86_64` on `ubuntu-22.04`.
+- New "Install Linux runtime libs" step (libegl1, libgl1, libxkbcommon0,
+  libfontconfig1, libfreetype6, libjpeg-turbo8, libpng16-16, ffmpeg)
+  so matplotlib + h5py + Pillow render correctly on a clean runner and
+  `smoke_frozen.py` can verify video-export readiness.
+- `concurrency: cancel-in-progress` for non-tag refs so a fresh push
+  cancels the prior in-flight build. Tag pushes are never cancelled.
+- Trigger expanded to PRs that touch `packaging/`, the workflow itself,
+  `pyproject.toml`, or the bundler config.
+- New "List built artifacts" step (`ls -lh dist/`).
+- New "Generate SHA256 checksums" step in the publish job; a
+  `SHA256SUMS.txt` file is attached alongside every tagged release.
+
+`smoke.yml`:
+
+- Added matching `concurrency: cancel-in-progress` group so rapid
+  branch pushes don't pile up the 12-job (3 OS × 4 Python) matrix.
+
+**Two real bugs caught by running the build locally** (would have
+failed silently in CI on dev-contaminated runners + caused false
+build-failed alerts on every macOS run respectively):
+
+<!-- qt-allowed: This bullet documents the build-time exclusion list in packaging/mantisanalysis.spec — matplotlib is told to NOT collect any Qt binding because MantisAnalysis is a web app. Mentioning the bindings by name here is a documentation reference, not Qt-using code. -->
+1. `packaging/mantisanalysis.spec` — added `PyQt5`, `PyQt6`, `PySide2`,
+   `PySide6`, `wx`, `gi` to the `excludes` list. The matplotlib hook
+   was greedily collecting whichever Qt binding it found in
+   site-packages, causing `Aborting build process due to attempt to
+   collect multiple Qt bindings packages` on any dev machine with
+   both PyQt6 and PySide6 installed. MantisAnalysis is a *web* app —
+   matplotlib only needs Agg — so excluding all GUI bindings is both
+   correct and shrinks the binary.
+<!-- /qt-allowed -->
+2. `packaging/smoke_frozen.py` — root-page check was reading only the
+   first 2 KB of the response, but Vite emits the
+   `<script type="module" src="/assets/...">` tag near the bottom of
+   `<body>` (past 2 KB). The check would fail with "binary did NOT
+   ship web/dist/" even on a perfectly correct build. Switched to
+   `resp.read()` (read full body — small file, no concern).
+
+`packaging/README.md`:
+
+- New CI build matrix table (4 jobs × runner × GLIBC base).
+- Documented why we pin `ubuntu-22.04` over `ubuntu-latest`.
+- Added user-facing Linux launch instructions.
+
+Touched: `.github/workflows/release.yml`,
+`.github/workflows/smoke.yml`, `packaging/mantisanalysis.spec`,
+`packaging/smoke_frozen.py`, `packaging/README.md`. The 4 unrelated
+dirty Play-mode files are untouched.
+
+Validation:
+
+- All 3 workflow YAMLs parse cleanly.
+- PyInstaller spec parses cleanly; `web/dist/index.html` guard fires
+  correctly when missing.
+- **Local end-to-end build on macOS arm64 succeeded** —
+  `MantisAnalysis-macos-arm64.tar.gz` (123.7 MB), frozen-binary
+  smoke test green: `/api/health` → 200, root → Vite-built SPA
+  served correctly.
+- **Real GitHub Actions validation requires a `git push`** — the repo
+  is 45 commits ahead of `origin/main` and has never been pushed
+  (B-0010). Recommended next step: push to a non-main branch + open
+  a PR to exercise the matrix without committing main, or push main
+  with consent.
+
+---
+
 **2026-04-27 — Play polish + delete-from-disk + cache rebuild + 18-file resilience (uncommitted)**
 
 User-driven polish sweep on top of the closed Phase 1/Phase 2 Play

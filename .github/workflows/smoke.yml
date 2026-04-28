@@ -6,6 +6,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Cancel in-flight runs on the same ref when a fresh push lands. Saves
+# CI minutes during a rapid commit burst on a feature branch.
+concurrency:
+  group: smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

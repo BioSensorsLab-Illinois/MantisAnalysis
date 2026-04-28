@@ -36,9 +36,24 @@ Outputs land in `dist/`:
 
 ## CI builds
 
-`.github/workflows/release.yml` runs this on every push to `main` and on
-tag pushes (`v*`). Artifacts are uploaded on every run; tag pushes also
-attach them to a GitHub Release.
+`.github/workflows/release.yml` runs this on every push to `main`, on
+tag pushes (`v*`), and on PRs that touch `packaging/` or build config.
+The matrix builds **four** binaries per run:
+
+| Job label        | Runner          | GLIBC / SDK base       |
+| ---------------- | --------------- | ---------------------- |
+| `windows-x86_64` | windows-latest  | Windows Server 2022    |
+| `linux-x86_64`   | ubuntu-22.04    | GLIBC 2.35 (wide reach)|
+| `macos-arm64`    | macos-14        | macOS 14 SDK           |
+| `macos-x86_64`   | macos-13        | macOS 13 SDK           |
+
+Linux uses `ubuntu-22.04` (not `ubuntu-latest`) on purpose: building
+on the older LTS gives a binary that runs on Ubuntu 22.04+, Debian 12+,
+and RHEL 9+ — `ubuntu-latest` (24.04 = GLIBC 2.39) would cut that
+compatibility window.
+
+Artifacts are uploaded on every run with 30-day retention. Tag pushes
+additionally publish a GitHub Release with `SHA256SUMS.txt`.
 
 ## User-facing launch instructions
 
@@ -55,9 +70,22 @@ attach them to a GitHub Release.
 > first time because the binary isn't codesigned. Click **More info →
 > Run anyway**.
 
+### Linux
+
+1. Download `MantisAnalysis-linux-x86_64.zip`.
+2. Extract: `unzip MantisAnalysis-linux-x86_64.zip`.
+3. Run: `./MantisAnalysis/MantisAnalysis` from a terminal.
+4. The terminal shows the server log; your default browser opens to the UI.
+
+> Tested on Ubuntu 22.04+, Debian 12+, RHEL 9+ (anything with
+> GLIBC ≥ 2.35). On a barebones server install you may need
+> `sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libfontconfig1`
+> for matplotlib's font / image paths to work.
+
 ### macOS
 
-1. Download `MantisAnalysis-macos-<arch>.tar.gz`.
+1. Download `MantisAnalysis-macos-<arch>.tar.gz` (use `arm64` for
+   Apple Silicon, `x86_64` for Intel — `uname -m` to check).
 2. Double-click to extract `MantisAnalysis.app`. Move it to `/Applications`.
 3. Right-click `MantisAnalysis.app` → **Open** → **Open** (needed once to
    bypass Gatekeeper since we don't codesign/notarize yet).

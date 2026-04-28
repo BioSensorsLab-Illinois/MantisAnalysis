@@ -110,7 +110,21 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        "tkinter",          # matplotlib's Tk backend is never used
+        # MantisAnalysis is a *web* app — matplotlib only needs the Agg
+        # backend. Any Qt / Tk binding present in the build env (a dev
+        # machine often has PyQt6 or PySide6 installed for unrelated
+        # reasons) would be hoovered up by matplotlib's hook and either
+        # bloat the binary by ~150 MB or hard-fail PyInstaller with
+        # "attempt to collect multiple Qt bindings packages". Exclude
+        # all of them explicitly so the build is reproducible across
+        # dev / CI runners regardless of what else is in site-packages.
+        "tkinter",
+        "PyQt5",
+        "PyQt6",
+        "PySide2",
+        "PySide6",
+        "wx",
+        "gi",                # GTK
         "IPython",
         "jupyter",
         "pytest",
