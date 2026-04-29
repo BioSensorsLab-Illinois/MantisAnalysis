@@ -4,6 +4,10 @@ Append-only log of agent sessions. One bullet per session, newest at top.
 
 ---
 
+## 2026-04-29 — usaf-channel-manual-points-v1 closed (Codex, GPT-5)
+
+USAF manual profile extrema are now channel-scoped end to end: the picker stores `manualPointsByChannel`, Profile Preview re-measures the active display channel with its own saved 3-bar/2-gap points, saved configs preserve the map, and `/api/usaf/analyze` accepts `manual_points_by_channel` and applies overrides only to the matching analysis channel. Added a FastAPI regression for distinct HG-G/LG-G manual indices, documented the API contract, restarted the local webview server at `http://127.0.0.1:8765/`, and kept the original-code backup at `/Users/mini-09/BioSensorsLab/MantisAnalysis_backup_usaf_manual_points_20260429_000626`. Files: `mantisanalysis/server.py`, `web/src/usaf.tsx`, `tests/unit/test_usaf_manual_points_api.py`, `.agent/ARCHITECTURE.md`, `.agent/runs/usaf-channel-manual-points-v1/`. Smoke: Tier 0–3 PASS; pytest 306 passed / 4 skipped; Vite build PASS. Status: closed, pending optional manual browser walkthrough.
+
 **2026-04-28 (Night) — play-export-and-roi-fixes-v1 INITIATIVE CLOSED — 7 Play-mode bugs fixed, multi-source job-based export, ROI vertex edit**
 
 User reported seven defects in Play mode: (1) ROI vertices were
