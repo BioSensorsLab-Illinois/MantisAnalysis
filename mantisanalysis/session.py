@@ -634,6 +634,39 @@ class SessionStore:
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
             f.write(data)
             tmp_path = Path(f.name)
+        return self._finalize_upload_from_tempfile(
+            tmp_path, name=name,
+            upload_basename=upload_basename, upload_size=upload_size,
+        )
+
+    def load_from_uploaded_tempfile(self, tmp_path: Path, *, name: str,
+                                    upload_size: int) -> LoadedSource:
+        """Variant of ``load_from_bytes`` that takes a tempfile path the
+        caller already streamed bytes into. Used by the FastAPI upload
+        route to avoid reading the entire body into a single Python
+        ``bytes`` object — the body streams directly to disk via
+        ``shutil.copyfileobj``, freeing peak RAM during the upload.
+
+        The caller is responsible for naming the tempfile with the
+        right suffix (so ``load_any`` picks the right codec); this
+        method takes ownership of the tempfile from here on (unlinks
+        it on H5 close or image-source success).
+        """
+        upload_basename = Path(name).name
+        return self._finalize_upload_from_tempfile(
+            tmp_path, name=name,
+            upload_basename=upload_basename,
+            upload_size=int(upload_size),
+        )
+
+    def _finalize_upload_from_tempfile(self, tmp_path: Path, *, name: str,
+                                       upload_basename: str,
+                                       upload_size: int) -> LoadedSource:
+        """Shared completion path: load via ``load_from_path`` and rebind
+        tempfile ownership / upload metadata. Both ``load_from_bytes``
+        (legacy whole-body buffer) and ``load_from_uploaded_tempfile``
+        (streaming) end here.
+        """
         try:
             src = self.load_from_path(tmp_path, name=name)
             # If this is an H5 source, we held on to the tempfile path —

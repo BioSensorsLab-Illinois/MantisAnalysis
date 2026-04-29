@@ -1473,6 +1473,14 @@ const Slider = ({
           style={{
             width: '100%',
             appearance: 'none',
+            // Vendor-prefixed reset — without these, Chromium ignores
+            // ::-webkit-slider-thumb styling (the thumb stays
+            // browser-default-invisible against our custom track) and
+            // Firefox falls back to the native control. The
+            // standard `appearance` alone isn't enough on every
+            // engine; the prefixed variants are still load-bearing.
+            WebkitAppearance: 'none',
+            MozAppearance: 'none',
             background: 'transparent',
             height: 18,
             position: 'relative',
@@ -2521,8 +2529,21 @@ if (typeof document !== 'undefined' && !document.getElementById('mantis-style'))
   st.id = 'mantis-style';
   st.textContent = `
     @keyframes mantisToastIn { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
-    .rgbnir-slider::-webkit-slider-thumb { appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--thumb, #1560d9); border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2); cursor: pointer; }
-    .rgbnir-slider::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--thumb, #1560d9); border: 2px solid #fff; cursor: pointer; }
+    /* Custom slider track + thumb. The track is reset to invisible
+       so the two absolutely-positioned <div>s in the React Slider
+       component (one for the muted base, one for the accent fill)
+       provide the visible track. The thumb is restyled to a 14 px
+       circle. -webkit-appearance: none is REQUIRED on the thumb
+       pseudo-element on Chromium — without it the thumb falls back
+       to the native control and stops showing against the custom
+       track. ::-moz-range-track / ::-ms-track zero-out the native
+       track on Firefox / legacy Edge so our custom divs are visible. */
+    .rgbnir-slider { background: transparent; }
+    .rgbnir-slider::-webkit-slider-runnable-track { background: transparent; height: 18px; border: none; }
+    .rgbnir-slider::-moz-range-track { background: transparent; height: 18px; border: none; }
+    .rgbnir-slider::-ms-track { background: transparent; height: 18px; border: none; color: transparent; }
+    .rgbnir-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--thumb, #1560d9); border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); cursor: pointer; margin-top: -5px; }
+    .rgbnir-slider::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--thumb, #1560d9); border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); cursor: pointer; }
     ::selection { background: rgba(74,158,255,0.3); }
     /* M12 accessibility P1: visible focus ring on all interactive
        elements; ≥ 3:1 contrast against any neighboring fill. */
@@ -2602,9 +2623,22 @@ const formatApiDetail = (d) => {
 const apiFetch = async (path, init = {}) => {
   const url = `${API_BASE}${path}`;
   const opts = { ...init };
-  if (opts.body && typeof opts.body === 'object' && !(opts.body instanceof FormData)) {
+  // Auto-JSON-encode plain object bodies. Skip FormData (multipart),
+  // Blob/File (raw streaming upload — see apiUploadStream),
+  // ArrayBuffer / typed-array (binary), and ReadableStream. Without
+  // these exclusions a File body would `JSON.stringify` to "{}"
+  // because File has no own enumerable properties — and the server
+  // gets a 2-byte upload it can't parse.
+  const body = opts.body;
+  const isRawBody =
+    body instanceof FormData ||
+    body instanceof Blob ||
+    body instanceof ArrayBuffer ||
+    (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(body)) ||
+    (typeof ReadableStream !== 'undefined' && body instanceof ReadableStream);
+  if (body && typeof body === 'object' && !isRawBody) {
     opts.headers = { 'content-type': 'application/json', ...(opts.headers || {}) };
-    opts.body = JSON.stringify(opts.body);
+    opts.body = JSON.stringify(body);
   }
   const r = await fetch(url, opts);
   const text = await r.text();
@@ -2643,10 +2677,142 @@ const apiFetch = async (path, init = {}) => {
   return data;
 };
 
+// Streaming upload — bypasses multipart/form-data. Send the File
+// directly as the request body so the browser streams the bytes
+// straight from disk without buffering the full file in client RAM.
+//
+// WebKit (Safari + Chromium under certain configs) buffers the
+// entire FormData body into memory before sending — for a 512 MB H5
+// upload it then aborts with `TypeError: Load failed` because the
+// allocation crosses an internal threshold. Sending the File as the
+// fetch body directly sidesteps that path entirely.
+//
+// Server side: pair this with `POST /api/sources/upload-stream`
+// which reads `request.stream()` chunk-by-chunk into a tempfile.
+//
+// Caller passes a base path; the function appends ``?name=<file>``
+// (URL-encoded) so the server preserves the suffix for codec
+// dispatch. Extra query params already on basePath (e.g.
+// ``auto_pin=true``) are preserved.
+const apiUploadStream = async (basePath, file) => {
+  const isTransient = (err) => {
+    if (
+      err instanceof TypeError &&
+      /load failed|failed to fetch|networkerror|aborted|timeout/i.test(String(err.message || ''))
+    ) {
+      return true;
+    }
+    if (typeof err?.status === 'number' && err.status >= 500 && err.status < 600) return true;
+    return false;
+  };
+  const sep = basePath.includes('?') ? '&' : '?';
+  const url = `${basePath}${sep}name=${encodeURIComponent(file.name || 'upload')}`;
+  // Two attempts only (see apiUpload comment) — Safari OS-level
+  // networking failures are persistent, not transient.
+  const backoffs = [0, 200];
+  let lastErr = null;
+  for (let attempt = 0; attempt < backoffs.length; attempt++) {
+    if (attempt > 0) {
+      console.warn(
+        `apiUploadStream(${url}, ${file.name || '(blob)'} ` +
+          `${(file.size / 1024 / 1024).toFixed(1)} MB): ` +
+          `retry after ${backoffs[attempt]} ms ` +
+          `(prev: ${lastErr?.name || ''}: ${lastErr?.message || lastErr})`
+      );
+      await new Promise((r) => setTimeout(r, backoffs[attempt]));
+    }
+    try {
+      // `body: file` streams the file body in every modern browser.
+      // Chrome 105+ requires `duplex: 'half'` for streaming-upload;
+      // Safari already streams Files by default. Setting it is
+      // harmless on Safari.
+      return await apiFetch(url, {
+        method: 'POST',
+        headers: { 'content-type': file.type || 'application/octet-stream' },
+        body: file,
+        // @ts-ignore — fetch RequestInit type narrows on browsers.
+        duplex: 'half',
+      });
+    } catch (err) {
+      lastErr = err;
+      if (!isTransient(err)) throw err;
+    }
+  }
+  const wrapped = new Error(
+    `Upload failed after ${backoffs.length} attempts: ` +
+      `${lastErr?.name || 'Error'}: ${lastErr?.message || lastErr}`
+  );
+  wrapped.cause = lastErr;
+  wrapped.status = lastErr?.status;
+  wrapped.detail = lastErr?.detail || lastErr?.message;
+  wrapped.attempts = backoffs.length;
+  throw wrapped;
+};
+
 const apiUpload = async (path, file) => {
-  const fd = new FormData();
-  fd.append('file', file);
-  return apiFetch(path, { method: 'POST', body: fd });
+  // Retry on transient network-layer failures + transient HTTP 5xx.
+  // Safari/WebKit emits `TypeError: Load failed` for socket drops,
+  // per-host connection-pool exhaustion, and mid-upload timeouts;
+  // Chromium emits `TypeError: Failed to fetch`; Firefox emits
+  // `NetworkError when attempting to fetch resource`. None come with
+  // an HTTP status. Bumped to 3 attempts (200 ms / 600 ms / 1500 ms
+  // backoff) so a one-off blip + a follow-up timeout while the
+  // backend is digesting another large upload don't both bubble.
+  const isTransient = (err) => {
+    if (
+      err instanceof TypeError &&
+      /load failed|failed to fetch|networkerror|aborted|timeout/i.test(String(err.message || ''))
+    ) {
+      return true;
+    }
+    // Retry on 5xx — server-side temporary failures (write-error from
+    // disk pressure, ffmpeg crash on the worker thread, etc.). 4xx is
+    // a real client mistake (bad bytes, missing field) — never retry.
+    if (typeof err?.status === 'number' && err.status >= 500 && err.status < 600) return true;
+    return false;
+  };
+  // Two attempts only — one initial + one quick retry on transient
+  // network errors. Any more makes a Safari macOS-network-subsystem
+  // failure (which is reproducibly broken until OS reboot, NOT
+  // transient) cost the user 2.3+ seconds of pointless waiting per
+  // file. With 4-wide parallelism over a 300-file batch the prior
+  // 4-attempt scheme would add ~10 minutes of dead time. Truly
+  // transient one-off socket drops are still caught by the single
+  // retry.
+  const backoffs = [0, 200];
+  const attempts = backoffs.length;
+  let lastErr = null;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    if (attempt > 0) {
+      console.warn(
+        `apiUpload(${path}, ${file.name || '(blob)'}): ` +
+          `retry after ${backoffs[attempt]} ms ` +
+          `(prev: ${lastErr?.name || ''}: ${lastErr?.message || lastErr})`
+      );
+      await new Promise((r) => setTimeout(r, backoffs[attempt]));
+    }
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      return await apiFetch(path, { method: 'POST', body: fd });
+    } catch (err) {
+      lastErr = err;
+      if (!isTransient(err)) throw err;
+    }
+  }
+  // All attempts exhausted — re-throw the last error with extra context
+  // so the caller's catch sees what actually happened, not a bare
+  // "Load failed". Preserve the original error's status / detail / stack
+  // by wrapping rather than replacing.
+  const wrapped = new Error(
+    `Upload failed after ${attempts} attempts: ` +
+      `${lastErr?.name || 'Error'}: ${lastErr?.message || lastErr}`
+  );
+  wrapped.cause = lastErr;
+  wrapped.status = lastErr?.status;
+  wrapped.detail = lastErr?.detail || lastErr?.message;
+  wrapped.attempts = attempts;
+  throw wrapped;
 };
 
 // XHR-based upload that exposes per-file progress (the Fetch API doesn't
@@ -4671,6 +4837,7 @@ export {
   API_BASE,
   apiFetch,
   apiUpload,
+  apiUploadStream,
   apiUploadProgress,
   channelPngUrl,
   formatApiDetail,

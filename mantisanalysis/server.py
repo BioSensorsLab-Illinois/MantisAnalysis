@@ -13,12 +13,13 @@ from __future__ import annotations
 import base64
 import io
 import sys
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import math
 import numpy as np
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -176,6 +177,13 @@ class LoadFromPathRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     path: str
     name: Optional[str] = None
+    # When True, pin the loaded source so the LRU never evicts it
+    # automatically. Used by the Play loader: the user has explicitly
+    # added these recordings to their workspace and the frontend's
+    # `recordings` array is the source of truth — a 410 Gone on a
+    # listed recording is always wrong UX. Explicit DELETE still
+    # works on pinned sources.
+    auto_pin: bool = False
 
 
 class LocateFileRequest(BaseModel):
@@ -268,6 +276,18 @@ class TiledExportViewSpec(BaseModel):
     overlay_colormap: str = "inferno"
     blend: str = "alpha"
     strength: float = 0.65
+    # Per-layer linear ISP (independent for base vs overlay). Mirrors
+    # the /overlay.png query params; defaults are identity (no-op).
+    base_black_level: float = 0.0
+    base_isp_gain: float = 1.0
+    base_isp_offset: float = 0.0
+    overlay_black_level: float = 0.0
+    overlay_isp_gain: float = 1.0
+    overlay_isp_offset: float = 0.0
+    # Brightness multiplier on the colormapped overlay RGB.
+    overlay_brightness: float = 1.0
+    # Per-region ROIs for the BASE composite (overlay-tile path).
+    region_rois: Optional[List[Dict[str, Any]]] = None
     # M22 RGB grading
     grading_gain_r: float = 1.0
     grading_gain_g: float = 1.0
@@ -303,6 +323,12 @@ class TiledExportViewSpec(BaseModel):
     # RGB shows through everywhere else. Mirrors mask_polygon on the
     # per-frame /overlay.png route so exports honor WYSIWYG.
     mask_polygon: Optional[List[List[float]]] = None
+    # ROI edge softness in pixels (Gaussian sigma applied to the
+    # rasterized polygon mask). 0 = hard binary edge (legacy). >0 =
+    # gradual decay so the overlay fades smoothly across the polygon
+    # boundary instead of clipping. Capped server-side to 25% of
+    # min(H, W) to prevent runaway smear.
+    mask_feather_px: float = 0.0
     # Display-only
     title: Optional[str] = None            # caption above this tile (UI label)
 
@@ -392,6 +418,39 @@ class MultiSourceVideoRequest(BaseModel):
         strength: float = Field(0.65, ge=0.0, le=1.0)
         overlay_colormap: str = "inferno"
         mask_polygon: Optional[List[List[float]]] = None
+        # Soft-edge feather (Gaussian sigma in pixels) applied to the
+        # polygon mask. 0 keeps the legacy hard-clip; small positive
+        # values fade the overlay smoothly across the boundary.
+        mask_feather_px: float = 0.0
+        # Per-layer linear ISP (independent for base vs overlay) so the
+        # multi-source export honours the canvas WYSIWYG when the user
+        # has tuned base brightness vs overlay brightness independently.
+        base_black_level: float = 0.0
+        base_isp_gain: float = Field(1.0, ge=0.0, le=64.0)
+        base_isp_offset: float = 0.0
+        overlay_black_level: float = 0.0
+        overlay_isp_gain: float = Field(1.0, ge=0.0, le=64.0)
+        overlay_isp_offset: float = 0.0
+        # Brightness multiplier on the colormapped overlay RGB.
+        overlay_brightness: float = Field(1.0, ge=0.0, le=8.0)
+        # RGB grading for the BASE layer (overlay channel is single-
+        # channel and unaffected). Mirrors the per-frame /overlay.png
+        # query params so the exported video matches the canvas.
+        gain_r: float = Field(1.0, ge=0.0, le=8.0)
+        gain_g: float = Field(1.0, ge=0.0, le=8.0)
+        gain_b: float = Field(1.0, ge=0.0, le=8.0)
+        offset_r: float = 0.0
+        offset_g: float = 0.0
+        offset_b: float = 0.0
+        gamma_g: float = Field(1.0, ge=0.1, le=4.0)
+        brightness_g: float = 0.0
+        contrast_g: float = Field(1.0, ge=0.0, le=4.0)
+        saturation_g: float = Field(1.0, ge=0.0, le=4.0)
+        wb_kelvin: Optional[float] = None
+        # Per-region ROIs for the BASE composite. Each region:
+        # ``{polygon, feather_px, gain, gamma, wb_kelvin, contrast,
+        # saturation}``. Empty / null = no-op.
+        region_rois: Optional[List[Dict[str, Any]]] = None
 
     sources: List[SourceSpec]
     fps: float = Field(10.0, ge=0.1, le=120.0)
@@ -518,7 +577,15 @@ class ROIStatsRequest(BaseModel):
     # B-0040 — HDR fusion override (honored when the requested channel
     # is HDR-*). Defaults to "switch" so existing TBR entries match
     # the cached extraction byte-for-byte.
-    hdr_fusion: str = Field("switch", pattern=r"^(switch|mertens)$")
+    hdr_fusion: str = Field("switch", pattern=r"^(switch|mertens|linear)$")
+    hdr_threshold: Optional[float] = Field(None, ge=0.0)
+    hdr_knee: Optional[float] = Field(None, ge=1.0)
+    hdr_ratio: Optional[float] = Field(None, gt=0.0)
+    hdr_blend: Optional[float] = Field(None, ge=0.0, le=1.0)
+    hdr_output_scale: Optional[str] = Field(None, pattern=r"^(none|linear|reinhard)$")
+    hdr_output_min: Optional[float] = Field(None, ge=0.0)
+    hdr_output_max: Optional[float] = Field(None, gt=0.0)
+    hdr_reinhard_white: Optional[float] = Field(None, gt=0.0)
 
     @field_validator("polygon")
     @classmethod
@@ -790,7 +857,100 @@ def _resolve_web_dir() -> Path:
 WEB_DIR = _resolve_web_dir()
 
 
+def _upload_tempdir() -> Path:
+    """Private tempdir for upload pre-load buffering.
+
+    Owning a dedicated dir lets us reap stale tempfiles aggressively
+    on server startup + periodically during runtime, without touching
+    other apps' tempfiles. macOS / Linux default ``$TMPDIR`` is
+    shared and can fill from many sources; isolation makes "old
+    upload bytes leaked from a 300-file batch" recoverable by simply
+    restarting the server.
+    """
+    import tempfile
+    base = Path(tempfile.gettempdir()) / "mantisanalysis_uploads"
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+
+def _purge_upload_tempdir(*, max_age_seconds: float = 3600) -> int:
+    """Unlink files in the upload tempdir older than ``max_age_seconds``.
+
+    Returns the count of files removed. Run once at server startup
+    (clean slate after a previous crash/large batch) and on every
+    upload request to keep the dir bounded. Silent on errors —
+    tempfile cleanup is best-effort.
+    """
+    import time as _time
+    base = _upload_tempdir()
+    now = _time.time()
+    removed = 0
+    try:
+        for p in base.iterdir():
+            try:
+                age = now - p.stat().st_mtime
+                if age > max_age_seconds:
+                    p.unlink()
+                    removed += 1
+            except OSError:
+                pass
+    except OSError:
+        pass
+    return removed
+
+
+def _bump_fd_limit_if_low() -> None:
+    """Raise the OS soft FD limit toward the hard limit at startup.
+
+    macOS defaults to a 256-FD soft limit, which is small enough that
+    a 300-recording Play workspace exhausts it (each LoadedSource keeps
+    its h5py.File handle open for lazy frame extraction; pinned sources
+    never close until explicit DELETE). When the FD pool runs dry,
+    EVERY subsequent open(2) call fails — including new uploads,
+    static-file serving, and h5py.File()s for the next batch — which
+    surfaces to the user as cryptic "Load failed" toasts on uploads
+    that would have succeeded on a fresh server.
+
+    Bumping to the hard limit (typically 10 240 on macOS, 524 288 on
+    modern Linux) lets ~10 K open files in one session before the
+    same problem recurs. Silently no-ops on platforms without
+    ``resource`` (Windows).
+    """
+    try:
+        import resource
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        target = max(soft, min(hard, 65536))
+        if target > soft:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+            print(
+                f"[mantisanalysis] FD soft-limit raised {soft} → {target} "
+                f"(hard cap {hard})",
+                file=sys.stderr,
+            )
+    except (ImportError, OSError, ValueError) as exc:
+        print(
+            f"[mantisanalysis] FD limit unchanged: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+
+
 def create_app() -> FastAPI:
+    _bump_fd_limit_if_low()
+    # Reap stale upload tempfiles from prior runs (e.g. a crashed
+    # 300-file batch). 3600 s = 1 hr threshold matches the export-job
+    # TTL so the two share a cleanup cadence.
+    try:
+        n = _purge_upload_tempdir(max_age_seconds=3600)
+        if n > 0:
+            print(
+                f"[mantisanalysis] purged {n} stale upload tempfiles on startup",
+                file=sys.stderr,
+            )
+    except Exception as exc:
+        print(
+            f"[mantisanalysis] upload-tempdir purge failed: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
     app = FastAPI(
         title="MantisAnalysis",
         version=__version__,
@@ -1025,15 +1185,320 @@ def _mount_api(app: FastAPI) -> None:
     def list_sources():
         return STORE.list()
 
+    # ------------------------------------------------------------------
+    # Chunked upload — three-step flow for files large enough that
+    # fetch's body buffering aborts (Safari/WebKit ~256 MB FormData
+    # ceiling, Chromium streaming-upload requires HTTP/2 which uvicorn
+    # doesn't speak by default). Each chunk fits in any browser's body
+    # buffer; the server appends them to a tempfile and finalizes by
+    # invoking the existing loader.
+    #
+    # Lifecycle:
+    #   POST /api/sources/upload-init  → allocates tempfile, returns id
+    #   POST /api/sources/upload-chunk/{id}  → appends bytes
+    #   POST /api/sources/upload-finalize/{id}  → runs loader, registers
+    #
+    # Sessions live in a process-local dict keyed by an opaque uuid hex
+    # string. Stale sessions self-clean after 1 hr (matches the
+    # ExportJob TTL).
+    # ------------------------------------------------------------------
+    _upload_sessions_lock = threading.Lock()
+    _upload_sessions: Dict[str, Dict[str, Any]] = {}
+
+    def _cleanup_stale_uploads() -> None:
+        cutoff = time.time() - 3600
+        with _upload_sessions_lock:
+            stale = [k for k, v in _upload_sessions.items() if v["created_at"] < cutoff]
+            for k in stale:
+                v = _upload_sessions.pop(k, None)
+                if v and v.get("path"):
+                    p = Path(v["path"])
+                    if p.exists():
+                        try:
+                            p.unlink()
+                        except OSError:
+                            pass
+
+    @app.post("/api/sources/upload-init")
+    def upload_init(
+        name: str = Query(...),
+        size: int = Query(..., ge=0),
+    ):
+        """Allocate a tempfile + session id for a chunked upload."""
+        _cleanup_stale_uploads()
+        if size > 50 * 1024 * 1024 * 1024:  # 50 GB sanity ceiling
+            raise HTTPException(413, f"upload size {size} exceeds 50 GB limit")
+        import tempfile
+        import uuid
+        from pathlib import Path as _P
+        suffix = _P(name).suffix
+        with tempfile.NamedTemporaryFile(
+            suffix=suffix, delete=False, dir=str(_upload_tempdir()),
+        ) as fh:
+            tmp_path = _P(fh.name)
+        upload_id = uuid.uuid4().hex
+        with _upload_sessions_lock:
+            _upload_sessions[upload_id] = {
+                "path": str(tmp_path),
+                "name": name,
+                "expected_size": int(size),
+                "received": 0,
+                "created_at": time.time(),
+            }
+        return {"upload_id": upload_id, "chunk_size_recommended": 32 * 1024 * 1024}
+
+    @app.post("/api/sources/upload-chunk/{upload_id}")
+    async def upload_chunk(upload_id: str, request: Request):
+        """Append a chunk to the upload's tempfile.
+
+        The browser POSTs the raw chunk bytes as the request body. We
+        append to the tempfile (sequential — the frontend MUST send
+        chunks in order). Returns the new total received-byte count
+        so the client can verify progress.
+        """
+        with _upload_sessions_lock:
+            sess = _upload_sessions.get(upload_id)
+            if sess is None:
+                raise HTTPException(404, f"unknown upload session {upload_id!r}")
+            tmp_path = sess["path"]
+        try:
+            with open(tmp_path, "ab") as fh:
+                async for chunk in request.stream():
+                    if chunk:
+                        fh.write(chunk)
+        except Exception as exc:
+            raise HTTPException(500, f"chunk write failed: {type(exc).__name__}: {exc}") from exc
+        # Update received count under lock.
+        new_size = Path(tmp_path).stat().st_size
+        with _upload_sessions_lock:
+            if upload_id in _upload_sessions:
+                _upload_sessions[upload_id]["received"] = int(new_size)
+        return {"received": int(new_size)}
+
+    @app.post("/api/sources/upload-finalize/{upload_id}", response_model=SourceSummary)
+    def upload_finalize(upload_id: str, auto_pin: bool = Query(False)):
+        """Hand the assembled tempfile to the loader. Discards the
+        upload session afterward."""
+        with _upload_sessions_lock:
+            sess = _upload_sessions.pop(upload_id, None)
+        if sess is None:
+            raise HTTPException(404, f"unknown upload session {upload_id!r}")
+        from pathlib import Path as _P
+        tmp_path = _P(sess["path"])
+        if not tmp_path.exists() or tmp_path.stat().st_size == 0:
+            raise HTTPException(400, "upload finalize: empty tempfile")
+        actual_size = tmp_path.stat().st_size
+        expected = int(sess.get("expected_size", 0))
+        if expected > 0 and actual_size != expected:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+            raise HTTPException(
+                400,
+                f"upload finalize: size mismatch — expected {expected} "
+                f"bytes, received {actual_size}",
+            )
+        try:
+            src = STORE.load_from_uploaded_tempfile(
+                tmp_path, name=sess["name"], upload_size=actual_size,
+            )
+        except Exception as exc:
+            import traceback as _tb
+            tb_str = _tb.format_exc()
+            print(tb_str, file=sys.stderr)
+            frame_loc = ""
+            try:
+                for line in reversed(tb_str.splitlines()):
+                    s = line.strip()
+                    if s.startswith("File ") and ", line " in s:
+                        idx = s.find("/mantisanalysis/")
+                        frame_loc = s[idx:] if idx >= 0 else s
+                        break
+            except Exception:
+                pass
+            raise HTTPException(
+                400,
+                f"load failed: {type(exc).__name__}: {exc}"
+                + (f" [at {frame_loc}]" if frame_loc else ""),
+            ) from exc
+        if auto_pin:
+            src.pinned = True
+        return _summary(src)
+
+    @app.post("/api/sources/upload-stream", response_model=SourceSummary)
+    async def upload_source_stream(
+        request: Request,
+        name: str = Query(..., description="Original filename (with suffix)"),
+        auto_pin: bool = Query(False),
+    ):
+        """Streaming upload — raw body straight to a tempfile.
+
+        WebKit's `fetch(url, {body: formData})` for very large
+        multipart bodies (>~256 MB observed) frequently aborts with
+        ``TypeError: Load failed`` because Safari buffers the entire
+        FormData payload in client-side RAM before sending. Sending
+        the File directly as the request body (no multipart wrapper)
+        sidesteps the FormData buffer and streams the bytes through
+        the network stack as they're read from disk.
+
+        Server-side we read the body chunk-by-chunk via
+        ``request.stream()`` and copy each chunk to the tempfile,
+        so peak server-side RAM stays at the 1 MB chunk size
+        regardless of the upload size.
+
+        Bug 14 history: a user reported 512 MB H5 uploads failing
+        4× in a row through the FormData path. Switching to streaming
+        body fixed it; this route is now the default for the Play
+        loader.
+        """
+        import tempfile
+        from pathlib import Path as _P
+        _purge_upload_tempdir(max_age_seconds=3600)
+        suffix = _P(name).suffix
+        size = 0
+        tmp_path: Optional[_P] = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                suffix=suffix, delete=False, dir=str(_upload_tempdir()),
+            ) as fh:
+                tmp_path = _P(fh.name)
+                async for chunk in request.stream():
+                    if not chunk:
+                        continue
+                    fh.write(chunk)
+                    size += len(chunk)
+            if size == 0:
+                if tmp_path and tmp_path.exists():
+                    try:
+                        tmp_path.unlink()
+                    except OSError:
+                        pass
+                raise HTTPException(400, "empty upload")
+            try:
+                src = STORE.load_from_uploaded_tempfile(
+                    tmp_path, name=name, upload_size=size,
+                )
+            except Exception as exc:
+                # Same diagnostic emission as upload_source — full
+                # traceback to stderr, deepest frame in detail.
+                import traceback as _tb
+                tb_str = _tb.format_exc()
+                print(tb_str, file=sys.stderr)
+                frame_loc = ""
+                try:
+                    for line in reversed(tb_str.splitlines()):
+                        s = line.strip()
+                        if s.startswith("File ") and ", line " in s:
+                            idx = s.find("/mantisanalysis/")
+                            frame_loc = s[idx:] if idx >= 0 else s
+                            break
+                except Exception:
+                    pass
+                raise HTTPException(
+                    400,
+                    f"load failed: {type(exc).__name__}: {exc}"
+                    + (f" [at {frame_loc}]" if frame_loc else ""),
+                ) from exc
+        except HTTPException:
+            raise
+        except Exception as exc:
+            # Anything else (disk full while writing tempfile, client
+            # disconnect mid-stream) — surface verbatim so the client
+            # toast is meaningful.
+            if tmp_path and tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
+            import traceback as _tb
+            tb_str = _tb.format_exc()
+            print(tb_str, file=sys.stderr)
+            raise HTTPException(
+                500,
+                f"upload-stream failed: {type(exc).__name__}: {exc}",
+            ) from exc
+        if auto_pin:
+            src.pinned = True
+        return _summary(src)
+
     @app.post("/api/sources/upload", response_model=SourceSummary)
-    async def upload_source(file: UploadFile = File(...)):
-        data = await file.read()
-        if not data:
+    async def upload_source(
+        file: UploadFile = File(...),
+        auto_pin: bool = Query(False),
+    ):
+        # Stream the uploaded body straight to a tempfile rather than
+        # buffering the whole payload in a single Python `bytes` object
+        # — for a 500 MB H5 the legacy `await file.read()` + write path
+        # held ~1 GB in process heap (bytes object + tempfile copy) per
+        # concurrent upload. Streaming caps peak overhead at the read
+        # chunk size. uvicorn's ``UploadFile.file`` is a
+        # ``SpooledTemporaryFile`` so ``copyfileobj`` works with no
+        # async wrapper.
+        #
+        # Tempfile lives in our dedicated `_upload_tempdir()` so a
+        # 300-file batch can't pollute system $TMPDIR with orphans
+        # that survive across server restarts. We opportunistically
+        # purge stale entries (>1 hr) every upload so the dir stays
+        # bounded.
+        import shutil
+        import tempfile
+        from pathlib import Path as _P
+        _purge_upload_tempdir(max_age_seconds=3600)
+        filename = file.filename or "upload"
+        suffix = _P(filename).suffix
+        with tempfile.NamedTemporaryFile(
+            suffix=suffix, delete=False, dir=str(_upload_tempdir()),
+        ) as fh:
+            tmp_path = _P(fh.name)
+            # 1 MB chunks — small enough that 100 concurrent uploads
+            # don't add up to a meaningful RAM hit, large enough that
+            # the syscall overhead is negligible vs the file size.
+            shutil.copyfileobj(file.file, fh, length=1024 * 1024)
+        upload_size = tmp_path.stat().st_size
+        if upload_size == 0:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
             raise HTTPException(400, "empty upload")
         try:
-            src = STORE.load_from_bytes(data, name=file.filename or "upload")
+            src = STORE.load_from_uploaded_tempfile(
+                tmp_path, name=filename, upload_size=upload_size,
+            )
         except Exception as exc:
-            raise HTTPException(400, f"load failed: {type(exc).__name__}: {exc}") from exc
+            # Print the full traceback to the server log so the operator
+            # can grep for the failure. The HTTPException detail carries
+            # the exception class + message + the most-recent user-code
+            # frame's file:line — enough to triage from the frontend
+            # toast alone without round-tripping to the server log.
+            import traceback as _tb
+            tb_str = _tb.format_exc()
+            print(tb_str, file=sys.stderr)
+            frame_loc = ""
+            try:
+                # Find the deepest "File "...", line N, in fn" entry —
+                # gives the call site that raised, which is way more
+                # useful than the bare ExcType: msg for an OSError or
+                # KeyError.
+                for line in reversed(tb_str.splitlines()):
+                    s = line.strip()
+                    if s.startswith("File ") and ", line " in s:
+                        # Strip path prefix down to /mantisanalysis/...
+                        # so the message stays compact.
+                        idx = s.find("/mantisanalysis/")
+                        frame_loc = s[idx:] if idx >= 0 else s
+                        break
+            except Exception:
+                pass
+            raise HTTPException(
+                400,
+                f"load failed: {type(exc).__name__}: {exc}"
+                + (f" [at {frame_loc}]" if frame_loc else ""),
+            ) from exc
+        if auto_pin:
+            # See LoadFromPathRequest.auto_pin doc — same semantics.
+            src.pinned = True
         return _summary(src)
 
     @app.post("/api/sources/load-path", response_model=SourceSummary)
@@ -1044,7 +1509,31 @@ def _mount_api(app: FastAPI) -> None:
         try:
             src = STORE.load_from_path(p, name=req.name)
         except Exception as exc:
-            raise HTTPException(400, f"load failed: {type(exc).__name__}: {exc}") from exc
+            # Same structured detail-emission as upload_source — see the
+            # comment block there for rationale.
+            import traceback as _tb
+            tb_str = _tb.format_exc()
+            print(tb_str, file=sys.stderr)
+            frame_loc = ""
+            try:
+                for line in reversed(tb_str.splitlines()):
+                    s = line.strip()
+                    if s.startswith("File ") and ", line " in s:
+                        idx = s.find("/mantisanalysis/")
+                        frame_loc = s[idx:] if idx >= 0 else s
+                        break
+            except Exception:
+                pass
+            raise HTTPException(
+                400,
+                f"load failed: {type(exc).__name__}: {exc}"
+                + (f" [at {frame_loc}]" if frame_loc else ""),
+            ) from exc
+        if req.auto_pin:
+            # Mark non-evictable — the Play frontend's recordings array
+            # is the source of truth. The user explicitly removes via
+            # DELETE /api/sources/{sid} which works on pinned sources.
+            src.pinned = True
         return _summary(src)
 
     @app.post("/api/sources/load-sample", response_model=SourceSummary)
@@ -1546,6 +2035,12 @@ def _mount_api(app: FastAPI) -> None:
         contrast_g: float = Query(1.0, ge=0.0, le=4.0),
         saturation_g: float = Query(1.0, ge=0.0, le=4.0),
         wb_kelvin: Optional[float] = Query(None, ge=1500.0, le=12000.0),
+        # Per-region ROIs (gain / gamma / WB / contrast / saturation +
+        # feather + negate). Applied AFTER vmin/vmax norm but BEFORE
+        # the colormap-or-grayscale display step, so each region's
+        # pixels are graded independently of the rest of the frame.
+        # JSON-encoded list; null / empty = no-op.
+        region_rois: Optional[str] = Query(None),
         # B-0040: HDR fusion mode override. Default "switch" (hard
         # threshold; cached at extract time) is byte-identical to the
         # previous behaviour. "mertens" re-fuses at render time with a
@@ -1553,8 +2048,25 @@ def _mount_api(app: FastAPI) -> None:
         # into LG-scaled values instead of producing the hard seam.
         # Honored only when the requested channel is HDR-*.
         hdr_fusion: str = Query("switch", pattern=_HDR_FUSION_PATTERN,
-            description="'switch' (default, hard threshold) or 'mertens' "
-                        "(smooth knee). Re-fuses HDR channels at render time."),
+            description="'switch' (default, hard threshold), 'mertens' "
+                        "(smooth knee) or 'linear' (fixed weighted "
+                        "blend). Re-fuses HDR channels at render time."),
+        # HDR parameter knobs — only honored when the requested channel
+        # is HDR-* AND the fusion mode (or another knob) deviates from
+        # the source's cached default. None defaults map back to the
+        # baked-in HDR defaults in `hdr_fusion.py`.
+        hdr_threshold: Optional[float] = Query(None, ge=0.0),
+        hdr_knee: Optional[float] = Query(None, ge=1.0),
+        hdr_ratio: Optional[float] = Query(None, gt=0.0),
+        hdr_blend: Optional[float] = Query(None, ge=0.0, le=1.0),
+        hdr_output_scale: Optional[str] = Query(
+            None, pattern=_HDR_OUTPUT_SCALE_PATTERN,
+            description="Post-fusion output scaling: 'none' (raw), "
+                        "'linear' (rescale max to 65535), or 'reinhard' "
+                        "(soft-clip then rescale)."),
+        hdr_output_min: Optional[float] = Query(None, ge=0.0),
+        hdr_output_max: Optional[float] = Query(None, gt=0.0),
+        hdr_reinhard_white: Optional[float] = Query(None, gt=0.0),
     ):
         """Per-frame variant of channel_thumbnail — same contract,
         different frame index. ISP / sharpen chain is intentionally
@@ -1575,7 +2087,17 @@ def _mount_api(app: FastAPI) -> None:
             except RuntimeError as e:
                 # Source loaded from upload (no path) — frame > 0 unavailable.
                 raise HTTPException(409, str(e))
-            chs = _resolve_hdr_channels(chs, hdr_fusion)
+            chs = _resolve_hdr_channels(
+                chs, hdr_fusion,
+                hdr_threshold=hdr_threshold,
+                hdr_knee=hdr_knee,
+                hdr_ratio=hdr_ratio,
+                hdr_blend=hdr_blend,
+                hdr_output_scale=hdr_output_scale,
+                hdr_output_min=hdr_output_min,
+                hdr_output_max=hdr_output_max,
+                hdr_reinhard_white=hdr_reinhard_white,
+            )
             labels_cfg = {
                 "timestamp": labels_timestamp,
                 "frame": labels_frame,
@@ -1635,6 +2157,15 @@ def _mount_api(app: FastAPI) -> None:
             # M20.1 — pre-normalize ISP linear correction.
             image = _apply_pre_norm(image, black_level=black_level,
                                     gain=gain, offset=offset)
+            # Per-region ROI ISP — applied to the raw DN array BEFORE
+            # the display pipeline (vmin/vmax norm + colormap + invert)
+            # so the user's threshold and colormap colour the region's
+            # modified values. A region with gain=2 pushes its pixels
+            # into a brighter point on the colormap (instead of merely
+            # tinting the post-colormap RGB).
+            image = _apply_region_rois_raw(
+                image, _parse_region_rois(region_rois),
+            )
             png = channel_to_png_bytes(
                 image, max_dim=max_dim, colormap=colormap,
                 vmin=vmin, vmax=vmax, show_clipping=show_clipping,
@@ -1692,6 +2223,14 @@ def _mount_api(app: FastAPI) -> None:
         bilateral: bool = Query(False),
         # B-0040 — HDR fusion mode override; honored only for HDR-* channels.
         hdr_fusion: str = Query("switch", pattern=_HDR_FUSION_PATTERN),
+        hdr_threshold: Optional[float] = Query(None, ge=0.0),
+        hdr_knee: Optional[float] = Query(None, ge=1.0),
+        hdr_ratio: Optional[float] = Query(None, gt=0.0),
+        hdr_blend: Optional[float] = Query(None, ge=0.0, le=1.0),
+        hdr_output_scale: Optional[str] = Query(None, pattern=_HDR_OUTPUT_SCALE_PATTERN),
+        hdr_output_min: Optional[float] = Query(None, ge=0.0),
+        hdr_output_max: Optional[float] = Query(None, gt=0.0),
+        hdr_reinhard_white: Optional[float] = Query(None, gt=0.0),
     ):
         """64-bin histogram of one channel of one frame.
 
@@ -1712,7 +2251,17 @@ def _mount_api(app: FastAPI) -> None:
                 raise HTTPException(404, str(e))
             except RuntimeError as e:
                 raise HTTPException(409, str(e))
-            chs = _resolve_hdr_channels(chs, hdr_fusion)
+            chs = _resolve_hdr_channels(
+                chs, hdr_fusion,
+                hdr_threshold=hdr_threshold,
+                hdr_knee=hdr_knee,
+                hdr_ratio=hdr_ratio,
+                hdr_blend=hdr_blend,
+                hdr_output_scale=hdr_output_scale,
+                hdr_output_min=hdr_output_min,
+                hdr_output_max=hdr_output_max,
+                hdr_reinhard_white=hdr_reinhard_white,
+            )
             if channel not in chs:
                 raise HTTPException(
                     404,
@@ -1793,7 +2342,17 @@ def _mount_api(app: FastAPI) -> None:
                 raise HTTPException(404, str(e))
             except RuntimeError as e:
                 raise HTTPException(409, str(e))
-            chs = _resolve_hdr_channels(chs, body.hdr_fusion)
+            chs = _resolve_hdr_channels(
+                chs, body.hdr_fusion,
+                hdr_threshold=body.hdr_threshold,
+                hdr_knee=body.hdr_knee,
+                hdr_ratio=body.hdr_ratio,
+                hdr_blend=body.hdr_blend,
+                hdr_output_scale=body.hdr_output_scale,
+                hdr_output_min=body.hdr_output_min,
+                hdr_output_max=body.hdr_output_max,
+                hdr_reinhard_white=body.hdr_reinhard_white,
+            )
             if channel not in chs:
                 raise HTTPException(
                     404,
@@ -2026,10 +2585,22 @@ def _mount_api(app: FastAPI) -> None:
         contrast_g: float = Query(1.0, ge=0.0, le=4.0),
         saturation_g: float = Query(1.0, ge=0.0, le=4.0),
         wb_kelvin: Optional[float] = Query(None, ge=1500.0, le=12000.0),
+        # Per-region ROIs for the RGB-composite output (each region
+        # gets its own gain / gamma / WB / contrast / saturation +
+        # feather + negate). Applied AFTER the global grading.
+        region_rois: Optional[str] = Query(None),
         # B-0040: see frame_channel_thumbnail for description. Honored
         # when gain="hdr" — re-fuses the HDR-R/G/B/NIR triplet under
         # the requested fusion mode before the RGB composite.
         hdr_fusion: str = Query("switch", pattern=_HDR_FUSION_PATTERN),
+        hdr_threshold: Optional[float] = Query(None, ge=0.0),
+        hdr_knee: Optional[float] = Query(None, ge=1.0),
+        hdr_ratio: Optional[float] = Query(None, gt=0.0),
+        hdr_blend: Optional[float] = Query(None, ge=0.0, le=1.0),
+        hdr_output_scale: Optional[str] = Query(None, pattern=_HDR_OUTPUT_SCALE_PATTERN),
+        hdr_output_min: Optional[float] = Query(None, ge=0.0),
+        hdr_output_max: Optional[float] = Query(None, gt=0.0),
+        hdr_reinhard_white: Optional[float] = Query(None, gt=0.0),
     ):
         """Convenience endpoint that auto-resolves the RGB triplet for a
         dual-gain RGB-NIR source. Equivalent to calling the per-channel
@@ -2044,7 +2615,17 @@ def _mount_api(app: FastAPI) -> None:
                 raise HTTPException(404, str(e))
             except RuntimeError as e:
                 raise HTTPException(409, str(e))
-            chs = _resolve_hdr_channels(chs, hdr_fusion)
+            chs = _resolve_hdr_channels(
+                chs, hdr_fusion,
+                hdr_threshold=hdr_threshold,
+                hdr_knee=hdr_knee,
+                hdr_ratio=hdr_ratio,
+                hdr_blend=hdr_blend,
+                hdr_output_scale=hdr_output_scale,
+                hdr_output_min=hdr_output_min,
+                hdr_output_max=hdr_output_max,
+                hdr_reinhard_white=hdr_reinhard_white,
+            )
             prefix = "HG-" if gain.lower() == "hg" else "LG-" if gain.lower() == "lg" else "HDR-"
             # Use the prefix-aware composite helper. Channel arg is just used
             # to pick the gain prefix.
@@ -2079,6 +2660,22 @@ def _mount_api(app: FastAPI) -> None:
                     f"source {source_id!r} does not support an RGB composite under "
                     f"its active ISP mode {src.isp_mode_id!r}",
                 )
+            # Per-region ROI ISP for the RGB composite. source_shape
+            # is the per-channel array shape so polygon vertices
+            # (drawn against `recording.shape` on the frontend) line
+            # up with the (potentially max_dim-resized) decoded PNG.
+            _rgb_src_shape = None
+            try:
+                _ref_chan = chs.get(prefix + "R")
+                if _ref_chan is not None and getattr(_ref_chan, "shape", None) is not None:
+                    _rgb_src_shape = tuple(_ref_chan.shape[:2])
+            except Exception:
+                _rgb_src_shape = None
+            png = _apply_region_rois_to_png(
+                png,
+                _parse_region_rois(region_rois),
+                source_shape=_rgb_src_shape,
+            )
             png = _maybe_burn_labels(
                 png, src=src, frame_index=int(frame_index),
                 channel_name=f"RGB · {gain.upper()}",
@@ -2133,6 +2730,55 @@ def _mount_api(app: FastAPI) -> None:
         # else. Points outside the channel shape are clipped at
         # rasterization time. Pass an empty list to clear.
         mask_polygon: Optional[str] = Query(None),
+        # ROI edge softness in pixels (Gaussian sigma). 0 = legacy hard
+        # edge; >0 gradually decays the polygon mask so the overlay
+        # blends smoothly into the surrounding base instead of clipping.
+        mask_feather_px: float = Query(0.0, ge=0.0, le=200.0),
+        # ----- Per-layer linear ISP (independent for base vs overlay) -
+        # Applied as ``out = (image - black_level)*gain + offset`` on
+        # each layer's source array BEFORE normalization / colormap /
+        # composite. Default identity (no-op) preserves the legacy
+        # auto-percentile behaviour. The base side maps onto the
+        # ``_composite_rgb_array``'s existing black_level/gain/offset
+        # kwargs (RGB composite path) or to ``_apply_pre_norm`` (single-
+        # channel base). The overlay side runs ``_apply_pre_norm`` on
+        # the single overlay channel right before ``_norm_to_unit`` so
+        # the user can pull the overlay's brightness/contrast without
+        # disturbing the base, and vice-versa.
+        base_black_level: float = Query(0.0),
+        base_isp_gain: float = Query(1.0, ge=0.0, le=64.0),
+        base_isp_offset: float = Query(0.0),
+        overlay_black_level: float = Query(0.0),
+        overlay_isp_gain: float = Query(1.0, ge=0.0, le=64.0),
+        overlay_isp_offset: float = Query(0.0),
+        # Brightness multiplier on the COLORMAPPED overlay RGB. The
+        # `strength` knob controls alpha (how much the overlay shows
+        # through); this controls the LUT-output luminance directly.
+        # 1.0 = identity (no-op). >1.0 brightens the colormapped
+        # pixels before blending; <1.0 dims them. Clipped to [0, 1]
+        # post-multiply so we never overflow the encoder.
+        overlay_brightness: float = Query(1.0, ge=0.0, le=8.0),
+        # Per-region ROIs with per-region ISP (gain / gamma / WB /
+        # contrast / saturation + edge feather). Applied to the BASE
+        # composite BEFORE the overlay blend so each region's pixels
+        # are graded independently. JSON-encoded list of region dicts;
+        # empty / null = no-op. See `_parse_region_rois`.
+        region_rois: Optional[str] = Query(None),
+        # Per-channel RGB grading for the BASE layer (the overlay
+        # channel is single-channel and is unaffected). Param names
+        # mirror the RGB-route helper `_appendGradingQuery` so the
+        # frontend can reuse it verbatim. All defaults are identity.
+        gain_r: float = Query(1.0, ge=0.0, le=8.0),
+        gain_g: float = Query(1.0, ge=0.0, le=8.0),
+        gain_b: float = Query(1.0, ge=0.0, le=8.0),
+        offset_r: float = Query(0.0),
+        offset_g: float = Query(0.0),
+        offset_b: float = Query(0.0),
+        gamma_g: float = Query(1.0, ge=0.1, le=4.0),
+        brightness_g: float = Query(0.0),
+        contrast_g: float = Query(1.0, ge=0.0, le=4.0),
+        saturation_g: float = Query(1.0, ge=0.0, le=3.0),
+        wb_kelvin: Optional[float] = Query(None),
         # Burn-in label flags (parity with frame_channel_thumbnail and
         # frame_rgb). Defaults all off; _maybe_burn_labels short-circuits
         # to the unmodified PNG when no flag is set, so the no-labels
@@ -2168,9 +2814,18 @@ def _mount_api(app: FastAPI) -> None:
             # the right default for both base and overlay channels so
             # the overlay actually pops. (The thumbnail/rgb routes
             # default to 'none' for HG-vs-LG truth; overlay diverges.)
+            base_grading = _grading_from_query(
+                gain_r=gain_r, gain_g=gain_g, gain_b=gain_b,
+                offset_r=offset_r, offset_g=offset_g, offset_b=offset_b,
+                gamma_g=gamma_g, brightness_g=brightness_g,
+                contrast_g=contrast_g, saturation_g=saturation_g,
+                wb_kelvin=wb_kelvin,
+            )
             if base_kind == "rgb_composite":
                 base_arr = _composite_rgb_array(
-                    src, chs, base_channel, apply_dark=apply_dark, normalize="auto"
+                    src, chs, base_channel,
+                    apply_dark=apply_dark, normalize="auto",
+                    grading=base_grading,
                 )
                 if base_arr is None:
                     raise HTTPException(422,
@@ -2187,13 +2842,43 @@ def _mount_api(app: FastAPI) -> None:
                         base_single = subtract_dark(base_single, d)
                 base_arr = _norm_to_unit(base_single, mode="auto")
                 base_arr = np.dstack([base_arr, base_arr, base_arr])
-            # Overlay channel — colormap + threshold mask
+                # Single-channel base (e.g. gray HG-Y) — apply grading
+                # via the same helper used for the RGB composite path.
+                base_arr = apply_grading(base_arr, base_grading).astype(
+                    np.float32, copy=False
+                )
+            # Per-layer linear ISP for the BASE side (post-norm so the
+            # auto-percentile baseline is preserved AND the user's
+            # adjustment is visible).
+            base_arr = _apply_post_norm_layer_isp(
+                base_arr,
+                black_level=float(base_black_level),
+                gain=float(base_isp_gain),
+                offset=float(base_isp_offset),
+            )
+            # Per-region ROI ISP — applied to the BASE composite BEFORE
+            # the overlay blend so each user-drawn region carries its
+            # own gain / gamma / WB / contrast / saturation + edge
+            # feather without leaking onto the colormapped overlay.
+            base_arr = _apply_region_rois_rgb(
+                base_arr, _parse_region_rois(region_rois),
+            )
+            # Overlay channel — colormap + threshold mask.
             ov_single = chs[overlay_channel]
             if apply_dark and src.has_dark and src.dark_channels is not None:
                 d = src.dark_channels.get(overlay_channel)
                 if d is not None:
                     ov_single = subtract_dark(ov_single, d)
             ov_norm = _norm_to_unit(ov_single, lo=overlay_low, hi=overlay_high, mode="auto")
+            # Per-layer linear ISP for the OVERLAY side (post-norm,
+            # applied to the [0, 1] alpha-driver before colormap so the
+            # colormap respects the user's brightness/contrast intent).
+            ov_norm = _apply_post_norm_layer_isp(
+                ov_norm,
+                black_level=float(overlay_black_level),
+                gain=float(overlay_isp_gain),
+                offset=float(overlay_isp_offset),
+            )
             # Apply colormap
             try:
                 from matplotlib import colormaps
@@ -2203,6 +2888,12 @@ def _mount_api(app: FastAPI) -> None:
                 cmap = colormaps["inferno"]
             ov_rgba = cmap(ov_norm)            # (H, W, 4) float64 in [0,1]
             ov_rgb = ov_rgba[..., :3].astype(np.float32, copy=False)
+            # Brightness pump on the colormapped pixels. Clipped to
+            # [0, 1] so the encoder doesn't overflow when the user
+            # pushes the slider past 1.0. Identity (1.0) is a no-op.
+            ob = float(overlay_brightness)
+            if abs(ob - 1.0) > 1e-6:
+                ov_rgb = np.clip(ov_rgb * ob, 0.0, 1.0).astype(np.float32, copy=False)
             # Mask: pixels below low threshold are transparent.
             s = float(strength)
             mask = ov_norm.astype(np.float32) * s
@@ -2210,7 +2901,9 @@ def _mount_api(app: FastAPI) -> None:
             # a binary {0,1} alpha mask and AND it into `mask`. The base
             # image shows through outside the polygon (mask=0 there);
             # the colormapped overlay only blends inside.
-            roi = _polygon_to_roi_mask(mask_polygon, mask.shape)
+            roi = _polygon_to_roi_mask(
+                mask_polygon, mask.shape, feather_px=mask_feather_px,
+            )
             if roi is not None:
                 mask = mask * roi
             if blend == "additive":
@@ -2568,12 +3261,32 @@ def _mount_api(app: FastAPI) -> None:
         # route so the exported video matches WYSIWYG with the canvas.
         # Ignored for render='rgb_composite' / 'channel'.
         mask_polygon: Optional[str] = Query(None),
+        # Soft-edge feather for the polygon mask (Gaussian sigma in px).
+        # 0 = hard edge; >0 fades the overlay's alpha smoothly across
+        # the polygon boundary so exports look continuous.
+        mask_feather_px: float = Query(0.0, ge=0.0, le=200.0),
         # Linear ISP pre-norm (forwarded to channel + RGB renders so the
         # exported video honors the live gain / offset / black-level the
         # canvas is showing). Defaults are no-op.
         black_level: float = Query(0.0),
         isp_gain: float = Query(1.0),
         isp_offset: float = Query(0.0),
+        # Per-layer linear ISP for render='overlay'. Independent of the
+        # render-wide black_level/isp_gain/isp_offset above so the user
+        # can pull base brightness vs overlay brightness separately.
+        # Identity defaults preserve legacy behaviour for callers that
+        # don't pass these.
+        base_black_level: float = Query(0.0),
+        base_isp_gain: float = Query(1.0, ge=0.0, le=64.0),
+        base_isp_offset: float = Query(0.0),
+        overlay_black_level: float = Query(0.0),
+        overlay_isp_gain: float = Query(1.0, ge=0.0, le=64.0),
+        overlay_isp_offset: float = Query(0.0),
+        # Brightness multiplier on the colormapped overlay RGB. Mirrors
+        # /overlay.png so exported video matches canvas WYSIWYG.
+        overlay_brightness: float = Query(1.0, ge=0.0, le=8.0),
+        # Per-region ROIs (overlay base layer). Mirrors /overlay.png.
+        region_rois: Optional[str] = Query(None),
         # Non-linear ISP chain (sharpen + denoise + FPN) forwarded so
         # exported channel/RGB videos match the canvas WYSIWYG.
         sharpen_method: Optional[str] = Query(None),
@@ -2584,6 +3297,22 @@ def _mount_api(app: FastAPI) -> None:
         gaussian_sigma: float = Query(0.0, ge=0.0, le=20.0),
         hot_pixel_thr: float = Query(0.0, ge=0.0, le=50.0),
         bilateral: bool = Query(False),
+        # RGB grading (per-channel gain/offset, gamma, brightness,
+        # contrast, saturation, WB Kelvin). Applied to the RGB
+        # composite path AND to the BASE layer of render='overlay' so
+        # exports match the canvas WYSIWYG. Identity defaults are
+        # no-ops on the backend.
+        gain_r: float = Query(1.0, ge=0.0, le=8.0),
+        gain_g: float = Query(1.0, ge=0.0, le=8.0),
+        gain_b: float = Query(1.0, ge=0.0, le=8.0),
+        offset_r: float = Query(0.0, ge=-1.0, le=1.0),
+        offset_g: float = Query(0.0, ge=-1.0, le=1.0),
+        offset_b: float = Query(0.0, ge=-1.0, le=1.0),
+        gamma_g: float = Query(1.0, ge=0.1, le=4.0),
+        brightness_g: float = Query(0.0, ge=-1.0, le=1.0),
+        contrast_g: float = Query(1.0, ge=0.0, le=4.0),
+        saturation_g: float = Query(1.0, ge=0.0, le=4.0),
+        wb_kelvin: Optional[float] = Query(None, ge=1500.0, le=12000.0),
     ):
         """Render a frame range as MP4 / GIF / PNG-zip.
 
@@ -2630,6 +3359,14 @@ def _mount_api(app: FastAPI) -> None:
             median_size=median_size, gaussian_sigma=gaussian_sigma,
             hot_pixel_thr=hot_pixel_thr, bilateral=bilateral,
         )
+        # Build the grading dict once per export (frame-invariant).
+        export_grading = _grading_from_query(
+            gain_r=gain_r, gain_g=gain_g, gain_b=gain_b,
+            offset_r=offset_r, offset_g=offset_g, offset_b=offset_b,
+            gamma_g=gamma_g, brightness_g=brightness_g,
+            contrast_g=contrast_g, saturation_g=saturation_g,
+            wb_kelvin=wb_kelvin,
+        )
 
         def _channel_post_isp(img: np.ndarray, ch: str) -> np.ndarray:
             """dark → analysis_isp → pre_norm — same chain as the canvas."""
@@ -2651,6 +3388,11 @@ def _mount_api(app: FastAPI) -> None:
                     src, chs,
                     "HG-R" if gain.lower() == "hg" else "LG-R",
                     apply_dark=apply_dark, vmin=vmin, vmax=vmax,
+                    black_level=float(black_level),
+                    gain=float(isp_gain),
+                    offset=float(isp_offset),
+                    grading=export_grading,
+                    isp_pre_chain=export_isp_chain,
                 )
                 if arr is None:
                     raise HTTPException(422,
@@ -2680,13 +3422,33 @@ def _mount_api(app: FastAPI) -> None:
                 if not base_channel or not overlay_channel:
                     raise HTTPException(400,
                         "render=overlay requires base_channel and overlay_channel")
+                # CRITICAL: mirror /overlay.png — the live canvas runs
+                # the base composite via auto-percentile and the
+                # overlay channel via auto-percentile too. Without
+                # explicit `normalize='auto'` / `mode='auto'` the
+                # export defaults to the full dtype range and renders
+                # visibly dimmer than the canvas.
                 base_arr = _composite_rgb_array(
                     src, chs, base_channel,
                     apply_dark=apply_dark, vmin=vmin, vmax=vmax,
+                    normalize="auto",
+                    grading=export_grading,
                 )
                 if base_arr is None:
                     raise HTTPException(422,
                         "RGB composite unavailable for overlay base")
+                # Per-layer post-norm ISP (visible black/gain/offset).
+                base_arr = _apply_post_norm_layer_isp(
+                    base_arr,
+                    black_level=float(base_black_level),
+                    gain=float(base_isp_gain),
+                    offset=float(base_isp_offset),
+                )
+                # Per-region ROI ISP — mirrors /overlay.png so exports
+                # match the canvas.
+                base_arr = _apply_region_rois_rgb(
+                    base_arr, _parse_region_rois(region_rois),
+                )
                 if overlay_channel not in chs:
                     raise HTTPException(404,
                         f"overlay channel {overlay_channel!r} not in frame {idx}")
@@ -2695,17 +3457,30 @@ def _mount_api(app: FastAPI) -> None:
                     d = src.dark_channels.get(overlay_channel)
                     if d is not None:
                         ov = subtract_dark(ov, d)
-                ov_norm = _norm_to_unit(ov, lo=overlay_low, hi=overlay_high)
+                ov_norm = _norm_to_unit(
+                    ov, lo=overlay_low, hi=overlay_high, mode="auto",
+                )
+                ov_norm = _apply_post_norm_layer_isp(
+                    ov_norm,
+                    black_level=float(overlay_black_level),
+                    gain=float(overlay_isp_gain),
+                    offset=float(overlay_isp_offset),
+                )
                 from matplotlib import colormaps
                 try:
                     cmap = colormaps[overlay_colormap]
                 except KeyError:
                     cmap = colormaps["inferno"]
                 ov_rgb = cmap(ov_norm)[..., :3].astype(np.float32)
+                _ob = float(overlay_brightness)
+                if abs(_ob - 1.0) > 1e-6:
+                    ov_rgb = np.clip(ov_rgb * _ob, 0.0, 1.0).astype(np.float32, copy=False)
                 s = float(strength)
                 mask = ov_norm.astype(np.float32) * s
                 # Polygon ROI clip — same behaviour as /overlay.png.
-                roi = _polygon_to_roi_mask(mask_polygon, mask.shape)
+                roi = _polygon_to_roi_mask(
+                    mask_polygon, mask.shape, feather_px=mask_feather_px,
+                )
                 if roi is not None:
                     mask = mask * roi
                 if blend == "additive":
@@ -3393,6 +4168,46 @@ def _mount_api(app: FastAPI) -> None:
             raise HTTPException(409, str(e))
         return _summary(transient)
 
+    @app.post("/api/play/purge-upload-state")
+    def purge_upload_state(max_age_seconds: float = Query(0.0, ge=0.0)):
+        """Reap stale upload tempfiles + chunked-upload sessions.
+
+        Triggered manually from the frontend (or curl) when the server
+        is in a corrupted state from a prior failed batch. Default
+        ``max_age_seconds=0`` reaps EVERYTHING — use cautiously while
+        an upload is in flight (mid-upload tempfiles will be unlinked
+        and the in-flight write will fail). With a positive value,
+        only files older than that age go.
+
+        Bug 14/15 history: a user reported that uploading 300 files at
+        once left even single-file 512 MB uploads failing for the rest
+        of the session — leaked tempfiles + chunked-upload session
+        state. This endpoint lets the user recover without restarting
+        the server.
+        """
+        n_files = _purge_upload_tempdir(max_age_seconds=max_age_seconds)
+        n_sessions = 0
+        with _upload_sessions_lock:
+            cutoff = time.time() - max_age_seconds
+            stale = [k for k, v in _upload_sessions.items() if v["created_at"] < cutoff]
+            for k in stale:
+                v = _upload_sessions.pop(k, None)
+                if v and v.get("path"):
+                    p = Path(v["path"])
+                    if p.exists():
+                        try:
+                            p.unlink()
+                            n_files += 1
+                        except OSError:
+                            pass
+                n_sessions += 1
+        return {
+            "ok": True,
+            "files_purged": n_files,
+            "sessions_purged": n_sessions,
+            "max_age_seconds": max_age_seconds,
+        }
+
     @app.delete("/api/playback/presets/{preset_id}")
     def playback_presets_delete(preset_id: str):
         """Remove one preset by id. Returns ``{"ok": True}`` even when
@@ -3511,6 +4326,24 @@ def _mount_api(app: FastAPI) -> None:
                             offset=spec.isp_offset,
                         )
 
+                    # Build the spec's grading dict once (frame-invariant).
+                    # Used by render='rgb_composite' AND the BASE side of
+                    # render='overlay' so exports honour live canvas WB +
+                    # per-channel grading.
+                    spec_grading = _grading_from_query(
+                        gain_r=getattr(spec, "gain_r", 1.0),
+                        gain_g=getattr(spec, "gain_g", 1.0),
+                        gain_b=getattr(spec, "gain_b", 1.0),
+                        offset_r=getattr(spec, "offset_r", 0.0),
+                        offset_g=getattr(spec, "offset_g", 0.0),
+                        offset_b=getattr(spec, "offset_b", 0.0),
+                        gamma_g=getattr(spec, "gamma_g", 1.0),
+                        brightness_g=getattr(spec, "brightness_g", 0.0),
+                        contrast_g=getattr(spec, "contrast_g", 1.0),
+                        saturation_g=getattr(spec, "saturation_g", 1.0),
+                        wb_kelvin=getattr(spec, "wb_kelvin", None),
+                    )
+
                     def _render(idx: int) -> np.ndarray:
                         chs = src.extract_frame(idx)
                         if spec.render == "rgb_composite":
@@ -3521,6 +4354,11 @@ def _mount_api(app: FastAPI) -> None:
                                 apply_dark=spec.apply_dark,
                                 vmin=spec.vmin,
                                 vmax=spec.vmax,
+                                black_level=float(spec.black_level),
+                                gain=float(spec.isp_gain),
+                                offset=float(spec.isp_offset),
+                                grading=spec_grading,
+                                isp_pre_chain=isp_pre_chain,
                             )
                             if arr is None:
                                 raise RuntimeError(
@@ -3553,6 +4391,9 @@ def _mount_api(app: FastAPI) -> None:
                                 raise RuntimeError(
                                     "render=overlay needs base_channel + overlay_channel"
                                 )
+                            # Mirror /overlay.png: auto-percentile on
+                            # both base and overlay so the multi-source
+                            # export brightness matches the canvas.
                             base_arr = _composite_rgb_array(
                                 src,
                                 chs,
@@ -3560,11 +4401,25 @@ def _mount_api(app: FastAPI) -> None:
                                 apply_dark=spec.apply_dark,
                                 vmin=spec.vmin,
                                 vmax=spec.vmax,
+                                normalize="auto",
+                                grading=spec_grading,
                             )
                             if base_arr is None:
                                 raise RuntimeError(
                                     "RGB composite unavailable for overlay base"
                                 )
+                            # Per-layer post-norm ISP for the base.
+                            base_arr = _apply_post_norm_layer_isp(
+                                base_arr,
+                                black_level=float(getattr(spec, "base_black_level", 0.0) or 0.0),
+                                gain=float(getattr(spec, "base_isp_gain", 1.0) or 1.0),
+                                offset=float(getattr(spec, "base_isp_offset", 0.0) or 0.0),
+                            )
+                            # Per-region ROI ISP for the base.
+                            base_arr = _apply_region_rois_rgb(
+                                base_arr,
+                                _parse_region_rois(getattr(spec, "region_rois", None)),
+                            )
                             if spec.overlay_channel not in chs:
                                 raise RuntimeError(
                                     f"overlay channel {spec.overlay_channel!r} not in frame {idx}"
@@ -3579,7 +4434,16 @@ def _mount_api(app: FastAPI) -> None:
                                 if d is not None:
                                     ov = subtract_dark(ov, d)
                             ov_norm = _norm_to_unit(
-                                ov, lo=spec.overlay_low, hi=spec.overlay_high
+                                ov,
+                                lo=spec.overlay_low,
+                                hi=spec.overlay_high,
+                                mode="auto",
+                            )
+                            ov_norm = _apply_post_norm_layer_isp(
+                                ov_norm,
+                                black_level=float(getattr(spec, "overlay_black_level", 0.0) or 0.0),
+                                gain=float(getattr(spec, "overlay_isp_gain", 1.0) or 1.0),
+                                offset=float(getattr(spec, "overlay_isp_offset", 0.0) or 0.0),
                             )
                             from matplotlib import colormaps
                             try:
@@ -3587,8 +4451,16 @@ def _mount_api(app: FastAPI) -> None:
                             except KeyError:
                                 cmap = colormaps["inferno"]
                             ov_rgb = cmap(ov_norm)[..., :3].astype(np.float32)
+                            _ob = float(getattr(spec, "overlay_brightness", 1.0) or 1.0)
+                            if abs(_ob - 1.0) > 1e-6:
+                                ov_rgb = np.clip(ov_rgb * _ob, 0.0, 1.0).astype(
+                                    np.float32, copy=False
+                                )
                             mask = ov_norm.astype(np.float32) * float(spec.strength)
-                            roi = _polygon_to_roi_mask(spec.mask_polygon, mask.shape)
+                            roi = _polygon_to_roi_mask(
+                                spec.mask_polygon, mask.shape,
+                                feather_px=getattr(spec, "mask_feather_px", 0.0) or 0.0,
+                            )
                             if roi is not None:
                                 mask = mask * roi
                             if spec.blend == "additive":
@@ -3978,30 +4850,69 @@ def _channel_image(src, channel: str, *, apply_dark: bool = True) -> np.ndarray:
 def _resolve_hdr_channels(
     chs: Dict[str, np.ndarray],
     hdr_fusion: str,
+    *,
+    hdr_threshold: Optional[float] = None,
+    hdr_knee: Optional[float] = None,
+    hdr_ratio: Optional[float] = None,
+    hdr_blend: Optional[float] = None,
+    hdr_output_scale: Optional[str] = None,
+    hdr_output_min: Optional[float] = None,
+    hdr_output_max: Optional[float] = None,
+    hdr_reinhard_white: Optional[float] = None,
 ) -> Dict[str, np.ndarray]:
     """Optionally replace cached HDR-* channels with a re-fusion under a
-    different fusion mode.
+    different fusion mode and / or with adjusted parameters.
 
     ``extract_frame`` populates ``HDR-{R,G,B,NIR,Y}`` using the source
-    default fusion mode (``"switch"`` — hard threshold; cache key
-    stays stable per frame). When the user picks a different mode in
-    the Inspector ("mertens" — smoothstep blend), this helper re-fuses
-    on top of the cache without invalidating it. Cost: 4 NumPy
-    re-fusions + a Rec-601 Y recompute, well under 5 ms on
-    1024×1024 channels.
+    default fusion mode (``"switch"`` — hard threshold; cache key stays
+    stable per frame). When the user picks a different mode or tweaks
+    a parameter, this helper re-fuses on top of the cache without
+    invalidating it. Cost: 4 NumPy re-fusions + a Rec-601 Y recompute,
+    well under 5 ms on 1024×1024 channels.
 
-    No-op when ``hdr_fusion`` is empty / "switch" (the default fusion
-    is already in the cache) or when the source isn't a dual-gain
-    RGB-NIR layout (no HG-/LG- pairs to re-fuse).
+    No-op when ``hdr_fusion`` is empty / "switch" AND every other
+    parameter is unset (the default fusion is already in the cache),
+    or when the source isn't a dual-gain RGB-NIR layout (no HG-/LG-
+    pairs to re-fuse).
     """
-    if not hdr_fusion or hdr_fusion.lower() == "switch":
+    fusion = (hdr_fusion or "switch").lower()
+    # Default-mode re-fusion is only triggered when an extra knob was
+    # set — otherwise the cached HDR-* is fine.
+    nondefault = (
+        fusion != "switch"
+        or hdr_threshold is not None
+        or hdr_knee is not None
+        or hdr_ratio is not None
+        or hdr_blend is not None
+        or (hdr_output_scale is not None and hdr_output_scale.lower() != "none")
+        or hdr_output_min is not None
+        or hdr_output_max is not None
+        or hdr_reinhard_white is not None
+    )
+    if not nondefault:
         return chs
     needed = ("HG-R", "HG-G", "HG-B", "HG-NIR",
               "LG-R", "LG-G", "LG-B", "LG-NIR")
     if not all(k in chs for k in needed):
         return chs
     from .hdr_fusion import fuse_hdr
-    params = {"fusion": hdr_fusion.lower()}
+    params: Dict[str, Any] = {"fusion": fusion}
+    if hdr_threshold is not None:
+        params["hg_saturation_threshold"] = float(hdr_threshold)
+    if hdr_knee is not None:
+        params["knee_width"] = float(hdr_knee)
+    if hdr_ratio is not None:
+        params["hg_lg_gain_ratio"] = float(hdr_ratio)
+    if hdr_blend is not None:
+        params["hg_lg_blend"] = float(hdr_blend)
+    if hdr_output_scale is not None:
+        params["output_scale"] = hdr_output_scale.lower()
+    if hdr_output_min is not None:
+        params["output_min"] = float(hdr_output_min)
+    if hdr_output_max is not None:
+        params["output_max"] = float(hdr_output_max)
+    if hdr_reinhard_white is not None:
+        params["reinhard_white"] = float(hdr_reinhard_white)
     out = dict(chs)
     for c in ("R", "G", "B", "NIR"):
         out[f"HDR-{c}"] = fuse_hdr(chs[f"HG-{c}"], chs[f"LG-{c}"], params=params)
@@ -4014,7 +4925,8 @@ def _resolve_hdr_channels(
 
 # Reusable Query schema for the per-render HDR fusion mode. Keeping
 # the pattern in one place so every route honors the same allow-list.
-_HDR_FUSION_PATTERN = r"^(switch|mertens)$"
+_HDR_FUSION_PATTERN = r"^(switch|mertens|linear)$"
+_HDR_OUTPUT_SCALE_PATTERN = r"^(none|linear|reinhard)$"
 
 
 def _isp_chain_from_query(*, sharpen_method: Optional[str],
@@ -4204,9 +5116,21 @@ def _render_tiled_view_to_rgb(spec: "TiledExportViewSpec", *,
         base_arr = _composite_rgb_array(
             src, chs, spec.base_channel,
             apply_dark=spec.apply_dark, normalize="auto",
+            grading=grading,
         )
         if base_arr is None:
             raise HTTPException(422, "RGB base unavailable for overlay")
+        # Per-layer post-norm ISP for the base.
+        base_arr = _apply_post_norm_layer_isp(
+            base_arr,
+            black_level=float(getattr(spec, "base_black_level", 0.0) or 0.0),
+            gain=float(getattr(spec, "base_isp_gain", 1.0) or 1.0),
+            offset=float(getattr(spec, "base_isp_offset", 0.0) or 0.0),
+        )
+        # Per-region ROI ISP for the base.
+        base_arr = _apply_region_rois_rgb(
+            base_arr, _parse_region_rois(getattr(spec, "region_rois", None)),
+        )
         if spec.overlay_channel not in chs:
             raise HTTPException(
                 404,
@@ -4224,16 +5148,28 @@ def _render_tiled_view_to_rgb(spec: "TiledExportViewSpec", *,
         ov_norm = _norm_to_unit(
             ov, lo=spec.overlay_low, hi=spec.overlay_high, mode="auto",
         )
+        ov_norm = _apply_post_norm_layer_isp(
+            ov_norm,
+            black_level=float(getattr(spec, "overlay_black_level", 0.0) or 0.0),
+            gain=float(getattr(spec, "overlay_isp_gain", 1.0) or 1.0),
+            offset=float(getattr(spec, "overlay_isp_offset", 0.0) or 0.0),
+        )
         from matplotlib import colormaps
         try:
             cmap = colormaps[spec.overlay_colormap]
         except KeyError:
             cmap = colormaps["inferno"]
         ov_rgb = cmap(ov_norm)[..., :3].astype(np.float32)
+        _ob = float(getattr(spec, "overlay_brightness", 1.0) or 1.0)
+        if abs(_ob - 1.0) > 1e-6:
+            ov_rgb = np.clip(ov_rgb * _ob, 0.0, 1.0).astype(np.float32, copy=False)
         s = float(spec.strength)
         mask = ov_norm.astype(np.float32) * s
         # Polygon ROI clip — overlay composites inside the polygon only.
-        roi = _polygon_to_roi_mask(spec.mask_polygon, mask.shape)
+        roi = _polygon_to_roi_mask(
+            spec.mask_polygon, mask.shape,
+            feather_px=getattr(spec, "mask_feather_px", 0.0) or 0.0,
+        )
         if roi is not None:
             mask = mask * roi
         if spec.blend == "additive":
@@ -4528,13 +5464,32 @@ def _apply_isp(norm: np.ndarray, *,
     return out
 
 
+# LRU cache for rasterized + feathered ROI masks. Keyed by
+# (points_tuple, shape, feather_px) so consecutive frames in a stream
+# reuse the same mask array — without this, every frame re-rasterized
+# the polygon AND re-ran the Gaussian feather, which dominated frame
+# render time during playback when feather > 0 and stalled the player.
+# Capped via OrderedDict so a long session can't grow it unbounded.
+_ROI_MASK_CACHE: "OrderedDict[Tuple[Any, ...], np.ndarray]" = OrderedDict()
+_ROI_MASK_CACHE_MAX = 32
+
+
 def _polygon_to_roi_mask(
     points: Optional[Any], shape: Tuple[int, int],
+    feather_px: float = 0.0,
 ) -> Optional[np.ndarray]:
-    """Rasterize a user-drawn polygon into a binary {0.0, 1.0} float32
-    mask of ``shape = (H, W)``. Multiplied into the overlay's alpha mask
-    so the colormapped overlay only blends inside the polygon while the
+    """Rasterize a user-drawn polygon into a float32 alpha mask of
+    ``shape = (H, W)`` that's multiplied into the overlay's alpha so
+    the colormapped overlay only blends inside the polygon and the
     base shows through everywhere else.
+
+    When ``feather_px <= 0`` the mask is binary {0.0, 1.0} (hard edge,
+    legacy behaviour). When ``feather_px > 0`` the binary mask is run
+    through a Gaussian filter with ``sigma = feather_px`` so the
+    polygon edge decays smoothly into the surrounding region — the
+    overlay fades from full strength inside to zero outside over
+    roughly ``2*feather_px`` pixels of transition. Result is clipped
+    to ``[0, 1]``. Pure NumPy + scipy.ndimage; no Pillow alpha tricks.
 
     Accepts either a JSON-encoded string (query-string callers like
     ``frame_overlay`` and ``export_video``) or an already-parsed
@@ -4544,6 +5499,11 @@ def _polygon_to_roi_mask(
 
     Raises ``HTTPException(400)`` on parse failure to preserve the
     error contract of the original inline rasterizer at frame_overlay.
+
+    Cached: the (points, shape, feather_px) tuple keys an LRU so
+    successive frame requests in a playback stream skip the
+    ImageDraw.polygon + gaussian_filter cost entirely. Returns are
+    read-only views — callers must NOT mutate.
     """
     if points is None or points == "" or points == []:
         return None
@@ -4556,20 +5516,400 @@ def _polygon_to_roi_mask(
     if not isinstance(points, list) or len(points) < 3:
         return None
     try:
-        from PIL import Image as _PI, ImageDraw as _PID
         H, W = int(shape[0]), int(shape[1])
+        # Build a hashable cache key. Round each vertex coord to 1e-3
+        # so floating-point jitter from JSON re-encoding doesn't blow
+        # the cache across frames.
+        f = float(feather_px) if feather_px is not None else 0.0
+        try:
+            pts_key = tuple(
+                (round(float(p[0]) * 1000) / 1000.0,
+                 round(float(p[1]) * 1000) / 1000.0)
+                for p in points
+            )
+        except (TypeError, ValueError, IndexError):
+            pts_key = None
+        cache_key = (pts_key, H, W, round(f * 1000) / 1000.0) if pts_key else None
+        if cache_key is not None:
+            cached = _ROI_MASK_CACHE.get(cache_key)
+            if cached is not None:
+                # LRU bump.
+                _ROI_MASK_CACHE.move_to_end(cache_key)
+                return cached
+
+        from PIL import Image as _PI, ImageDraw as _PID
         # Pillow expects [(x, y), …]; clip out-of-bounds gracefully so a
         # stray drag doesn't 500.
         poly = [(float(p[0]), float(p[1])) for p in points]
         canvas = _PI.new("L", (W, H), 0)
         _PID.Draw(canvas).polygon(poly, fill=255)
-        return np.asarray(canvas, dtype=np.float32) / 255.0
+        mask = np.asarray(canvas, dtype=np.float32) / 255.0
+        if f > 0.0:
+            from scipy.ndimage import gaussian_filter as _gf
+            # Soft-edge: Gaussian decay seeded from the binary mask so
+            # the overlay alpha tapers to zero just outside the polygon
+            # boundary instead of cutting off sharply. sigma is in
+            # pixels; clipped to a sane upper bound to avoid pathological
+            # smear from a typo'd huge value.
+            sigma = max(0.0, min(f, 0.25 * float(min(H, W))))
+            if sigma > 0.0:
+                mask = _gf(mask, sigma=sigma, mode="constant", cval=0.0)
+                mask = np.clip(mask, 0.0, 1.0).astype(np.float32, copy=False)
+        # Mark read-only so callers can't accidentally mutate the
+        # cached array (a previous bug pattern was `mask *= roi`-like
+        # in-place ops; here all callers do `mask * roi` which copies).
+        mask.setflags(write=False)
+        if cache_key is not None:
+            _ROI_MASK_CACHE[cache_key] = mask
+            if len(_ROI_MASK_CACHE) > _ROI_MASK_CACHE_MAX:
+                _ROI_MASK_CACHE.popitem(last=False)
+        return mask
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(
             400, f"polygon rasterize failed: {type(exc).__name__}: {exc}"
         )
+
+
+def _parse_region_rois(payload: Optional[Any]) -> List[Dict[str, Any]]:
+    """Parse a region-ROI list payload (JSON-encoded string from query
+    params, or already a list from a Pydantic body) into a list of
+    well-formed region dicts. Empty / null / malformed inputs return
+    ``[]`` so callers can treat "no regions" as the no-op path.
+
+    Each region: ``{"polygon": [[x, y], ...], "feather_px": float,
+    "gain": float, "gamma": float, "wb_kelvin": Optional[float],
+    "contrast": float, "saturation": float}``. Identity defaults are
+    filled in for missing fields.
+    """
+    if payload is None or payload == "" or payload == []:
+        return []
+    if isinstance(payload, str):
+        try:
+            import json as _json
+            payload = _json.loads(payload)
+        except Exception as exc:
+            raise HTTPException(400, f"invalid region_rois JSON: {exc}")
+    if not isinstance(payload, list):
+        return []
+    out: List[Dict[str, Any]] = []
+    for r in payload:
+        if not isinstance(r, dict):
+            continue
+        poly = r.get("polygon") or r.get("points") or []
+        if not isinstance(poly, list) or len(poly) < 3:
+            continue
+        try:
+            wb = r.get("wb_kelvin")
+            wb_v = float(wb) if wb is not None else None
+        except (TypeError, ValueError):
+            wb_v = None
+        out.append({
+            "polygon": [(float(p[0]), float(p[1])) for p in poly],
+            "feather_px": float(r.get("feather_px", 0.0) or 0.0),
+            "gain": float(r.get("gain", 1.0) or 1.0),
+            "gamma": float(r.get("gamma", 1.0) or 1.0),
+            "wb_kelvin": wb_v,
+            "contrast": float(r.get("contrast", 1.0) or 1.0),
+            "saturation": float(r.get("saturation", 1.0) or 1.0),
+            # When True, the region's ISP applies to everything OUTSIDE
+            # the polygon (the alpha mask is inverted: ``1 - mask``).
+            # Feather still applies to the BINARY rasterized mask before
+            # inversion, so a Gaussian-feathered + negated region's
+            # alpha tapers from 0 just inside the boundary to 1 well
+            # outside it — the transition stays smooth either way.
+            "negate": bool(r.get("negate", False)),
+        })
+    return out
+
+
+def _apply_region_rois_rgb(
+    rgb: np.ndarray, regions: List[Dict[str, Any]],
+) -> np.ndarray:
+    """Apply per-region ISP (gain / gamma / contrast / saturation /
+    WB Kelvin) to an [H, W, 3] float32 array in [0, 1]. Each region's
+    rasterized polygon mask (with optional Gaussian feather) is used
+    as an alpha that BLENDS the region-graded RGB with the original.
+
+    Pipeline order inside each region:
+        1. gain (linear multiply)
+        2. WB Kelvin (R/B per-channel multiply, computed via
+           ``apply_grading``'s WB path)
+        3. contrast (post-norm pivoted on 0.5)
+        4. saturation (luma-pivoted)
+        5. gamma (curve)
+
+    Output is clipped to [0, 1]. Identity-default regions are skipped.
+    Read-only mask arrays (from the ROI mask cache) are untouched.
+    """
+    if not regions:
+        return rgb
+    H, W, _ = rgb.shape
+    out = rgb.astype(np.float32, copy=False)
+    for region in regions:
+        # Reuse the cached polygon-mask helper so per-region feather
+        # also benefits from the LRU cache that overlay.png uses.
+        mask = _polygon_to_roi_mask(
+            region.get("polygon"),
+            (H, W),
+            feather_px=float(region.get("feather_px", 0.0) or 0.0),
+        )
+        if mask is None:
+            continue
+        # Negate inverts the alpha (1 - mask). Done AFTER feather so the
+        # Gaussian-smooth boundary stays smooth — the only difference
+        # is which side of the polygon edge gets the ISP applied.
+        if bool(region.get("negate", False)):
+            # The cached mask is read-only; do an out-of-place flip.
+            mask = (1.0 - mask).astype(np.float32, copy=False)
+        gain = float(region.get("gain", 1.0) or 1.0)
+        gamma = float(region.get("gamma", 1.0) or 1.0)
+        contrast = float(region.get("contrast", 1.0) or 1.0)
+        saturation = float(region.get("saturation", 1.0) or 1.0)
+        wb = region.get("wb_kelvin")
+        # Skip work if the region's ISP is identity AND no WB.
+        if (
+            abs(gain - 1.0) < 1e-9 and abs(gamma - 1.0) < 1e-9
+            and abs(contrast - 1.0) < 1e-9 and abs(saturation - 1.0) < 1e-9
+            and (wb is None or abs(float(wb) - 6500.0) < 1.0)
+        ):
+            continue
+        # Build a region-modified RGB. We reuse `apply_grading` for WB
+        # + saturation since it already handles those well.
+        graded = out
+        if abs(gain - 1.0) > 1e-9:
+            graded = graded * gain
+        # Use apply_grading for WB + saturation + contrast + gamma.
+        # All identity except the values we set.
+        sub_grading = {
+            "gain_r": 1.0, "gain_g": 1.0, "gain_b": 1.0,
+            "offset_r": 0.0, "offset_g": 0.0, "offset_b": 0.0,
+            "gamma": gamma,
+            "brightness": 0.0,
+            "contrast": contrast,
+            "saturation": saturation,
+            "wb_kelvin": float(wb) if wb is not None else None,
+        }
+        graded = apply_grading(graded, sub_grading).astype(np.float32, copy=False)
+        graded = np.clip(graded, 0.0, 1.0).astype(np.float32, copy=False)
+        # Blend graded with original via the region alpha mask.
+        alpha = mask.astype(np.float32, copy=False)[..., None]
+        out = out * (1.0 - alpha) + graded * alpha
+    return np.clip(out, 0.0, 1.0).astype(np.float32, copy=False)
+
+
+def _apply_region_rois_single(
+    arr: np.ndarray, regions: List[Dict[str, Any]],
+) -> np.ndarray:
+    """Apply per-region gain / gamma / contrast (saturation + WB
+    ignored — single-channel context) to a 2-D float array in [0, 1].
+    """
+    if not regions:
+        return arr
+    H, W = arr.shape[:2]
+    out = arr.astype(np.float32, copy=False)
+    for region in regions:
+        mask = _polygon_to_roi_mask(
+            region.get("polygon"),
+            (H, W),
+            feather_px=float(region.get("feather_px", 0.0) or 0.0),
+        )
+        if mask is None:
+            continue
+        if bool(region.get("negate", False)):
+            mask = (1.0 - mask).astype(np.float32, copy=False)
+        gain = float(region.get("gain", 1.0) or 1.0)
+        gamma = float(region.get("gamma", 1.0) or 1.0)
+        contrast = float(region.get("contrast", 1.0) or 1.0)
+        if (
+            abs(gain - 1.0) < 1e-9
+            and abs(gamma - 1.0) < 1e-9
+            and abs(contrast - 1.0) < 1e-9
+        ):
+            continue
+        graded = out
+        if abs(gain - 1.0) > 1e-9:
+            graded = graded * gain
+        if abs(contrast - 1.0) > 1e-9:
+            graded = (graded - 0.5) * contrast + 0.5
+        graded = np.clip(graded, 0.0, 1.0)
+        if abs(gamma - 1.0) > 1e-9 and gamma > 0.0:
+            graded = np.power(graded, 1.0 / gamma)
+        graded = np.clip(graded, 0.0, 1.0).astype(np.float32, copy=False)
+        alpha = mask.astype(np.float32, copy=False)
+        out = out * (1.0 - alpha) + graded * alpha
+    return np.clip(out, 0.0, 1.0).astype(np.float32, copy=False)
+
+
+def _apply_region_rois_raw(
+    arr: np.ndarray, regions: List[Dict[str, Any]],
+) -> np.ndarray:
+    """Apply per-region ISP to a RAW image array (uint16 / float in
+    sensor-DN scale) BEFORE the display normalize / colormap / invert
+    stage. Pipeline contract: the caller normalizes to display range
+    AFTER this call, so the user's threshold + colormap colour the
+    region's MODIFIED values (gain pushes a region into a brighter
+    colormap entry, gamma re-curves, etc.).
+
+    Internally we divide by the dtype's positive max to enter [0, 1]
+    space, run ``_apply_region_rois_rgb`` (which knows how to do gain
+    / gamma / contrast / saturation / WB Kelvin / negate / feather on
+    [0, 1] arrays), then scale back to the original dtype range.
+    Single-channel inputs are stacked to 3 channels for the helper
+    and squeezed back at the end so saturation / WB are no-ops on
+    grayscale (which they should be by definition).
+
+    Returns an array with the SAME dtype + shape as the input.
+    Identity-default regions are skipped inside the helper.
+    """
+    if not regions:
+        return arr
+    src_dtype = arr.dtype
+    # Infer the data's full-range reference. The channel route hands us
+    # a float32 array AFTER `_apply_pre_norm`, which keeps values in
+    # raw-DN scale (0..~65535 for 16-bit sensors). `np.iinfo` would
+    # raise on that float, so we fall back to the array's actual max
+    # value capped at the standard 16-bit sensor range. Without this,
+    # the [0, 1] normalize-and-clip step below destroyed the data
+    # (clipping every raw DN > 1 to 1, producing an all-bright,
+    # post-colormap-all-black render).
+    try:
+        dtype_max = float(np.iinfo(src_dtype).max)
+    except (ValueError, TypeError):
+        # Float input — pick a sensible scale. Use the array's max if
+        # it exceeds 1 (suggesting raw DN values), else 1.0 (already
+        # normalised). 65535 is the floor for raw scales so a small
+        # frame doesn't pick a tiny dtype_max.
+        try:
+            arr_max = float(np.max(arr))
+        except (ValueError, TypeError):
+            arr_max = 0.0
+        if arr_max > 1.0:
+            dtype_max = max(arr_max, 65535.0)
+        else:
+            dtype_max = 1.0
+    is_2d = arr.ndim == 2
+    f = arr.astype(np.float32, copy=False) / max(dtype_max, 1.0)
+    f = np.clip(f, 0.0, 1.0)
+    if is_2d:
+        f3 = np.stack([f, f, f], axis=-1)
+    else:
+        f3 = f
+    out3 = _apply_region_rois_rgb(f3, regions)
+    if is_2d:
+        # All three channels are identical for grayscale-stack inputs
+        # because saturation / WB on a gray triple is a no-op (gray
+        # values stay gray after WB-Kelvin tinting too, since R==G==B
+        # implies neutral). Take any channel back to 2-D.
+        out_f = out3[..., 0]
+    else:
+        out_f = out3
+    # Scale back to the input dtype's range.
+    if dtype_max > 1.0:
+        out_back = np.clip(out_f * dtype_max, 0.0, dtype_max)
+        return out_back.astype(src_dtype, copy=False)
+    return out_f.astype(src_dtype, copy=False)
+
+
+def _apply_region_rois_to_png(
+    png_bytes: Optional[bytes],
+    regions: List[Dict[str, Any]],
+    source_shape: Optional[Tuple[int, int]] = None,
+) -> Optional[bytes]:
+    """Decode a rendered PNG → apply per-region ISP via
+    ``_apply_region_rois_rgb`` on the [0, 1] float array → re-encode.
+
+    Used by the single-channel + RGB-composite per-frame routes so
+    region ROIs work uniformly across every view kind. The cost is a
+    decode + re-encode round-trip (~1-3 ms at typical thumbnail
+    resolutions); skipped entirely when ``regions`` is empty so the
+    no-region path stays free.
+
+    ``source_shape`` is the (H, W) of the channel array the user's
+    polygon was drawn against — typically the recording's per-channel
+    shape. When the rendered PNG has been resized to fit ``max_dim``
+    (which the helper routes do), the decoded array's shape no longer
+    matches the polygon's coordinate space, and the rasterized mask
+    ends up shifted / cropped near the origin. This function scales
+    each polygon's vertices uniformly into the decoded PNG's coords
+    before passing the regions to ``_apply_region_rois_rgb``. Pass
+    ``None`` (or matching shapes) to skip scaling.
+
+    For single-channel (post-colormap) inputs the WB / saturation
+    fields meaningfully recolor the colormapped pixels; for RGB
+    inputs they behave as expected.
+    """
+    if not png_bytes or not regions:
+        return png_bytes
+    try:
+        from PIL import Image as _PI
+        im = _PI.open(io.BytesIO(png_bytes)).convert("RGB")
+        arr = np.asarray(im, dtype=np.float32) / 255.0
+        # Rescale polygon vertices into the decoded PNG's coord space
+        # when the PNG was resized away from the original channel
+        # array's shape.
+        scaled_regions = regions
+        if source_shape is not None:
+            sH, sW = int(source_shape[0]), int(source_shape[1])
+            dH, dW = arr.shape[0], arr.shape[1]
+            if sH > 0 and sW > 0 and (sH != dH or sW != dW):
+                sx = float(dW) / float(sW)
+                sy = float(dH) / float(sH)
+                scaled_regions = []
+                for r in regions:
+                    poly = r.get("polygon")
+                    if not isinstance(poly, list):
+                        scaled_regions.append(r)
+                        continue
+                    new_poly = [
+                        (float(p[0]) * sx, float(p[1]) * sy) for p in poly
+                    ]
+                    # Feather is in pixels too — scale by mean factor
+                    # so the visual softness on the resized PNG stays
+                    # proportional to what the user picked.
+                    feather_in = float(r.get("feather_px", 0.0) or 0.0)
+                    feather_scaled = feather_in * 0.5 * (sx + sy)
+                    scaled_regions.append({**r, "polygon": new_poly,
+                                           "feather_px": feather_scaled})
+        out = _apply_region_rois_rgb(arr, scaled_regions)
+        out_u8 = (np.clip(out, 0.0, 1.0) * 255.0).astype(np.uint8)
+        buf = io.BytesIO()
+        _PI.fromarray(out_u8, mode="RGB").save(buf, format="PNG", optimize=False)
+        return buf.getvalue()
+    except Exception:
+        # Region ISP shouldn't crash a render — fall through to the
+        # un-modified PNG if anything blows up so the user still sees
+        # something.
+        return png_bytes
+
+
+def _apply_post_norm_layer_isp(arr: np.ndarray, *,
+                                black_level: float = 0.0,
+                                gain: float = 1.0,
+                                offset: float = 0.0,
+                                dtype_max: float = 65535.0) -> np.ndarray:
+    """Apply per-layer linear ISP to an already-normalized [0, 1] array.
+    Used in the overlay-render path so that ``black_level / gain /
+    offset`` produce VISIBLE changes despite the auto-percentile
+    normalization that the base + overlay sides ran through.
+
+    Black level and offset are entered on the same raw-DN scale the
+    user sees in single-channel views (16-bit by default), and are
+    rescaled to the [0, 1] output space here so they slot in
+    intuitively. ``gain`` is a post-norm contrast-style multiplier.
+    Identity (0 / 1.0 / 0) is a no-op.
+    """
+    if (abs(black_level) < 1e-9 and abs(gain - 1.0) < 1e-9 and abs(offset) < 1e-9):
+        return arr
+    out = arr.astype(np.float32, copy=False)
+    if abs(black_level) > 1e-9:
+        out = out - (float(black_level) / float(dtype_max))
+    if abs(gain - 1.0) > 1e-9:
+        out = out * float(gain)
+    if abs(offset) > 1e-9:
+        out = out + (float(offset) / float(dtype_max))
+    return np.clip(out, 0.0, 1.0).astype(np.float32, copy=False)
 
 
 def _apply_pre_norm(image: np.ndarray, *,

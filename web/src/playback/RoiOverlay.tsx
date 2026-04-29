@@ -115,7 +115,22 @@ const PolyEl = ({ pts, color, fillAlpha, imageW }) => {
  * hit-test math in the parent's onClick.
  */
 export const RoiOverlaySvg = React.forwardRef(function RoiOverlaySvg(
-  { imageW, imageH, overlayPts, tumorPts, bgPts, panX, panY, zoom, hint },
+  {
+    imageW,
+    imageH,
+    overlayPts,
+    tumorPts,
+    bgPts,
+    // Region ROIs — each region carries its own polygon and is
+    // rendered in a distinct hue so the user can tell them apart.
+    // `regions` shape: [{ id, polygon: [[x,y],...], selected: bool,
+    // label?: string }]. Selected region renders thicker + brighter.
+    regions,
+    panX,
+    panY,
+    zoom,
+    hint,
+  },
   ref
 ) {
   const iw = imageW || 1;
@@ -123,9 +138,27 @@ export const RoiOverlaySvg = React.forwardRef(function RoiOverlaySvg(
   const ovPts = Array.isArray(overlayPts) ? overlayPts : [];
   const tPts = Array.isArray(tumorPts) ? tumorPts : [];
   const bPts = Array.isArray(bgPts) ? bgPts : [];
-  if (ovPts.length === 0 && tPts.length === 0 && bPts.length === 0 && !hint) {
+  const regs = Array.isArray(regions) ? regions : [];
+  const anyRegions = regs.some((r) => Array.isArray(r.polygon) && r.polygon.length > 0);
+  if (ovPts.length === 0 && tPts.length === 0 && bPts.length === 0 && !anyRegions && !hint) {
     return null;
   }
+  // Pick a stable hue per region so the user can match a polygon on
+  // canvas with a row in the Inspector table. 11-step palette wraps
+  // gracefully for >11 regions.
+  const REGION_PALETTE = [
+    '#6dd47a',
+    '#f7a83a',
+    '#7be0d3',
+    '#d381f7',
+    '#f76b9a',
+    '#88c2ff',
+    '#f7d96e',
+    '#9b9b9b',
+    '#7a7af7',
+    '#f76b6b',
+    '#c2c279',
+  ];
   const hintAnchor = tPts[0] || bPts[0] || ovPts[0] || [iw * 0.05, iw * 0.05];
   return (
     <svg
@@ -147,6 +180,19 @@ export const RoiOverlaySvg = React.forwardRef(function RoiOverlaySvg(
       <PolyEl pts={ovPts} color="#3a82f7" fillAlpha="1A" imageW={iw} />
       <PolyEl pts={tPts} color="#ff5b5b" fillAlpha="24" imageW={iw} />
       <PolyEl pts={bPts} color="#3ecbe5" fillAlpha="24" imageW={iw} />
+      {regs.map((r, i) => {
+        const color = REGION_PALETTE[i % REGION_PALETTE.length];
+        const fillAlpha = r.selected ? '40' : '1A';
+        return (
+          <PolyEl
+            key={`region-${r.id ?? i}`}
+            pts={Array.isArray(r.polygon) ? r.polygon : []}
+            color={color}
+            fillAlpha={fillAlpha}
+            imageW={iw}
+          />
+        );
+      })}
       {hint && (
         <text
           x={hintAnchor[0] + Math.max(4, iw / 200)}

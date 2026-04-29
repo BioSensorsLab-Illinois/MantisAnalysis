@@ -63,10 +63,12 @@ import {
   Tip,
   apiFetch,
   apiUpload,
+  apiUploadStream,
   apiUploadProgress,
   API_BASE,
   useLocalStorageState,
   useViewport,
+  ResizeHandle,
 } from './shared.tsx';
 
 // ---------------------------------------------------------------------------
@@ -181,6 +183,55 @@ const _appendIspChainQuery = (q, isp) => {
   }
 };
 
+// Per-region ROI list serialiser. Mirrors `_parse_region_rois` on the
+// backend: only emit when at least one region has a ≥3-vertex polygon.
+// Identity-default fields are still serialised so the backend's
+// short-circuit can short-circuit consistently. Used by every URL
+// builder (channel / RGB / overlay) so region ISP behaves the same
+// way across view kinds.
+const _appendRegionRoisQuery = (q, regionRois) => {
+  if (!Array.isArray(regionRois) || regionRois.length === 0) return;
+  const payload = regionRois
+    .filter((r) => Array.isArray(r.polygon) && r.polygon.length >= 3)
+    .map((r) => ({
+      polygon: r.polygon,
+      feather_px: typeof r.featherPx === 'number' ? r.featherPx : 0,
+      gain: typeof r.gain === 'number' ? r.gain : 1.0,
+      gamma: typeof r.gamma === 'number' ? r.gamma : 1.0,
+      wb_kelvin:
+        typeof r.wbKelvin === 'number' && Math.abs(r.wbKelvin - 6500) > 1 ? r.wbKelvin : null,
+      contrast: typeof r.contrast === 'number' ? r.contrast : 1.0,
+      saturation: typeof r.saturation === 'number' ? r.saturation : 1.0,
+      negate: !!r.negate,
+    }));
+  if (payload.length > 0) q.set('region_rois', JSON.stringify(payload));
+};
+
+// HDR parameter forwarder — emits the per-fusion-mode knobs only when
+// they deviate from the backend defaults baked into `hdr_fusion.py`.
+// Keeps the URL compact: at default state nothing extra is emitted.
+const _appendHdrParamsQuery = (q, hdrFusion, hdrParams) => {
+  const mode = (hdrFusion || 'switch').toLowerCase();
+  if (mode !== 'switch') q.set('hdr_fusion', mode);
+  const p = hdrParams || {};
+  if (typeof p.threshold === 'number' && Math.abs(p.threshold - 60000) > 0.5)
+    q.set('hdr_threshold', String(p.threshold));
+  if (typeof p.kneeWidth === 'number' && Math.abs(p.kneeWidth - 4000) > 0.5)
+    q.set('hdr_knee', String(p.kneeWidth));
+  if (typeof p.gainRatio === 'number' && Math.abs(p.gainRatio - 16) > 1e-6)
+    q.set('hdr_ratio', String(p.gainRatio));
+  if (typeof p.blend === 'number' && Math.abs(p.blend - 0.5) > 1e-6)
+    q.set('hdr_blend', String(p.blend));
+  if (typeof p.outputScale === 'string' && p.outputScale !== 'none')
+    q.set('hdr_output_scale', p.outputScale);
+  if (typeof p.outputMin === 'number' && p.outputMin > 0.5)
+    q.set('hdr_output_min', String(p.outputMin));
+  if (typeof p.outputMax === 'number' && Math.abs(p.outputMax - 65535) > 0.5)
+    q.set('hdr_output_max', String(p.outputMax));
+  if (typeof p.reinhardWhite === 'number' && Math.abs(p.reinhardWhite - 100000) > 0.5)
+    q.set('hdr_reinhard_white', String(p.reinhardWhite));
+};
+
 const frameChannelPngUrl = (sid, frameIdx, channel, opts = {}) => {
   const q = new URLSearchParams();
   if (opts.maxDim) q.set('max_dim', String(opts.maxDim));
@@ -208,14 +259,17 @@ const frameChannelPngUrl = (sid, frameIdx, channel, opts = {}) => {
   // ?rgb_composite=true; channel-mode requests harmlessly carry the
   // params).
   _appendGradingQuery(q, opts.grading);
+  // Per-region ROIs — applied AFTER colormap so each region carries
+  // its own gain / gamma / WB / contrast / saturation + edge feather +
+  // negate, regardless of view kind.
+  _appendRegionRoisQuery(q, opts.regionRois);
   // ISP-version cache-buster. Backend ignores ``_isp_v``; the only
   // effect is to shift the URL key on reconfigure so the frontend
   // blob cache misses and re-fetches.
   if (opts.ispVersion) q.set('_isp_v', String(opts.ispVersion));
-  // B-0040: HDR fusion override (only meaningful for HDR-* channels).
-  if (opts.hdrFusion && opts.hdrFusion !== 'switch') {
-    q.set('hdr_fusion', String(opts.hdrFusion));
-  }
+  // HDR fusion mode + parameters. Only honored when the requested
+  // channel is HDR-*; non-HDR channels harmlessly carry the params.
+  _appendHdrParamsQuery(q, opts.hdrFusion, opts.hdrParams);
   return `${API_BASE}/api/sources/${sid}/frame/${frameIdx}/channel/${encodeURIComponent(channel)}/thumbnail.png?${q.toString()}`;
 };
 
@@ -241,12 +295,12 @@ const frameRgbUrl = (sid, frameIdx, gain = 'hg', opts = {}) => {
   _appendLabelsQuery(q, opts.labels);
   // M22: per-channel RGB grading + WB Kelvin.
   _appendGradingQuery(q, opts.grading);
+  // Per-region ROIs — applied to the RGB composite output.
+  _appendRegionRoisQuery(q, opts.regionRois);
   // ISP-version cache-buster.
   if (opts.ispVersion) q.set('_isp_v', String(opts.ispVersion));
-  // B-0040: HDR fusion override (only meaningful when gain='hdr').
-  if (opts.hdrFusion && opts.hdrFusion !== 'switch') {
-    q.set('hdr_fusion', String(opts.hdrFusion));
-  }
+  // HDR fusion mode + parameters (only meaningful when gain='hdr').
+  _appendHdrParamsQuery(q, opts.hdrFusion, opts.hdrParams);
   return `${API_BASE}/api/sources/${sid}/frame/${frameIdx}/rgb.png?${q.toString()}`;
 };
 
@@ -261,6 +315,11 @@ const frameOverlayUrl = (sid, frameIdx, opts = {}) => {
   });
   if (opts.overlayLow != null) q.set('overlay_low', String(opts.overlayLow));
   if (opts.overlayHigh != null) q.set('overlay_high', String(opts.overlayHigh));
+  // Overlay-RGB brightness pump. Only emit when non-identity so the
+  // cache key stays stable for the default state.
+  if (typeof opts.overlayBrightness === 'number' && Math.abs(opts.overlayBrightness - 1.0) > 1e-6) {
+    q.set('overlay_brightness', String(opts.overlayBrightness));
+  }
   if (opts.maxDim) q.set('max_dim', String(opts.maxDim));
   if (opts.applyDark === false) q.set('apply_dark', 'false');
   // Polygon ROI for the overlay (image-pixel coords). Backend
@@ -268,7 +327,41 @@ const frameOverlayUrl = (sid, frameIdx, opts = {}) => {
   // overlay is invisible and the base shows through.
   if (Array.isArray(opts.maskPolygon) && opts.maskPolygon.length >= 3) {
     q.set('mask_polygon', JSON.stringify(opts.maskPolygon));
+    // Soft-edge feather: Gaussian sigma (in px) applied to the mask
+    // server-side so the overlay decays smoothly across the polygon
+    // boundary instead of cutting off. Only forwarded when a polygon
+    // is present and the user has opted in (>0).
+    if (typeof opts.maskFeatherPx === 'number' && opts.maskFeatherPx > 0) {
+      q.set('mask_feather_px', String(opts.maskFeatherPx));
+    }
   }
+  // Per-layer linear ISP. Only emit non-identity values so the URL
+  // stays compact and HTTP cache keys remain stable when the user
+  // hasn't touched the per-layer knobs.
+  const _emitIsp = (prefix, isp) => {
+    if (!isp) return;
+    if (typeof isp.blackLevel === 'number' && Math.abs(isp.blackLevel) > 1e-9) {
+      q.set(`${prefix}_black_level`, String(isp.blackLevel));
+    }
+    if (typeof isp.gain === 'number' && Math.abs(isp.gain - 1.0) > 1e-9) {
+      q.set(`${prefix}_isp_gain`, String(isp.gain));
+    }
+    if (typeof isp.offset === 'number' && Math.abs(isp.offset) > 1e-9) {
+      q.set(`${prefix}_isp_offset`, String(isp.offset));
+    }
+  };
+  _emitIsp('base', opts.baseIsp);
+  _emitIsp('overlay', opts.overlayIsp);
+  // RGB grading for the BASE layer (overlay channel is single-channel
+  // and unaffected). Only non-identity fields are emitted so cache
+  // keys stay stable when grading is at default.
+  _appendGradingQuery(q, opts.grading);
+  // Per-region ROIs: only emit when at least one region with ≥3
+  // vertices exists. The serialised payload is a list of
+  // `{polygon, feather_px, gain, gamma, wb_kelvin, contrast,
+  // saturation}` dicts — server-side parser tolerates missing
+  // fields and applies identity defaults.
+  _appendRegionRoisQuery(q, opts.regionRois);
   // Forward burn-in labels (parity with the channel + RGB routes — the
   // overlay route ignored them prior to play-export-and-roi-fixes-v1
   // M1, so frame number / scale bar / source name silently dropped on
@@ -387,6 +480,12 @@ const buildFrameUrl = (recording, view, frameIdx) => {
     // routes drop the param otherwise. Default 'switch' is byte-identical
     // to the prior behaviour.
     hdrFusion: view.hdrFusion || 'switch',
+    // Adjustable HDR knobs — only honored when the channel is HDR-*
+    // and the user has tweaked them away from defaults.
+    hdrParams: view.hdrParams || null,
+    // Per-region ROI list — applied by every render route (channel /
+    // RGB / overlay) so per-region ISP works regardless of view kind.
+    regionRois: Array.isArray(view.regionRois) ? view.regionRois : null,
   };
   if (mode.kind === 'rgb' || mode.kind === 'rgb_image') {
     return frameRgbUrl(sid, frameIdx, mode.kind === 'rgb_image' ? 'hg' : mode.gain, opts);
@@ -433,7 +532,21 @@ const buildFrameUrl = (recording, view, frameIdx) => {
       strength: ov.strength ?? 0.6,
       overlayLow: ov.overlayLow ?? null,
       overlayHigh: ov.overlayHigh ?? null,
+      overlayBrightness: typeof ov.overlayBrightness === 'number' ? ov.overlayBrightness : 1.0,
       maskPolygon: Array.isArray(ov.maskPolygon) ? ov.maskPolygon : null,
+      maskFeatherPx: typeof ov.maskFeatherPx === 'number' ? ov.maskFeatherPx : 0,
+      // Per-layer linear ISP — forwarded so the canvas honours the
+      // user's per-side black/gain/offset adjustments.
+      baseIsp: ov.baseIsp || null,
+      overlayIsp: ov.overlayIsp || null,
+      // RGB grading lives on view.grading and applies to the BASE
+      // layer in overlay mode (parity with how it applies to the
+      // whole frame in plain RGB mode).
+      grading: view.grading || null,
+      // Per-region ROIs (gain / gamma / WB / contrast / saturation +
+      // feather). Applied to the base composite before the overlay
+      // blend.
+      regionRois: Array.isArray(view.regionRois) ? view.regionRois : null,
       maxDim: opts.maxDim,
       applyDark: opts.applyDark,
       ispVersion: opts.ispVersion,
@@ -559,6 +672,76 @@ const detectContinuity = (orderedRecs, thresholdS = 1.0) => {
 };
 
 // ---------------------------------------------------------------------------
+// Sources-panel sort helpers
+// ---------------------------------------------------------------------------
+// `sourcesSort` is one of: 'manual' | 'name-asc' | 'name-desc' |
+// 'loaded-asc' | 'loaded-desc' | 'recorded-asc' | 'recorded-desc' |
+// 'frames-asc' | 'frames-desc'. The dropdown drives streamOrder so the
+// timeline always mirrors the file-list order. `manual` is the default
+// and honors the current streamOrder (drag-reorderable via Stream
+// Builder); other keys mutate streamOrder via the combined reconcile +
+// sort effect.
+
+const SORT_OPTIONS = [
+  { value: 'manual', label: 'Manual (drag in Stream Builder)' },
+  { value: 'name-asc', label: 'Name (A → Z)' },
+  { value: 'name-desc', label: 'Name (Z → A)' },
+  { value: 'loaded-asc', label: 'Loaded (oldest first)' },
+  { value: 'loaded-desc', label: 'Loaded (newest first)' },
+  { value: 'recorded-asc', label: 'Recorded (oldest first)' },
+  { value: 'recorded-desc', label: 'Recorded (newest first)' },
+  { value: 'frames-asc', label: 'Frame count (low → high)' },
+  { value: 'frames-desc', label: 'Frame count (high → low)' },
+];
+
+const _sortAccessor = (rec, base) => {
+  if (!rec) return null;
+  if (base === 'name') return (rec.name || '').toLowerCase();
+  if (base === 'loaded') return rec.loaded_at || 0;
+  if (base === 'recorded') {
+    const ts = rec.timestamps && rec.timestamps.length > 0 ? rec.timestamps[0] : 0;
+    return ts > 0 ? ts : rec.loaded_at || 0;
+  }
+  if (base === 'frames') return rec.frame_count || 0;
+  return 0;
+};
+
+const sortIdsByKey = (ids, recById, key) => {
+  if (!key || key === 'manual') return ids.slice();
+  const dir = key.endsWith('-desc') ? -1 : 1;
+  const base = key.replace(/-(asc|desc)$/, '');
+  return ids.slice().sort((a, b) => {
+    const va = _sortAccessor(recById.get(a), base);
+    const vb = _sortAccessor(recById.get(b), base);
+    if (va === vb) return 0;
+    if (va == null) return 1;
+    if (vb == null) return -1;
+    if (typeof va === 'string') return dir * va.localeCompare(vb);
+    return dir * (va < vb ? -1 : 1);
+  });
+};
+
+const idArrayEq = (a, b) => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+};
+
+const computeOffsetsFor = (order, recById) => {
+  const m = new Map();
+  let cum = 0;
+  for (const sid of order) {
+    const rec = recById.get(sid);
+    if (!rec) continue;
+    m.set(sid, cum);
+    cum += rec.frame_count || 1;
+  }
+  return m;
+};
+
+// ---------------------------------------------------------------------------
 // View factory + processing-badge helpers
 // ---------------------------------------------------------------------------
 
@@ -649,6 +832,22 @@ const makeDefaultView = (recording, opts = {}) => {
       hot_pixel_thr: 0.0,
       bilateral: false,
     },
+    // HDR fusion parameters — only meaningful when the user picks HDR
+    // gain in the Source panel. `mode` matches the legacy `hdrFusion`
+    // field (kept for backward compat); `params` carries the
+    // adjustable knobs that the Inspector exposes when HDR is active.
+    // Defaults match `hdr_fusion.py`'s baked-in defaults so the
+    // "switch" fusion stays byte-identical to legacy renders.
+    hdrParams: {
+      threshold: 60000, // hg_saturation_threshold
+      kneeWidth: 4000, // mertens-only smooth knee
+      gainRatio: 16.0, // HG/LG amplification factor
+      blend: 0.5, // linear-only HG/LG mix weight (1=HG, 0=LG)
+      outputScale: 'none', // 'none' | 'linear' | 'reinhard'
+      outputMin: 0, // post-scale floor (lifts the black point)
+      outputMax: 65535, // post-scale ceiling (the display range)
+      reinhardWhite: 100000, // reinhard L_white knee
+    },
     // Flexible overlay config — read by buildFrameUrl when sourceMode kind === 'overlay'.
     // Inspector's Overlay section reads/writes this struct.
     overlay: {
@@ -661,15 +860,60 @@ const makeDefaultView = (recording, opts = {}) => {
       strength: 0.6,
       overlayLow: null,
       overlayHigh: null,
+      // Brightness multiplier on the colormapped overlay RGB. The
+      // `strength` knob controls the alpha mask (how much of the
+      // overlay shows through); this knob controls the LUT-output
+      // luminance directly so the user can pump a dim colormap
+      // brighter without saturating the alpha at 1.0.
+      // Identity (1.0) is a no-op.
+      overlayBrightness: 1.0,
       // ROI polygon for the overlay (image-pixel coords). When
       // populated with ≥ 3 vertices, the backend renders the
       // overlay only inside the polygon and lets the base show
       // through outside.
       maskPolygon: [],
+      // Soft-edge feather (Gaussian sigma in px). 0 = legacy hard
+      // clip; > 0 fades the overlay smoothly across the polygon
+      // boundary so the ROI looks continuous and natural instead
+      // of showing a stamped cut-out.
+      maskFeatherPx: 0,
+      // Per-layer linear ISP — independent for base vs overlay so
+      // the user can tune the RGB base brightness without touching
+      // the colormapped overlay (and vice-versa). Identity defaults
+      // preserve legacy behaviour when the user doesn't tweak them.
+      baseIsp: { blackLevel: 0, gain: 1.0, offset: 0.0 },
+      overlayIsp: { blackLevel: 0, gain: 1.0, offset: 0.0 },
     },
     // Per-view "draw the overlay ROI" mode — the canvas turns into
     // a vertex-picker; click adds vertices, double-click exits.
     overlayDrawMode: false,
+    // Per-view "hide polygon outline" toggle. When true, the
+    // RoiOverlaySvg suppresses the polygon's vertices + edges + fill,
+    // but the polygon still drives the server-side overlay mask
+    // (URL builders continue to emit `mask_polygon` from
+    // view.overlay.maskPolygon). Lets the user inspect the
+    // unobstructed overlay while keeping the ROI clip active.
+    hidePolygonOverlay: false,
+    // Same idea, but for the per-view Region ROI polygons. Available
+    // in every view kind (region ROIs aren't overlay-only). The
+    // server-side region ISP still applies; only the SVG outlines
+    // hide.
+    hideRegionOutlines: false,
+    // Per-view list of "region ROIs" — each is an arbitrary polygon
+    // with its own per-region ISP (gain / gamma / wb / contrast /
+    // saturation) and edge feather. Applied server-side in raw DN
+    // space BEFORE the display pipeline (vmin/vmax / colormap /
+    // invert) so a region's pixels are graded then normalized
+    // alongside the rest of the frame. Stored as an array; the
+    // Inspector panel's table maps 1:1 to this list.
+    regionRois: [],
+    // Active draw target. When set to a region id, canvas clicks
+    // append vertices to THAT region's polygon (the existing draw
+    // path was single-target via `overlayDrawMode`).
+    regionDraftId: null,
+    // Currently-selected region (drives the Inspector ISP form).
+    // null = no row selected.
+    selectedRegionId: null,
     // Per-view TBR Analysis draft. The user picks a Tumor ROI then
     // a Background ROI, sees live stats for each, then commits the
     // pair into the parent's `tbrEntries` table. tbrDraftRole drives
@@ -832,6 +1076,16 @@ export const PlaybackMode = ({
     'playback/inspectorCollapsed',
     false
   );
+  // Resizable Sources panel — drag-handle width persists across reloads.
+  // Collapsed renders a fixed 44 px chrome regardless. Min/max clamp at
+  // the call site of <ResizeHandle> below.
+  const [sourcesWidth, setSourcesWidth] = useLocalStorageState('playback/sourcesWidth', 288);
+  // Sort key for the Sources file list. `manual` = honor current
+  // streamOrder (drag-reorderable via Stream Builder modal); other keys
+  // mutate streamOrder so the file list and timeline stay aligned.
+  // Mid-sort, the active source / locked frames / range selection are
+  // remapped to preserve the user's playhead context.
+  const [sourcesSort, setSourcesSort] = useLocalStorageState('playback/sourcesSort', 'manual');
   // M15 — auto-collapse Sources / Inspector at viewport ≤ 1180 px.
   // The auto-rule fires on bucket transitions only (never on mount or
   // on resizes within the same bucket), so the persisted localStorage
@@ -1099,19 +1353,88 @@ export const PlaybackMode = ({
     return Array.from(set).sort((a, b) => a - b);
   }, [recordings]);
 
-  // --- Stream order: sync with recordings -------------------------------
-  // Whenever recordings list changes, reconcile streamOrder so it
-  // contains exactly the active source_ids in the order the user
-  // either set (M6) or first loaded (default).
+  // --- Stream order: reconcile with recordings + apply active sort -----
+  // (1) Reconcile: keep existing ids in their current position, append
+  //     newly-loaded ids at the end. (2) If a non-manual sourcesSort is
+  //     active, sort the reconciled list by the chosen key. (3) When
+  //     existing recordings shift offsets (i.e. it's a real reorder,
+  //     not pure-append), remap globalFrame, rangeSelection, and any
+  //     locked view's lockedFrame to the same {recId, local} pair so
+  //     the user's playhead stays on the same source content.
+  // Effect depends on streamOrder to bail-out cleanly after dispatch
+  // (one extra render where arrayEq returns true and we early-return).
   React.useEffect(() => {
-    setStreamOrder((prev) => {
-      const presentIds = new Set(recordings.map((r) => r.source_id));
-      const kept = prev.filter((sid) => presentIds.has(sid));
-      const seen = new Set(kept);
-      const appended = recordings.filter((r) => !seen.has(r.source_id)).map((r) => r.source_id);
-      return [...kept, ...appended];
+    const presentIds = new Set(recordings.map((r) => r.source_id));
+    const kept = streamOrder.filter((sid) => presentIds.has(sid));
+    const seen = new Set(kept);
+    const appended = recordings.filter((r) => !seen.has(r.source_id)).map((r) => r.source_id);
+    let next = [...kept, ...appended];
+    const recById = new Map(recordings.map((r) => [r.source_id, r]));
+    if (sourcesSort !== 'manual') {
+      next = sortIdsByKey(next, recById, sourcesSort);
+    }
+    if (idArrayEq(streamOrder, next)) return;
+
+    const oldOff = computeOffsetsFor(streamOrder, recById);
+    const newOff = computeOffsetsFor(next, recById);
+    let needsRemap = false;
+    for (const [sid, off] of oldOff) {
+      if (newOff.get(sid) !== off) {
+        needsRemap = true;
+        break;
+      }
+    }
+
+    setStreamOrder(next);
+    if (!needsRemap) return;
+
+    const findRecLocal = (g) => {
+      let bestSid = null;
+      let bestOff = -1;
+      for (const [sid, off] of oldOff) {
+        if (off <= g && off > bestOff) {
+          bestSid = sid;
+          bestOff = off;
+        }
+      }
+      return bestSid ? { recId: bestSid, local: g - bestOff } : null;
+    };
+    const toNewGlobal = (recId, local) => {
+      const off = newOff.get(recId);
+      if (off == null) return null;
+      const rec = recById.get(recId);
+      const fc = (rec && rec.frame_count) || 1;
+      const clamped = Math.max(0, Math.min(fc - 1, local));
+      return off + clamped;
+    };
+
+    setGlobalFrame((prevG) => {
+      const cur = findRecLocal(prevG);
+      if (!cur) return prevG;
+      const ng = toNewGlobal(cur.recId, cur.local);
+      return ng == null ? prevG : ng;
     });
-  }, [recordings]);
+    setRangeSelection((prevR) => {
+      if (!prevR) return prevR;
+      const [s, e] = prevR;
+      const sR = findRecLocal(s);
+      const eR = findRecLocal(e);
+      const ns = sR ? toNewGlobal(sR.recId, sR.local) : null;
+      const ne = eR ? toNewGlobal(eR.recId, eR.local) : null;
+      if (ns == null || ne == null) return null;
+      return [Math.min(ns, ne), Math.max(ns, ne)];
+    });
+    setViews((prevViews) =>
+      prevViews.map((v) => {
+        if (!v.isLocked || v.lockedFrame == null) return v;
+        const r = findRecLocal(v.lockedFrame);
+        if (!r) return v;
+        const nf = toNewGlobal(r.recId, r.local);
+        if (nf == null || nf === v.lockedFrame) return v;
+        return { ...v, lockedFrame: nf };
+      })
+    );
+  }, [recordings, sourcesSort, streamOrder]);
 
   // --- Global → local frame mapping ------------------------------------
   const orderedRecordings = React.useMemo(
@@ -1247,11 +1570,17 @@ export const PlaybackMode = ({
       // when the bounded-concurrency pool finishes items out of order.
       // Each slot is `{ recording } | { error }` once that item settles.
       const slots = new Array(items.length).fill(null);
-      // Concurrency cap. The browser's parallel-request-per-host limit
-      // is 6; staying under that keeps thumbnail fetches + other Play
-      // routes responsive while a big batch loads. h5py releases the
-      // GIL during reads so the server can saturate this happily.
-      const MAX_PARALLEL_LOADS = 4;
+      // Concurrency caps. With Bug 14's switch to streaming uploads
+      // (apiUploadStream → /api/sources/upload-stream), the prior
+      // FormData-buffer collapse on >256 MB files is no longer a
+      // failure mode, so uploads can run in parallel again. Both
+      // pools cap at 4 — under the browser's 6-per-host limit (so
+      // thumbnails + other Play routes stay responsive during the
+      // batch), and matches the server's chosen single-worker thread
+      // pool's ability to overlap h5py.File() opens (which release
+      // the GIL on read).
+      const MAX_PARALLEL_PATHS = 4;
+      const MAX_PARALLEL_UPLOADS = 4;
       const loadOne = async (i) => {
         const it = items[i];
         const displayName = names[i];
@@ -1259,7 +1588,18 @@ export const PlaybackMode = ({
         try {
           let summary;
           if (it.kind === 'file') {
-            summary = await apiUpload('/api/sources/upload', it.file);
+            // FormData multipart upload. Confirmed by user:
+            // "20 of these 512 MB files at once worked fine before."
+            // The browser streams the multipart body from disk (File
+            // is disk-backed via <input type=file>) so the request
+            // never holds the full file in tab RAM. The earlier
+            // switch to `body: file` (apiUploadStream) made Chrome
+            // slurp the whole file into tab heap; at parallelism=4
+            // × 512 MB = 2 GB simultaneous in-tab allocation, which
+            // the browser process aborts with `TypeError: Load
+            // failed`. apiUploadStream is kept available for future
+            // HTTP/2 setups but isn't the default.
+            summary = await apiUpload('/api/sources/upload?auto_pin=true', it.file);
             // The browser hides the original disk path of an uploaded
             // file (security), so the server can only see the upload
             // tempfile. Ask the backend to scan the user's HOME for a
@@ -1290,7 +1630,10 @@ export const PlaybackMode = ({
           } else {
             summary = await apiFetch('/api/sources/load-path', {
               method: 'POST',
-              body: { path: it.path, name: it.name || null },
+              // auto_pin=true: Play recordings are non-evictable so a 50-
+              // file batch can't 410 itself out as the LRU cap is hit.
+              // Explicit DELETE on the source still removes the entry.
+              body: { path: it.path, name: it.name || null, auto_pin: true },
             });
           }
           let meta = null;
@@ -1351,38 +1694,80 @@ export const PlaybackMode = ({
             },
           };
         } catch (err) {
-          slots[i] = { error: { name: displayName, message: err.detail || err.message } };
-          setErrorFiles((prev) => [
-            ...prev,
-            { name: displayName, message: err.detail || err.message },
-          ]);
-          say?.(`Failed to load ${displayName}: ${err.detail || err.message}`, 'danger');
+          // Build a multi-line diagnostic string the user can copy-
+          // paste verbatim. Bare "Load failed" was useless for triage;
+          // this captures HTTP status, response detail, error class,
+          // exception chain, and a stack-frame so we can tell e.g.
+          // "Safari socket drop after 3 retries" apart from "server
+          // raised ValueError on a malformed legacy gsbsi H5".
+          const parts = [];
+          parts.push(err?.detail || err?.message || String(err) || 'unknown');
+          if (typeof err?.status === 'number') parts.push(`HTTP ${err.status}`);
+          if (err?.name && err.name !== 'Error') parts.push(`(${err.name})`);
+          if (err?.attempts && err.attempts > 1) parts.push(`after ${err.attempts} attempts`);
+          if (err?.cause && err.cause !== err) {
+            const c = err.cause;
+            parts.push(`cause: ${c?.name || 'Error'}: ${c?.message || c?.detail || c}`);
+          }
+          if (it?.kind) parts.push(`source: ${it.kind}`);
+          if (it?.kind === 'file' && it.file?.size != null) {
+            parts.push(`size: ${(it.file.size / 1024 / 1024).toFixed(1)} MB`);
+          }
+          const fullMessage = parts.join(' · ');
+          // Always log the raw error to console so DevTools shows the
+          // stack and any structured detail the toast can't fit.
+          // eslint-disable-next-line no-console
+          console.error(`[playback] load failed for ${displayName}:`, err, {
+            item: it,
+            status: err?.status,
+            detail: err?.detail,
+            cause: err?.cause,
+          });
+          slots[i] = { error: { name: displayName, message: fullMessage } };
+          setErrorFiles((prev) => [...prev, { name: displayName, message: fullMessage }]);
+          say?.(`Failed to load ${displayName}: ${fullMessage}`, 'danger');
         } finally {
           setLoadingFiles((prev) => prev.filter((lf) => lf.id !== loadId));
         }
       };
-      // Bounded-concurrency Promise pool. Walks the items array left-
-      // to-right; each worker grabs the next index off a shared cursor
-      // until the array is exhausted. Order of dispatch is preserved
-      // (low-index items start first) so the user-perceptible "first
-      // file appears first" feel survives parallelism. Final ordering
-      // of `recordings` is enforced by walking `slots` in index order
-      // after all workers exit, NOT by the order they finish.
-      let cursor = 0;
-      const workers = [];
-      const poolSize = Math.min(MAX_PARALLEL_LOADS, items.length);
-      for (let w = 0; w < poolSize; w++) {
-        workers.push(
-          (async () => {
-            while (true) {
-              const i = cursor++;
-              if (i >= items.length) return;
-              await loadOne(i);
-            }
-          })()
-        );
+      // Bounded-concurrency Promise pools — one per item kind so a
+      // mixed batch can't accidentally fan out N uploads through the
+      // path-pool's wider lane. Each pool walks its own queue cursor;
+      // dispatch order is preserved within a kind so the user-percep-
+      // tible "first file shows first" feel survives parallelism.
+      // Final ordering of `recordings` is enforced by walking `slots`
+      // in INPUT index order after both pools exit — order across
+      // kinds is therefore the user's pick order, not the finish order.
+      const pathIdxs = [];
+      const uploadIdxs = [];
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].kind === 'file') uploadIdxs.push(i);
+        else pathIdxs.push(i);
       }
-      await Promise.all(workers);
+      const runPool = async (queue, parallel) => {
+        let cursor = 0;
+        const poolSize = Math.min(parallel, queue.length);
+        const workers = [];
+        for (let w = 0; w < poolSize; w++) {
+          workers.push(
+            (async () => {
+              while (true) {
+                const slot = cursor++;
+                if (slot >= queue.length) return;
+                await loadOne(queue[slot]);
+              }
+            })()
+          );
+        }
+        await Promise.all(workers);
+      };
+      // The two pools run concurrently with each other (path JSON round-
+      // trips don't compete with upload sockets), but uploads stay strict-
+      // ly serial inside their own pool.
+      await Promise.all([
+        runPool(pathIdxs, MAX_PARALLEL_PATHS),
+        runPool(uploadIdxs, MAX_PARALLEL_UPLOADS),
+      ]);
       // Drain slots in input order — successes preserve the user's
       // pick order in the recordings array.
       const newRecordings = slots.filter((s) => s && s.recording).map((s) => s.recording);
@@ -2039,25 +2424,81 @@ export const PlaybackMode = ({
     for (const v of views) {
       const rec = recordings.find((r) => r.source_id === v.sourceId);
       if (!rec) continue;
-      // Include overlay + grading + isp signatures so the warmer
-      // restarts whenever the URL TEMPLATE changes (otherwise the
-      // pre-warmed blobs go stale the moment the user edits the
-      // overlay polygon / threshold / grading / ISP chain, and
-      // playback grinds to a halt at server speed). We use a tiny
-      // signature, NOT the full struct, to keep this string short
-      // and avoid burning megabytes per render on big sessions.
+      // Include EVERY URL-affecting field so the warmer restarts the
+      // moment any of them change. The previous signature only
+      // tracked a subset (e.g. polygon LENGTH not contents,
+      // missing maskFeatherPx + per-layer ISP + applyDark). Result
+      // was: pre-warmed blobs went stale on edit but the warmer
+      // didn't restart, every canvas frame missed cache, and play
+      // ground to a halt re-fetching at server speed. Keep each
+      // sub-signature short (no full struct stringify) — JSON-
+      // stringify the polygon since real ROIs are ~5-30 vertices.
       const ov = v.overlay || {};
-      const polyLen = Array.isArray(ov.maskPolygon) ? ov.maskPolygon.length : 0;
-      const ovSig = `${ov.overlayChannel || ''}/${ov.overlayLow ?? ''}/${ov.overlayHigh ?? ''}/${ov.overlayColormap || ''}/${ov.blend || ''}/${ov.strength ?? ''}/p${polyLen}`;
+      const polySig = Array.isArray(ov.maskPolygon) ? JSON.stringify(ov.maskPolygon) : '';
+      const bIsp = ov.baseIsp || {};
+      const oIsp = ov.overlayIsp || {};
+      const ovSig = [
+        ov.overlayChannel || '',
+        ov.baseChannel || '',
+        ov.baseKind || '',
+        ov.baseGain || '',
+        ov.overlayLow ?? '',
+        ov.overlayHigh ?? '',
+        ov.overlayColormap || '',
+        ov.blend || '',
+        ov.strength ?? '',
+        polySig,
+        // Soft-edge feather + per-layer linear ISP for both layers —
+        // each independently changes the rendered URL.
+        ov.maskFeatherPx ?? 0,
+        bIsp.blackLevel ?? '',
+        bIsp.gain ?? '',
+        bIsp.offset ?? '',
+        oIsp.blackLevel ?? '',
+        oIsp.gain ?? '',
+        oIsp.offset ?? '',
+      ].join('/');
       const g = v.grading || {};
-      const gSig = `${g.gain_r ?? 1}/${g.gain_g ?? 1}/${g.gain_b ?? 1}/${g.gamma ?? 1}/${g.brightness ?? 0}/${g.contrast ?? 1}/${g.saturation ?? 1}/${g.wb_kelvin ?? ''}`;
+      const gSig = `${g.gain_r ?? 1}/${g.gain_g ?? 1}/${g.gain_b ?? 1}/${g.offset_r ?? 0}/${g.offset_g ?? 0}/${g.offset_b ?? 0}/${g.gamma ?? 1}/${g.brightness ?? 0}/${g.contrast ?? 1}/${g.saturation ?? 1}/${g.wb_kelvin ?? ''}`;
       const ip = v.isp || {};
-      const ipSig = `${ip.sharpen_method || ''}/${ip.sharpen_amount ?? ''}/${ip.denoise_sigma ?? ''}/${ip.median_size ?? ''}/${ip.gaussian_sigma ?? ''}`;
-      // B-0040 — fold HDR fusion into the warmer key so a fusion
-      // toggle change restarts pre-warming with the new URL set.
-      const hdrSig = v.hdrFusion || 'switch';
+      const ipSig = `${ip.sharpen_method || ''}/${ip.sharpen_amount ?? ''}/${ip.sharpen_radius ?? ''}/${ip.denoise_sigma ?? ''}/${ip.median_size ?? ''}/${ip.gaussian_sigma ?? ''}/${ip.hot_pixel_thr ?? ''}/${ip.bilateral ? 1 : 0}`;
+      // B-0040 — fold HDR fusion + parameters into the warmer key so a
+      // fusion toggle or knob change restarts pre-warming with the new
+      // URL set. Without the params, pre-warmed blobs went stale on
+      // every threshold/knee/ratio/blend/output-scale tweak.
+      const hp = v.hdrParams || {};
+      const hdrSig = `${v.hdrFusion || 'switch'}|${hp.threshold ?? ''}|${hp.kneeWidth ?? ''}|${hp.gainRatio ?? ''}|${hp.blend ?? ''}|${hp.outputScale || ''}|${hp.outputMin ?? ''}|${hp.outputMax ?? ''}|${hp.reinhardWhite ?? ''}`;
+      // Burn-in labels also change the URL (different label flags →
+      // different per-frame PNG). Use a compact bitmask.
+      const lbl = v.labels || {};
+      const lblSig =
+        (lbl.timestamp ? 1 : 0) |
+        (lbl.frame ? 2 : 0) |
+        (lbl.channel ? 4 : 0) |
+        (lbl.source_file ? 8 : 0) |
+        (lbl.scale_bar ? 16 : 0);
+      // Region ROIs change the URL too — when the user deletes a
+      // region (or edits an ISP knob) the warmer must restart so it
+      // re-pre-fetches with the new URL set. Stringifying the full
+      // list is OK since region payloads stay small (~5–30 verts each)
+      // and there are typically only a handful of regions per view.
+      const rrSig = Array.isArray(v.regionRois)
+        ? JSON.stringify(
+            v.regionRois.map((r) => [
+              r.id,
+              r.polygon,
+              r.featherPx ?? 0,
+              r.gain ?? 1,
+              r.gamma ?? 1,
+              r.contrast ?? 1,
+              r.saturation ?? 1,
+              r.wbKelvin ?? '',
+              r.negate ? 1 : 0,
+            ])
+          )
+        : '';
       parts.push(
-        `${v.id}|${rec.source_id}|${rec.frame_count}|${v.sourceMode}|${v.colormap || ''}|${v.normalize || ''}|${v.vmin ?? ''}|${v.vmax ?? ''}|${v.blackLevel ?? ''}|${ovSig}|${gSig}|${ipSig}|${hdrSig}|${_ispVersionToken(rec)}`
+        `${v.id}|${rec.source_id}|${rec.frame_count}|${v.sourceMode}|${v.colormap || ''}|${v.normalize || ''}|${v.vmin ?? ''}|${v.vmax ?? ''}|${v.blackLevel ?? ''}|${v.gain ?? ''}|${v.offset ?? ''}|${v.applyDark === false ? 0 : 1}|${v.rawChannel || ''}|${ovSig}|${gSig}|${ipSig}|${hdrSig}|L${lblSig}|R${rrSig}|${_ispVersionToken(rec)}`
       );
     }
     return parts.join('||');
@@ -2350,6 +2791,10 @@ export const PlaybackMode = ({
         overlay_colormap: ov.overlayColormap || v.colormap || meta.defaultColormap || 'inferno',
         blend: ov.blend || 'alpha',
         strength: ov.strength ?? 0.6,
+        overlay_brightness:
+          meta.kind === 'overlay' && typeof ov.overlayBrightness === 'number'
+            ? ov.overlayBrightness
+            : 1.0,
         // Polygon ROI for the per-tile overlay render. Image-pixel coords;
         // backend rasterizes against the channel array's native shape so
         // alignment with what the user drew on the canvas is exact.
@@ -2357,6 +2802,41 @@ export const PlaybackMode = ({
           meta.kind === 'overlay' && Array.isArray(ov.maskPolygon) && ov.maskPolygon.length >= 3
             ? ov.maskPolygon
             : null,
+        // Forward soft-edge feather so tiled-image exports honor the
+        // same gradual decay the live canvas shows. 0 keeps the legacy
+        // hard clip.
+        mask_feather_px:
+          meta.kind === 'overlay' &&
+          Array.isArray(ov.maskPolygon) &&
+          ov.maskPolygon.length >= 3 &&
+          typeof ov.maskFeatherPx === 'number'
+            ? ov.maskFeatherPx
+            : 0,
+        // Region ROIs for the tiled overlay render — same payload
+        // shape the live /overlay.png canvas accepts.
+        region_rois:
+          meta.kind === 'overlay' && Array.isArray(v.regionRois) && v.regionRois.length > 0
+            ? v.regionRois
+                .filter((r) => Array.isArray(r.polygon) && r.polygon.length >= 3)
+                .map((r) => ({
+                  polygon: r.polygon,
+                  feather_px: r.featherPx ?? 0,
+                  gain: r.gain ?? 1.0,
+                  gamma: r.gamma ?? 1.0,
+                  wb_kelvin: typeof r.wbKelvin === 'number' ? r.wbKelvin : null,
+                  contrast: r.contrast ?? 1.0,
+                  saturation: r.saturation ?? 1.0,
+                  negate: !!r.negate,
+                }))
+            : null,
+        // Per-layer linear ISP for tiled overlay tiles. Identity
+        // defaults (0/1/0) are no-ops on the backend.
+        base_black_level: meta.kind === 'overlay' ? (ov.baseIsp?.blackLevel ?? 0) : 0,
+        base_isp_gain: meta.kind === 'overlay' ? (ov.baseIsp?.gain ?? 1.0) : 1.0,
+        base_isp_offset: meta.kind === 'overlay' ? (ov.baseIsp?.offset ?? 0) : 0,
+        overlay_black_level: meta.kind === 'overlay' ? (ov.overlayIsp?.blackLevel ?? 0) : 0,
+        overlay_isp_gain: meta.kind === 'overlay' ? (ov.overlayIsp?.gain ?? 1.0) : 1.0,
+        overlay_isp_offset: meta.kind === 'overlay' ? (ov.overlayIsp?.offset ?? 0) : 0,
         grading_gain_r: grading.gain_r ?? 1.0,
         grading_gain_g: grading.gain_g ?? 1.0,
         grading_gain_b: grading.gain_b ?? 1.0,
@@ -2436,12 +2916,53 @@ export const PlaybackMode = ({
         q.set('strength', String(ov.strength ?? 0.6));
         if (ov.overlayLow != null) q.set('overlay_low', String(ov.overlayLow));
         if (ov.overlayHigh != null) q.set('overlay_high', String(ov.overlayHigh));
+        if (
+          typeof ov.overlayBrightness === 'number' &&
+          Math.abs(ov.overlayBrightness - 1.0) > 1e-6
+        ) {
+          q.set('overlay_brightness', String(ov.overlayBrightness));
+        }
         // Polygon ROI: when the overlay view carries a drawn mask, the
         // exported video honors it the same way the per-frame display
         // does — overlay only inside the polygon, base RGB outside.
         if (Array.isArray(ov.maskPolygon) && ov.maskPolygon.length >= 3) {
           q.set('mask_polygon', JSON.stringify(ov.maskPolygon));
+          if (typeof ov.maskFeatherPx === 'number' && ov.maskFeatherPx > 0) {
+            q.set('mask_feather_px', String(ov.maskFeatherPx));
+          }
         }
+        // Region ROIs — single-source export GET path.
+        const _vRegions = Array.isArray(v.regionRois) ? v.regionRois : [];
+        if (_vRegions.length > 0) {
+          const payload = _vRegions
+            .filter((r) => Array.isArray(r.polygon) && r.polygon.length >= 3)
+            .map((r) => ({
+              polygon: r.polygon,
+              feather_px: r.featherPx ?? 0,
+              gain: r.gain ?? 1.0,
+              gamma: r.gamma ?? 1.0,
+              wb_kelvin: typeof r.wbKelvin === 'number' ? r.wbKelvin : null,
+              contrast: r.contrast ?? 1.0,
+              saturation: r.saturation ?? 1.0,
+              negate: !!r.negate,
+            }));
+          if (payload.length > 0) q.set('region_rois', JSON.stringify(payload));
+        }
+        // Per-layer linear ISP — only emit non-identity values.
+        const _bIsp = ov.baseIsp || {};
+        const _oIsp = ov.overlayIsp || {};
+        if (typeof _bIsp.blackLevel === 'number' && Math.abs(_bIsp.blackLevel) > 1e-9)
+          q.set('base_black_level', String(_bIsp.blackLevel));
+        if (typeof _bIsp.gain === 'number' && Math.abs(_bIsp.gain - 1.0) > 1e-9)
+          q.set('base_isp_gain', String(_bIsp.gain));
+        if (typeof _bIsp.offset === 'number' && Math.abs(_bIsp.offset) > 1e-9)
+          q.set('base_isp_offset', String(_bIsp.offset));
+        if (typeof _oIsp.blackLevel === 'number' && Math.abs(_oIsp.blackLevel) > 1e-9)
+          q.set('overlay_black_level', String(_oIsp.blackLevel));
+        if (typeof _oIsp.gain === 'number' && Math.abs(_oIsp.gain - 1.0) > 1e-9)
+          q.set('overlay_isp_gain', String(_oIsp.gain));
+        if (typeof _oIsp.offset === 'number' && Math.abs(_oIsp.offset) > 1e-9)
+          q.set('overlay_isp_offset', String(_oIsp.offset));
       } else if (meta.kind === 'raw' && v.rawChannel) {
         q.set('render', 'channel');
         q.set('channel', v.rawChannel);
@@ -2468,6 +2989,11 @@ export const PlaybackMode = ({
       // Forward the non-linear ISP chain (sharpen / FPN / denoise) so
       // exports honor the live filter settings.
       _appendIspChainQuery(q, v.isp || null);
+      // RGB grading (per-channel gain/offset, gamma, brightness,
+      // contrast, saturation, WB Kelvin). Honored for rgb_composite
+      // AND for the BASE side of render='overlay' so exported videos
+      // match the canvas WYSIWYG.
+      _appendGradingQuery(q, v.grading || null);
       return `${API_BASE}/api/sources/${rec.source_id}/export/video?${q.toString()}`;
     },
     [views, selectedViewId, recordings]
@@ -2476,6 +3002,13 @@ export const PlaybackMode = ({
   // Build the per-source spec for /api/play/exports. Mirrors the
   // single-source GET URL builder but produces a JSON body field set
   // for the multi-source job route.
+  //
+  // `opts.start` and `opts.end` are GLOBAL frame indices into the
+  // concatenated stream. Each per-source spec receives LOCAL indices
+  // computed by intersecting the global range with that source's
+  // [offset, offset + frame_count) slot. Sources whose slot doesn't
+  // overlap the global range are skipped (return null) so the multi-
+  // source job never sees `end < start`.
   const buildMultiSourceSpec = React.useCallback(
     (recording, opts) => {
       // Use the active view as the render template — the user's
@@ -2484,17 +3017,43 @@ export const PlaybackMode = ({
       const v = views.find((vv) => vv.id === selectedViewId) || views[0];
       if (!v) return null;
       const meta = sourceModeMeta(v.sourceMode);
+      // --- GLOBAL → LOCAL frame remap --------------------------------
+      const offset = sourceOffsets.get(recording.source_id) ?? 0;
+      const fc = Math.max(1, recording.frame_count || 1);
+      const globalStart = Math.max(0, Math.floor(opts.start ?? 0));
+      const globalEnd =
+        opts.end == null
+          ? Math.max(0, totalFrames - 1)
+          : Math.min(Math.max(0, totalFrames - 1), Math.floor(opts.end));
+      // Intersect [globalStart, globalEnd] with this source's slot
+      // [offset, offset + fc - 1]. If empty, the source falls outside
+      // the requested export range — skip it so the backend doesn't
+      // reject `end < start`.
+      const slotEnd = offset + fc - 1;
+      const interStart = Math.max(globalStart, offset);
+      const interEnd = Math.min(globalEnd, slotEnd);
+      if (interEnd < interStart) return null;
+      const localStart = interStart - offset;
+      const localEnd = interEnd - offset;
+      // --- Sharpen-method coercion ------------------------------------
+      // Pydantic spec is Literal["Unsharp mask"|"Laplacian"|"High-pass"];
+      // a frontend "None" string or empty maps to no-sharpen. Drop the
+      // field entirely so Pydantic accepts the implicit default of None.
+      const rawSharpen = v.isp?.sharpen_method;
+      const sharpenMethod =
+        rawSharpen && rawSharpen !== 'None' && rawSharpen !== '' ? rawSharpen : null;
       const spec = {
         source_id: recording.source_id,
-        start: opts.start ?? 0,
-        end: opts.end ?? null,
+        start: localStart,
+        end: localEnd,
         apply_dark: v.applyDark !== false,
         // Linear ISP from the active view.
         black_level: v.blackLevel ?? 0,
         isp_gain: v.gain ?? 1.0,
         isp_offset: v.offset ?? 0.0,
-        // Non-linear ISP chain.
-        sharpen_method: v.isp?.sharpen_method ?? null,
+        // Non-linear ISP chain. `sharpen_method` is omitted entirely
+        // when no sharpen is selected — the backend Pydantic Literal
+        // rejects the string "None".
         sharpen_amount: v.isp?.sharpen_amount ?? 1.0,
         sharpen_radius: v.isp?.sharpen_radius ?? 2.0,
         denoise_sigma: v.isp?.denoise_sigma ?? 0.0,
@@ -2503,11 +3062,41 @@ export const PlaybackMode = ({
         hot_pixel_thr: v.isp?.hot_pixel_thr ?? 0.0,
         bilateral: !!v.isp?.bilateral,
       };
+      if (sharpenMethod) spec.sharpen_method = sharpenMethod;
       if (v.vmin != null) spec.vmin = v.vmin;
       if (v.vmax != null) spec.vmax = v.vmax;
+      // Helper to attach RGB grading fields onto the spec (only
+      // non-identity values). Used by render='rgb_composite' AND the
+      // BASE side of render='overlay'.
+      const _attachGrading = () => {
+        const _g = v.grading || {};
+        if (typeof _g.gain_r === 'number' && Math.abs(_g.gain_r - 1.0) > 1e-9)
+          spec.gain_r = _g.gain_r;
+        if (typeof _g.gain_g === 'number' && Math.abs(_g.gain_g - 1.0) > 1e-9)
+          spec.gain_g = _g.gain_g;
+        if (typeof _g.gain_b === 'number' && Math.abs(_g.gain_b - 1.0) > 1e-9)
+          spec.gain_b = _g.gain_b;
+        if (typeof _g.offset_r === 'number' && Math.abs(_g.offset_r) > 1e-9)
+          spec.offset_r = _g.offset_r;
+        if (typeof _g.offset_g === 'number' && Math.abs(_g.offset_g) > 1e-9)
+          spec.offset_g = _g.offset_g;
+        if (typeof _g.offset_b === 'number' && Math.abs(_g.offset_b) > 1e-9)
+          spec.offset_b = _g.offset_b;
+        if (typeof _g.gamma === 'number' && Math.abs(_g.gamma - 1.0) > 1e-9)
+          spec.gamma_g = _g.gamma;
+        if (typeof _g.brightness === 'number' && Math.abs(_g.brightness) > 1e-9)
+          spec.brightness_g = _g.brightness;
+        if (typeof _g.contrast === 'number' && Math.abs(_g.contrast - 1.0) > 1e-9)
+          spec.contrast_g = _g.contrast;
+        if (typeof _g.saturation === 'number' && Math.abs(_g.saturation - 1.0) > 1e-9)
+          spec.saturation_g = _g.saturation;
+        if (typeof _g.wb_kelvin === 'number' && Math.abs(_g.wb_kelvin - 6500) > 1)
+          spec.wb_kelvin = _g.wb_kelvin;
+      };
       if (meta.kind === 'rgb' || meta.kind === 'rgb_image') {
         spec.render = 'rgb_composite';
         spec.gain = meta.kind === 'rgb_image' ? 'hg' : meta.gain;
+        _attachGrading();
       } else if (meta.kind === 'channel') {
         spec.render = 'channel';
         spec.channel = meta.channel;
@@ -2531,9 +3120,55 @@ export const PlaybackMode = ({
         spec.strength = ov.strength ?? 0.6;
         if (ov.overlayLow != null) spec.overlay_low = ov.overlayLow;
         if (ov.overlayHigh != null) spec.overlay_high = ov.overlayHigh;
+        if (
+          typeof ov.overlayBrightness === 'number' &&
+          Math.abs(ov.overlayBrightness - 1.0) > 1e-6
+        ) {
+          spec.overlay_brightness = ov.overlayBrightness;
+        }
         if (Array.isArray(ov.maskPolygon) && ov.maskPolygon.length >= 3) {
           spec.mask_polygon = ov.maskPolygon;
+          if (typeof ov.maskFeatherPx === 'number' && ov.maskFeatherPx > 0) {
+            spec.mask_feather_px = ov.maskFeatherPx;
+          }
         }
+        // Region ROIs — multi-source JSON spec path.
+        const _spRegions = Array.isArray(v.regionRois) ? v.regionRois : [];
+        if (_spRegions.length > 0) {
+          const payload = _spRegions
+            .filter((r) => Array.isArray(r.polygon) && r.polygon.length >= 3)
+            .map((r) => ({
+              polygon: r.polygon,
+              feather_px: r.featherPx ?? 0,
+              gain: r.gain ?? 1.0,
+              gamma: r.gamma ?? 1.0,
+              wb_kelvin: typeof r.wbKelvin === 'number' ? r.wbKelvin : null,
+              contrast: r.contrast ?? 1.0,
+              saturation: r.saturation ?? 1.0,
+              negate: !!r.negate,
+            }));
+          if (payload.length > 0) spec.region_rois = payload;
+        }
+        // Per-layer linear ISP — only attach non-identity values to keep
+        // the JSON spec compact. Backend defaults (0/1/0) are no-ops.
+        const _bI = ov.baseIsp || {};
+        const _oI = ov.overlayIsp || {};
+        if (typeof _bI.blackLevel === 'number' && Math.abs(_bI.blackLevel) > 1e-9)
+          spec.base_black_level = _bI.blackLevel;
+        if (typeof _bI.gain === 'number' && Math.abs(_bI.gain - 1.0) > 1e-9)
+          spec.base_isp_gain = _bI.gain;
+        if (typeof _bI.offset === 'number' && Math.abs(_bI.offset) > 1e-9)
+          spec.base_isp_offset = _bI.offset;
+        if (typeof _oI.blackLevel === 'number' && Math.abs(_oI.blackLevel) > 1e-9)
+          spec.overlay_black_level = _oI.blackLevel;
+        if (typeof _oI.gain === 'number' && Math.abs(_oI.gain - 1.0) > 1e-9)
+          spec.overlay_isp_gain = _oI.gain;
+        if (typeof _oI.offset === 'number' && Math.abs(_oI.offset) > 1e-9)
+          spec.overlay_isp_offset = _oI.offset;
+        // RGB grading for the BASE layer (overlay channel is single-
+        // channel and unaffected). Mirrors the live /overlay.png
+        // request so the exported video matches the canvas.
+        _attachGrading();
       } else if (meta.kind === 'raw' && v.rawChannel) {
         spec.render = 'channel';
         spec.channel = v.rawChannel;
@@ -2543,7 +3178,7 @@ export const PlaybackMode = ({
       }
       return spec;
     },
-    [views, selectedViewId]
+    [views, selectedViewId, sourceOffsets, totalFrames]
   );
 
   const exportVideo = React.useCallback(
@@ -2563,7 +3198,15 @@ export const PlaybackMode = ({
           say?.('An export is already in progress — wait or cancel it first.', 'warning');
           return;
         }
-        const specs = recordings.map((rec) => buildMultiSourceSpec(rec, opts)).filter(Boolean);
+        // Walk the user-visible stream order — the file-list / timeline
+        // ordering — NOT the raw `recordings` load order. Without this
+        // a stream sorted into 1-2-3-4 in the panel would still export
+        // 4-1-2-3 (or whatever the original load sequence was) because
+        // `recordings` reflects insertion order, while `orderedRecordings`
+        // is `streamOrder.map(...)` and therefore the visible order.
+        const specs = orderedRecordings
+          .map((rec) => buildMultiSourceSpec(rec, opts))
+          .filter(Boolean);
         if (specs.length === 0) {
           say?.('Could not build export spec — pick a view first.', 'warning');
           return;
@@ -2757,7 +3400,16 @@ export const PlaybackMode = ({
         say?.(`Video export failed: ${err.message || err}`, 'danger');
       }
     },
-    [buildVideoUrl, buildTiledViewSpec, views, say]
+    [
+      buildVideoUrl,
+      buildTiledViewSpec,
+      buildMultiSourceSpec,
+      orderedRecordings,
+      recordings,
+      exportJob,
+      views,
+      say,
+    ]
   );
 
   // M23 — POST the tiled-image-export request and download the result.
@@ -2976,7 +3628,11 @@ export const PlaybackMode = ({
   const accept = globalFileFilter?.filters?.[globalFileFilter.current]?.accept || '.h5,.hdf5';
 
   // --- Layout proportions (per spec §5.4) ---------------------------------
-  const sourcesWidth = sourcesCollapsed ? 44 : 288;
+  // Sources panel width — 44 px when collapsed, otherwise the persisted
+  // user-resized width (default 288). The ResizeHandle inside
+  // SourcesPanel writes back to setSourcesWidth, so collapsing then
+  // re-expanding restores the user's last drag size.
+  const effectiveSourcesWidth = sourcesCollapsed ? 44 : sourcesWidth;
   const inspectorWidth = inspectorCollapsed ? 44 : 420;
 
   // --- Render -------------------------------------------------------------
@@ -3058,7 +3714,8 @@ export const PlaybackMode = ({
         }}
       >
         <SourcesPanel
-          width={sourcesWidth}
+          width={effectiveSourcesWidth}
+          onResize={setSourcesWidth}
           collapsed={sourcesCollapsed}
           onToggleCollapse={() => {
             // M15: latch manual touch so the auto-rule defers to the
@@ -3067,6 +3724,13 @@ export const PlaybackMode = ({
             setSourcesCollapsed((c) => !c);
           }}
           recordings={recordings}
+          orderedRecordings={orderedRecordings}
+          sortKey={sourcesSort}
+          onChangeSortKey={setSourcesSort}
+          // Disable sort while a video export is running so the
+          // server-side job's frame range doesn't desync from the
+          // visible order mid-export.
+          sortDisabled={exportJob != null}
           loadingFiles={loadingFiles}
           errorFiles={errorFiles}
           selectedRecId={selectedRecId}
@@ -3205,6 +3869,10 @@ export const PlaybackMode = ({
           continuityThreshold={continuityThreshold}
           onChangeThreshold={setContinuityThreshold}
           onApply={(newOrder) => {
+            // Drop back to manual sort so the next render of the
+            // reconcile+sort effect bails (sorted form would overwrite
+            // the user's drag-reorder otherwise).
+            setSourcesSort('manual');
             setStreamOrder(newOrder);
             setStreamBuilderOpen(false);
             say?.('Stream order updated.', 'success');
@@ -3225,21 +3893,43 @@ export const PlaybackMode = ({
           onExport={exportVideo}
           onCancelJob={async () => {
             if (!exportJob?.jobId) return;
-            // frontend-react-engineer P1-C: surface DELETE failures so
-            // the user knows the cancel didn't reach the server. The
-            // polling loop will continue to show 'running' until the
-            // backend actually flips state, so without a toast the
-            // user has no signal at all.
+            // Cancel is a two-step contract:
+            //   (1) DELETE the server-side job so the runner stops.
+            //   (2) Abort the local poll loop and clear exportJob so the
+            //       UI returns to a usable state immediately, even if
+            //       the backend is slow to flip status to 'cancelled'.
+            // Without (2) the poll keeps reading the (possibly racing)
+            // job and a subsequent crash inside the modal's exportJob.*
+            // accessors took down the whole Play page. Belt-and-suspend-
+            // ers: snapshot the job ref BEFORE async work so a races on
+            // exportJob → null can't throw on .jobId.
+            const jobIdSnap = exportJob.jobId;
+            // (2a) Fast-abort the in-flight poll loop so it doesn't
+            // race with the DELETE response and dispatch into a
+            // half-cleared modal.
+            if (exportPollAbortRef.current) {
+              exportPollAbortRef.current.aborted = true;
+            }
+            // (2b) Drop the job from React state immediately so the
+            // modal stops trying to render exportJob.* fields and the
+            // user can re-open / retry without waiting for the backend.
+            setExportJob(null);
+            // (1) Best-effort DELETE. Errors here are non-fatal — the
+            // job will reap on its own (TTL) even if the request
+            // failed. We still toast so the user knows.
             try {
-              const r = await fetch(`${API_BASE}/api/play/exports/${exportJob.jobId}`, {
+              const r = await fetch(`${API_BASE}/api/play/exports/${jobIdSnap}`, {
                 method: 'DELETE',
               });
-              if (!r.ok) {
-                say?.(`Cancel request returned ${r.status}; the job may keep running.`, 'warning');
+              if (!r.ok && r.status !== 409) {
+                // 409 = job already finished/cancelled; not an error.
+                say?.(`Cancel request returned ${r.status}; job may keep running.`, 'warning');
+              } else {
+                say?.('Export cancelled.', 'info');
               }
             } catch (err) {
               say?.(
-                `Cancel request failed: ${err?.message || err}; the job may keep running.`,
+                `Cancel request failed: ${err?.message || err}; job may keep running.`,
                 'warning'
               );
             }
@@ -3624,9 +4314,23 @@ const StreamHeader = ({
 
 const SourcesPanel = ({
   width,
+  // Drag-resize callback. When undefined the panel renders without a
+  // ResizeHandle (legacy callers, e.g. tests).
+  onResize,
   collapsed,
   onToggleCollapse,
   recordings,
+  // streamOrder-driven view of `recordings` — drives the FilePill list
+  // so file order always matches the timeline. Falls back to
+  // `recordings` for legacy callers.
+  orderedRecordings,
+  // 'manual' | 'name-asc' | 'name-desc' | 'loaded-asc' | 'loaded-desc'
+  // | 'recorded-asc' | 'recorded-desc' | 'frames-asc' | 'frames-desc'.
+  sortKey = 'manual',
+  onChangeSortKey,
+  // Disable the sort dropdown while a server-side video export is
+  // running (sort would desync the in-flight job's frame range).
+  sortDisabled = false,
   loadingFiles,
   errorFiles,
   selectedRecId,
@@ -3651,6 +4355,10 @@ const SourcesPanel = ({
   // Source whose frame is currently displayed on the canvas.
   activeRecId,
 }) => {
+  const pillRecordings =
+    Array.isArray(orderedRecordings) && orderedRecordings.length > 0
+      ? orderedRecordings
+      : recordings;
   const t = useTheme();
   if (collapsed) {
     return (
@@ -3698,6 +4406,7 @@ const SourcesPanel = ({
         flexDirection: 'column',
         background: t.panel,
         overflow: 'hidden',
+        position: 'relative',
       }}
     >
       <div
@@ -3742,6 +4451,53 @@ const SourcesPanel = ({
         </button>
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '8px 8px 24px' }}>
+        {/* Sort row — drives streamOrder so the timeline mirrors the
+            file-list order. Above the SectionHeader so the dropdown's
+            wider hit-target doesn't crowd the Select-all/Delete row. */}
+        {onChangeSortKey && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              marginBottom: 8,
+              padding: '0 4px',
+            }}
+            data-sources-sort-row
+          >
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 600,
+                letterSpacing: 0.4,
+                textTransform: 'uppercase',
+                color: t.textMuted,
+                flexShrink: 0,
+              }}
+              title={
+                sortDisabled
+                  ? 'Sort is locked while a video export is in progress'
+                  : 'Sort the file list — the timeline mirrors this order'
+              }
+            >
+              Sort
+            </span>
+            <div
+              style={{
+                flex: 1,
+                opacity: sortDisabled ? 0.5 : 1,
+                pointerEvents: sortDisabled ? 'none' : 'auto',
+              }}
+            >
+              <Select
+                value={sortKey}
+                options={SORT_OPTIONS}
+                onChange={onChangeSortKey}
+                ariaLabel="Sort recordings"
+              />
+            </div>
+          </div>
+        )}
         <div
           style={{
             display: 'flex',
@@ -3816,7 +4572,7 @@ const SourcesPanel = ({
             onRemove={() => onRetry(ef.name)}
           />
         ))}
-        {recordings.map((rec) => (
+        {pillRecordings.map((rec) => (
           <FilePill
             key={rec.source_id}
             state="loaded"
@@ -3934,6 +4690,9 @@ const SourcesPanel = ({
           </Button>
         )}
       </div>
+      {onResize && (
+        <ResizeHandle value={width} onChange={onResize} min={240} max={560} side="right" grow={1} />
+      )}
     </div>
   );
 };
@@ -5008,8 +5767,17 @@ const ViewerCard = ({
     if (Array.isArray(draft.bgPolygon) && draft.bgPolygon.length > 0) {
       out.push({ target: 'bg', pts: draft.bgPolygon });
     }
+    // Per-view region ROIs — each polygon is editable via the same
+    // drag-vertex / edge-insert / double-click-add flow as the
+    // overlay mask + TBR drafts.
+    const regions = Array.isArray(view.regionRois) ? view.regionRois : [];
+    for (const r of regions) {
+      if (Array.isArray(r.polygon) && r.polygon.length > 0) {
+        out.push({ target: `region:${r.id}`, pts: r.polygon });
+      }
+    }
     return out;
-  }, [meta?.kind, view.overlay, view.tbrDraft]);
+  }, [meta?.kind, view.overlay, view.tbrDraft, view.regionRois]);
 
   // CSS-px → image-px scale factor for the current letterbox layout.
   // Returns null when the SVG isn't mounted yet or has zero size.
@@ -5116,6 +5884,12 @@ const ViewerCard = ({
     } else if (target === 'bg') {
       const draft = view.tbrDraft || {};
       onUpdate({ tbrDraft: { ...draft, bgPolygon: newPts } });
+    } else if (typeof target === 'string' && target.startsWith('region:')) {
+      const id = target.slice('region:'.length);
+      const regions = Array.isArray(view.regionRois) ? view.regionRois : [];
+      onUpdate({
+        regionRois: regions.map((r) => (r.id === id ? { ...r, polygon: newPts } : r)),
+      });
     }
   };
 
@@ -5123,6 +5897,12 @@ const ViewerCard = ({
     if (target === 'mask') return (view.overlay || {}).maskPolygon || [];
     if (target === 'tumor') return (view.tbrDraft || {}).tumorPolygon || [];
     if (target === 'bg') return (view.tbrDraft || {}).bgPolygon || [];
+    if (typeof target === 'string' && target.startsWith('region:')) {
+      const id = target.slice('region:'.length);
+      const regions = Array.isArray(view.regionRois) ? view.regionRois : [];
+      const r = regions.find((rr) => rr.id === id);
+      return r?.polygon || [];
+    }
     return [];
   };
   // Gain selector (HG / LG / HDR) lives outside the channel dropdown for
@@ -5307,7 +6087,10 @@ const ViewerCard = ({
           // only when actively drawing an ROI; the grab cursor used to
           // show whenever zoomed in but that was distracting and the
           // pan happens via middle-mouse-drag, not a wheel-click handle.
-          cursor: view.overlayDrawMode || view.tbrDraftRole ? 'crosshair' : 'default',
+          cursor:
+            view.overlayDrawMode || view.tbrDraftRole || view.regionDraftId
+              ? 'crosshair'
+              : 'default',
         }}
         onMouseDown={(e) => {
           // Middle-button drag pans the image. Browsers bind middle-
@@ -5331,13 +6114,13 @@ const ViewerCard = ({
             e.currentTarget.style.cursor = 'grabbing';
             return;
           }
-          // Left-button on an existing vertex → start vertex drag. We
-          // skip when actively appending vertices (overlay draw or TBR
-          // role) so the user's "add another vertex" click isn't
-          // hijacked into a 0-distance drag.
-          if (e.button !== 0 || !url || view.overlayDrawMode || view.tbrDraftRole) {
-            return;
-          }
+          // Left-button on an existing vertex → start vertex drag.
+          // We hit-test FIRST regardless of draw mode so the user can
+          // grab and drag a vertex even while a region (or the overlay
+          // mask, or a TBR draft) is in append-vertex mode. When the
+          // hit-test misses, we fall through and let the click handler
+          // append a new vertex (the original draw-mode behavior).
+          if (e.button !== 0 || !url) return;
           const hit = _hitTestVertex(e.clientX, e.clientY, 12);
           if (!hit) return;
           e.preventDefault();
@@ -5385,7 +6168,7 @@ const ViewerCard = ({
           // Hover affordance — when hovering near a vertex outside
           // draw mode, switch the cursor to a "move" affordance so
           // the user knows the vertex is grabbable.
-          if (!url || view.overlayDrawMode || view.tbrDraftRole) return;
+          if (!url || view.overlayDrawMode || view.tbrDraftRole || view.regionDraftId) return;
           const hover = _hitTestVertex(e.clientX, e.clientY, 12);
           const desired = hover ? 'grab' : 'default';
           if (e.currentTarget.style.cursor !== desired) {
@@ -5397,26 +6180,34 @@ const ViewerCard = ({
             e.preventDefault();
             dragRef.current = null;
             e.currentTarget.style.cursor =
-              view.overlayDrawMode || view.tbrDraftRole ? 'crosshair' : 'default';
+              view.overlayDrawMode || view.tbrDraftRole || view.regionDraftId
+                ? 'crosshair'
+                : 'default';
             return;
           }
           if (e.button === 0 && vertexDragRef.current) {
             e.preventDefault();
             vertexDragRef.current = null;
             e.currentTarget.style.cursor =
-              view.overlayDrawMode || view.tbrDraftRole ? 'crosshair' : 'default';
+              view.overlayDrawMode || view.tbrDraftRole || view.regionDraftId
+                ? 'crosshair'
+                : 'default';
           }
         }}
         onMouseLeave={(e) => {
           if (dragRef.current) {
             dragRef.current = null;
             e.currentTarget.style.cursor =
-              view.overlayDrawMode || view.tbrDraftRole ? 'crosshair' : 'default';
+              view.overlayDrawMode || view.tbrDraftRole || view.regionDraftId
+                ? 'crosshair'
+                : 'default';
           }
           if (vertexDragRef.current) {
             vertexDragRef.current = null;
             e.currentTarget.style.cursor =
-              view.overlayDrawMode || view.tbrDraftRole ? 'crosshair' : 'default';
+              view.overlayDrawMode || view.tbrDraftRole || view.regionDraftId
+                ? 'crosshair'
+                : 'default';
           }
         }}
         onContextMenu={(e) => {
@@ -5431,7 +6222,7 @@ const ViewerCard = ({
           // Right-click on a vertex → delete that vertex. We require
           // ≥ 4 vertices remaining so the polygon stays a valid closed
           // shape; the parent ROI-stats path requires ≥ 3.
-          if (view.overlayDrawMode || view.tbrDraftRole) return;
+          if (view.overlayDrawMode || view.tbrDraftRole || view.regionDraftId) return;
           const hit = _hitTestVertex(e.clientX, e.clientY, 12);
           if (!hit) return;
           const cur = _polygonForTarget(hit.target);
@@ -5458,7 +6249,8 @@ const ViewerCard = ({
           if (!url || !recording?.shape || !svgRef.current) return;
           const drawingOverlay = !!view.overlayDrawMode;
           const tbrRole = view.tbrDraftRole;
-          if (!drawingOverlay && !tbrRole) return;
+          const regionDraftId = view.regionDraftId || null;
+          if (!drawingOverlay && !tbrRole && !regionDraftId) return;
           const ih = recording.shape[0] || 1;
           const iw = recording.shape[1] || 1;
           const hit = _clientToImagePx({
@@ -5479,6 +6271,17 @@ const ViewerCard = ({
             const key = tbrRole === 'tumor' ? 'tumorPolygon' : 'bgPolygon';
             const prev = Array.isArray(draft[key]) ? draft[key] : [];
             onUpdate({ tbrDraft: { ...draft, [key]: [...prev, [ix, iy]] } });
+          } else if (regionDraftId) {
+            // Region ROI vertex append. The Inspector "Region ROIs"
+            // panel sets `regionDraftId` to the row the user is
+            // currently drawing into; this handler tags every click
+            // onto that polygon until the user stops drawing.
+            const regions = Array.isArray(view.regionRois) ? view.regionRois : [];
+            onUpdate({
+              regionRois: regions.map((r) =>
+                r.id === regionDraftId ? { ...r, polygon: [...(r.polygon || []), [ix, iy]] } : r
+              ),
+            });
           }
           e.stopPropagation();
         }}
@@ -5514,7 +6317,7 @@ const ViewerCard = ({
           // of an explicit Done button in the Inspector — accidental
           // double-clicks were committing half-finished polygons).
           if (!url) return;
-          if (view.overlayDrawMode || view.tbrDraftRole) return;
+          if (view.overlayDrawMode || view.tbrDraftRole || view.regionDraftId) return;
           // Edge-insert: double-click on a polygon edge inserts a new
           // vertex at the click point. Takes precedence over the
           // zoom-reset because the user's intent is unambiguous (they
@@ -5550,8 +6353,21 @@ const ViewerCard = ({
             ref={imgRef}
             alt={`${view.name} frame ${effectiveFrame}`}
             style={{
-              maxWidth: '100%',
-              maxHeight: '100%',
+              // Fill the entire canvas-area so the IMG's CSS box
+              // matches the absolute-positioned <RoiOverlaySvg>'s box
+              // exactly — both then letterbox the image content the
+              // same way (`objectFit: contain` here mirrors the SVG's
+              // `preserveAspectRatio="xMidYMid meet"`). Without this
+              // alignment, when the natural PNG size was smaller than
+              // the canvas-area, the IMG centered itself at natural
+              // pixel size while the SVG still occupied the full
+              // canvas — polygon outlines lined up with the user's
+              // clicks but the actual image pixels under those clicks
+              // sat in a different sub-region, so the server-applied
+              // ISP mask landed visibly shifted from the drawn
+              // polygon.
+              width: '100%',
+              height: '100%',
               objectFit: 'contain',
               // Keep the image visible during the next-frame fetch —
               // the previous frame stays on-screen until the new one
@@ -5590,14 +6406,21 @@ const ViewerCard = ({
         )}
         {/* ROI polygon overlay (overlay-mode mask AND TBR Tumor /
             Background drafts). Render delegated to RoiOverlaySvg —
-            see ./playback/RoiOverlay.tsx for the JSX. */}
+            see ./playback/RoiOverlay.tsx for the JSX.
+            When `view.hidePolygonOverlay` is on, the overlay-mode
+            polygon is suppressed visually but stays in
+            `view.overlay.maskPolygon` so the server-side mask is
+            unaffected. Always force-show during draw mode so the
+            user can see the vertices they're placing. */}
         {url && recording?.shape && (
           <_RoiOverlaySvg
             ref={svgRef}
             imageW={recording.shape[1] || 1}
             imageH={recording.shape[0] || 1}
             overlayPts={
-              meta.kind === 'overlay' && Array.isArray((view.overlay || {}).maskPolygon)
+              meta.kind === 'overlay' &&
+              Array.isArray((view.overlay || {}).maskPolygon) &&
+              (!view.hidePolygonOverlay || view.overlayDrawMode)
                 ? (view.overlay || {}).maskPolygon
                 : []
             }
@@ -5609,18 +6432,136 @@ const ViewerCard = ({
             bgPts={
               Array.isArray((view.tbrDraft || {}).bgPolygon) ? (view.tbrDraft || {}).bgPolygon : []
             }
+            regions={
+              // Hide every region's outline when the user toggled
+              // Hide ROIs — UNLESS they're actively drawing one (force
+              // visible so vertex placement stays usable).
+              view.hideRegionOutlines && !view.regionDraftId
+                ? []
+                : (Array.isArray(view.regionRois) ? view.regionRois : []).map((r) => ({
+                    id: r.id,
+                    polygon: r.polygon,
+                    selected: r.id === view.selectedRegionId || r.id === view.regionDraftId,
+                    label: r.label,
+                  }))
+            }
             panX={view.panX}
             panY={view.panY}
             zoom={view.zoom}
             hint={
-              view.overlayDrawMode || view.tbrDraftRole
+              view.overlayDrawMode || view.tbrDraftRole || view.regionDraftId
                 ? `click to add vertex · ESC / Enter to finish · Backspace to undo${
-                    view.tbrDraftRole ? ` · drawing ${view.tbrDraftRole.toUpperCase()}` : ''
+                    view.tbrDraftRole
+                      ? ` · drawing ${view.tbrDraftRole.toUpperCase()}`
+                      : view.regionDraftId
+                        ? ` · drawing region`
+                        : ''
                   }`
                 : null
             }
           />
         )}
+        {/* Hide-polygon toggle — only renders for overlay views that
+            actually have a polygon drawn. Sits in the canvas
+            top-right corner so it's reachable without a trip to the
+            Inspector. The polygon still drives the server-side mask
+            when hidden. */}
+        {url &&
+          meta.kind === 'overlay' &&
+          Array.isArray((view.overlay || {}).maskPolygon) &&
+          (view.overlay || {}).maskPolygon.length >= 3 &&
+          !view.overlayDrawMode && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onUpdate({ hidePolygonOverlay: !view.hidePolygonOverlay });
+              }}
+              data-overlay-polygon-visibility
+              title={
+                view.hidePolygonOverlay
+                  ? 'Show polygon outline (mask is still active)'
+                  : 'Hide polygon outline (mask stays active)'
+              }
+              aria-label={view.hidePolygonOverlay ? 'Show polygon outline' : 'Hide polygon outline'}
+              style={{
+                position: 'absolute',
+                top: 8,
+                right: 8,
+                padding: '4px 8px',
+                fontSize: 11,
+                fontFamily: 'inherit',
+                color: '#fff',
+                background: view.hidePolygonOverlay ? 'rgba(180,90,30,0.85)' : 'rgba(0,0,0,0.55)',
+                border: `1px solid ${
+                  view.hidePolygonOverlay ? 'rgba(255,180,90,0.9)' : 'rgba(255,255,255,0.25)'
+                }`,
+                borderRadius: 3,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                zIndex: 4,
+              }}
+            >
+              <Icon name="eye" size={12} />
+              <span>{view.hidePolygonOverlay ? 'Show ROI' : 'Hide ROI'}</span>
+            </button>
+          )}
+        {/* Hide-region-outlines toggle — independent of view kind.
+            Renders whenever ANY region has a ≥3-vertex polygon, in
+            ALL view kinds (single-channel / RGB / overlay). Region
+            ISP keeps applying server-side; only the SVG outlines are
+            suppressed. Sits below the overlay-mask hide button when
+            both apply. */}
+        {url &&
+          Array.isArray(view.regionRois) &&
+          view.regionRois.some((r) => Array.isArray(r.polygon) && r.polygon.length >= 3) &&
+          !view.regionDraftId && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onUpdate({ hideRegionOutlines: !view.hideRegionOutlines });
+              }}
+              data-region-outlines-visibility
+              title={
+                view.hideRegionOutlines
+                  ? 'Show region outlines (region ISP is still active)'
+                  : 'Hide region outlines (region ISP stays active)'
+              }
+              aria-label={view.hideRegionOutlines ? 'Show region outlines' : 'Hide region outlines'}
+              style={{
+                position: 'absolute',
+                // Stack below the overlay-hide button when that one
+                // is also rendered (overlay views with a mask).
+                top:
+                  meta.kind === 'overlay' &&
+                  Array.isArray((view.overlay || {}).maskPolygon) &&
+                  (view.overlay || {}).maskPolygon.length >= 3
+                    ? 36
+                    : 8,
+                right: 8,
+                padding: '4px 8px',
+                fontSize: 11,
+                fontFamily: 'inherit',
+                color: '#fff',
+                background: view.hideRegionOutlines ? 'rgba(180,90,30,0.85)' : 'rgba(0,0,0,0.55)',
+                border: `1px solid ${
+                  view.hideRegionOutlines ? 'rgba(255,180,90,0.9)' : 'rgba(255,255,255,0.25)'
+                }`,
+                borderRadius: 3,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                zIndex: 4,
+              }}
+            >
+              <Icon name="eye" size={12} />
+              <span>{view.hideRegionOutlines ? 'Show regions' : 'Hide regions'}</span>
+            </button>
+          )}
         {/* M20.1 — canvas-overlay histogram (bottom-right of the
             canvas). Off by default; toggled in Inspector Display. */}
         {url && view.showCanvasHistogram && (
@@ -8677,7 +9618,7 @@ const Inspector = ({
             <InspectorSection
               title="View"
               icon="eye"
-              defaultOpen={true}
+              defaultOpen={false}
               viewType={selectedView.sourceMode}
             >
               <Row label="Name">
@@ -8722,7 +9663,12 @@ const Inspector = ({
               </Row>
             </InspectorSection>
 
-            <InspectorSection title="Source" icon="layers" viewType={selectedView.sourceMode}>
+            <InspectorSection
+              title="Source"
+              icon="layers"
+              viewType={selectedView.sourceMode}
+              defaultOpen={true}
+            >
               <SourceSectionBody
                 view={selectedView}
                 recording={selectedRecording}
@@ -8869,7 +9815,7 @@ const Inspector = ({
             <InspectorSection
               title="Display"
               icon="sliders"
-              defaultOpen={true}
+              defaultOpen={false}
               viewType={selectedView.sourceMode}
             >
               {/* M22 — Display section is conditional on view kind:
@@ -9043,7 +9989,12 @@ const Inspector = ({
             </InspectorSection>
 
             {(sourceModeMeta(selectedView.sourceMode).kind === 'rgb' ||
-              sourceModeMeta(selectedView.sourceMode).kind === 'rgb_image') && (
+              sourceModeMeta(selectedView.sourceMode).kind === 'rgb_image' ||
+              // Overlay views also get the RGB Grading panel — it
+              // adjusts the BASE RGB layer only (the colormapped
+              // overlay channel is single-channel and is unaffected
+              // by R/G/B grading by construction).
+              sourceModeMeta(selectedView.sourceMode).kind === 'overlay') && (
               <InspectorSection
                 title="RGB grading"
                 icon="palette"
@@ -9275,7 +10226,7 @@ const Inspector = ({
               title="Overlay"
               icon="layers"
               viewType={selectedView.sourceMode}
-              defaultOpen={sourceModeMeta(selectedView.sourceMode).kind === 'overlay'}
+              defaultOpen={false}
             >
               <OverlayConfigurator
                 view={selectedView}
@@ -9401,6 +10352,18 @@ const Inspector = ({
                   setTbrEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)))
                 }
                 onOpenAnalysis={() => setTbrAnalysisOpen(true)}
+              />
+            </InspectorSection>
+
+            <InspectorSection
+              title="Region ROIs"
+              icon="layers"
+              viewType={selectedView.sourceMode}
+              defaultOpen={false}
+            >
+              <RegionRoisPanel
+                view={selectedView}
+                onUpdateView={(patch) => onUpdateView(selectedView.id, patch)}
               />
             </InspectorSection>
 
@@ -9621,6 +10584,24 @@ const OverlayConfigurator = ({ view, recording, onUpdate, onOpenBuilder }) => {
           data-overlay-strength
         />
       </Row>
+      {/* Brightness pump on the colormapped overlay RGB. The
+          `Strength` slider above controls alpha (how much the overlay
+          shows through); this slider controls the LUT-output luminance
+          directly. Use it when the colormap looks correct in hue but
+          dimmer than you want. 1.0 = identity. >1 brightens (clipped
+          to 1.0); <1 dims. */}
+      <Row label="Overlay brightness">
+        <Slider
+          value={ov.overlayBrightness ?? 1.0}
+          onChange={(v) => setOv({ overlayBrightness: Number(v) })}
+          min={0}
+          max={4}
+          step={0.05}
+          format={(v) => Number(v).toFixed(2)}
+          unit="×"
+          data-overlay-brightness
+        />
+      </Row>
       <GradeRow
         label="Overlay low"
         value={ov.overlayLow ?? 0}
@@ -9641,6 +10622,127 @@ const OverlayConfigurator = ({ view, recording, onUpdate, onOpenBuilder }) => {
         format={(v) => Math.round(Number(v)).toString()}
         testId="overlay-high"
       />
+      {/* Per-layer linear ISP — independent black-level / gain /
+          offset for the base RGB layer vs the colormapped overlay.
+          The user can pull base brightness without disturbing the
+          overlay, and vice-versa. Identity defaults (0/1/0) are no-ops
+          on the backend so the rows stay neutral until adjusted. */}
+      <div
+        style={{
+          marginTop: 8,
+          paddingTop: 8,
+          borderTop: `1px solid ${t.border}`,
+          fontSize: 10,
+          fontWeight: 600,
+          letterSpacing: 0.4,
+          textTransform: 'uppercase',
+          color: t.textMuted,
+        }}
+        data-overlay-base-isp-header
+        title="Linear ISP for the BASE layer only — does not affect the overlay channel."
+      >
+        Base layer ISP
+      </div>
+      <GradeRow
+        label="Base black"
+        value={ov.baseIsp?.blackLevel ?? 0}
+        onChange={(v) => setOv({ baseIsp: { ...(ov.baseIsp || {}), blackLevel: Number(v) || 0 } })}
+        min={0}
+        max={65535}
+        step={1}
+        format={(v) => Math.round(Number(v)).toString()}
+        testId="overlay-base-black"
+      />
+      <GradeRow
+        label="Base gain"
+        value={ov.baseIsp?.gain ?? 1.0}
+        onChange={(v) => setOv({ baseIsp: { ...(ov.baseIsp || {}), gain: Number(v) || 1.0 } })}
+        min={0}
+        max={16}
+        step={0.05}
+        format={(v) => Number(v).toFixed(2)}
+        testId="overlay-base-gain"
+      />
+      <GradeRow
+        label="Base offset"
+        value={ov.baseIsp?.offset ?? 0}
+        onChange={(v) => setOv({ baseIsp: { ...(ov.baseIsp || {}), offset: Number(v) || 0 } })}
+        min={-65535}
+        max={65535}
+        step={1}
+        format={(v) => Math.round(Number(v)).toString()}
+        testId="overlay-base-offset"
+      />
+      <div
+        style={{
+          marginTop: 8,
+          paddingTop: 8,
+          borderTop: `1px solid ${t.border}`,
+          fontSize: 10,
+          fontWeight: 600,
+          letterSpacing: 0.4,
+          textTransform: 'uppercase',
+          color: t.textMuted,
+        }}
+        data-overlay-overlay-isp-header
+        title="Linear ISP for the OVERLAY channel only — does not affect the base layer."
+      >
+        Overlay layer ISP
+      </div>
+      <GradeRow
+        label="Overlay black"
+        value={ov.overlayIsp?.blackLevel ?? 0}
+        onChange={(v) =>
+          setOv({
+            overlayIsp: { ...(ov.overlayIsp || {}), blackLevel: Number(v) || 0 },
+          })
+        }
+        min={0}
+        max={65535}
+        step={1}
+        format={(v) => Math.round(Number(v)).toString()}
+        testId="overlay-overlay-black"
+      />
+      <GradeRow
+        label="Overlay gain"
+        value={ov.overlayIsp?.gain ?? 1.0}
+        onChange={(v) =>
+          setOv({ overlayIsp: { ...(ov.overlayIsp || {}), gain: Number(v) || 1.0 } })
+        }
+        min={0}
+        max={16}
+        step={0.05}
+        format={(v) => Number(v).toFixed(2)}
+        testId="overlay-overlay-gain"
+      />
+      <GradeRow
+        label="Overlay offset"
+        value={ov.overlayIsp?.offset ?? 0}
+        onChange={(v) =>
+          setOv({ overlayIsp: { ...(ov.overlayIsp || {}), offset: Number(v) || 0 } })
+        }
+        min={-65535}
+        max={65535}
+        step={1}
+        format={(v) => Math.round(Number(v)).toString()}
+        testId="overlay-overlay-offset"
+      />
+      <Row label="Per-layer ISP">
+        <Button
+          size="xs"
+          variant="ghost"
+          onClick={() =>
+            setOv({
+              baseIsp: { blackLevel: 0, gain: 1.0, offset: 0 },
+              overlayIsp: { blackLevel: 0, gain: 1.0, offset: 0 },
+            })
+          }
+          data-overlay-isp-reset
+          title="Restore identity (0 / 1 / 0) on both layers."
+        >
+          Reset both layers
+        </Button>
+      </Row>
       <Row label="Auto thresholds">
         <Button
           size="sm"
@@ -9713,6 +10815,62 @@ const OverlayConfigurator = ({ view, recording, onUpdate, onOpenBuilder }) => {
           </span>
         </div>
       </Row>
+      {/* Soft-edge feather — Gaussian sigma applied server-side to the
+          polygon mask so the overlay decays smoothly across the
+          boundary instead of stamping a sharp cut-out. 0 px = legacy
+          hard edge; 8–24 px is a natural soft transition for typical
+          recordings. Slider drives quick visual feedback; Spinbox is
+          for precise entry. Disabled when no polygon exists. */}
+      {(() => {
+        const featherDisabled = !Array.isArray(ov.maskPolygon) || ov.maskPolygon.length < 3;
+        const fv = typeof ov.maskFeatherPx === 'number' ? ov.maskFeatherPx : 0;
+        return (
+          <>
+            <div
+              style={{
+                opacity: featherDisabled ? 0.55 : 1,
+                pointerEvents: featherDisabled ? 'none' : 'auto',
+              }}
+              title="ROI edge softness (Gaussian sigma, pixels). 0 = hard cut-off (legacy). Try 8–24 px for a smooth, natural edge on typical recordings."
+            >
+              <Slider
+                label="ROI edge feather"
+                min={0}
+                max={60}
+                step={1}
+                value={fv}
+                onChange={(val) => setOv({ maskFeatherPx: Math.max(0, Number(val) || 0) })}
+                format={(v) => v.toFixed(0)}
+                unit=" px"
+              />
+            </div>
+            <Row label="">
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 1 }}>
+                <Spinbox
+                  min={0}
+                  max={200}
+                  step={1}
+                  value={fv}
+                  onChange={(val) => setOv({ maskFeatherPx: Math.max(0, Number(val) || 0) })}
+                  width={68}
+                  disabled={featherDisabled}
+                  ariaLabel="ROI edge feather pixels"
+                />
+                <span
+                  style={{ fontSize: 10.5, color: t.textFaint, whiteSpace: 'nowrap' }}
+                  data-overlay-feather-status
+                >
+                  {featherDisabled
+                    ? 'draw an ROI to enable'
+                    : fv > 0
+                      ? `soft edge (σ=${fv.toFixed(0)} px)`
+                      : 'hard edge (legacy)'}
+                </span>
+              </div>
+            </Row>
+          </>
+        );
+      })()}
       <div
         style={{
           marginTop: 8,
@@ -9819,19 +10977,15 @@ const SourceSectionBody = ({ view, recording, onUpdateView, onSetGain }) => {
     });
   };
   // Build the top-level dropdown options. Always show Visible/NIR/Raw
-  // when the recording is GSense; append Overlay / Image fallbacks when
-  // the recording exposes them.
+  // when the recording is GSense. The Overlay (NIR over RGB) entry was
+  // removed — overlay views are now created exclusively through the
+  // dedicated Overlay Builder modal so the source picker only carries
+  // single-layer kinds.
   const categoryOptions = [];
   if (gains.length > 0) {
     categoryOptions.push({ value: 'visible', label: 'Visible (RGB)' });
     categoryOptions.push({ value: 'nir', label: 'NIR' });
     categoryOptions.push({ value: 'raw', label: 'Raw RGB Channel' });
-  }
-  // Overlay only when the recording has at least one overlay-eligible channel set.
-  if (
-    (recording?.channels || []).some((c) => c === 'HG-NIR' || c === 'LG-NIR' || c === 'HDR-NIR')
-  ) {
-    categoryOptions.push({ value: 'overlay', label: 'Overlay (NIR over RGB)' });
   }
   if ((recording?.channels || []).includes('L')) {
     categoryOptions.push({ value: 'image', label: 'Grayscale (L)' });
@@ -9901,6 +11055,173 @@ const SourceSectionBody = ({ view, recording, onUpdateView, onSetGain }) => {
           data-inspector-channel-category
         />
       </Row>
+      {/* HDR fusion controls — only shown when the active gain is HDR.
+          Three modes:
+            * "switch"   — saturation-aware hard threshold (legacy default)
+            * "mertens"  — smoothstep blend around the threshold knee
+            * "linear"   — fixed weighted average HG·w + LG·(1−w)
+          The mode-specific parameter rows render conditionally so the
+          panel only shows what's relevant. The output-scale row is
+          common to all modes — it rescales the fused result back into
+          the 0..output_max display range (default 65535 for 16-bit). */}
+      {activeGain === 'HDR' &&
+        (() => {
+          const fusion = (view.hdrFusion || 'switch').toLowerCase();
+          // Defensive defaults: every field has a fallback so a stale
+          // view (created before this UI shipped, with `hdrParams=null`
+          // or partial fields) never produces an undefined that then
+          // tickles a Slider crash.
+          const params = {
+            threshold: 60000,
+            kneeWidth: 4000,
+            gainRatio: 16.0,
+            blend: 0.5,
+            outputScale: 'none',
+            outputMin: 0,
+            outputMax: 65535,
+            reinhardWhite: 100000,
+            ...(view.hdrParams || {}),
+          };
+          const setParams = (patch) =>
+            onUpdateView(view.id, { hdrParams: { ...params, ...patch } });
+          // Output min/max sliders are wide enough that the post-scale
+          // window is exposed clearly. We clamp output_min < output_max
+          // so the reverse-handle case can't produce zero-span output.
+          const outMaxSafe = Math.max(2, Number(params.outputMax) || 65535);
+          const outMinSafe = Math.max(0, Math.min(outMaxSafe - 1, Number(params.outputMin) || 0));
+          return (
+            <div data-source-hdr-controls>
+              <Row label="HDR mode">
+                <Select
+                  value={fusion}
+                  onChange={(v) => onUpdateView(view.id, { hdrFusion: v })}
+                  options={[
+                    { value: 'switch', label: 'Switch (hard threshold)' },
+                    { value: 'mertens', label: 'Mertens (smooth knee)' },
+                    { value: 'linear', label: 'Linear (fixed blend)' },
+                  ]}
+                  data-source-hdr-mode
+                  ariaLabel="HDR fusion mode"
+                />
+              </Row>
+              {/* Switch + Mertens both use the saturation threshold. */}
+              {(fusion === 'switch' || fusion === 'mertens') && (
+                <Row label="HG saturation">
+                  <Spinbox
+                    value={Number(params.threshold) || 60000}
+                    onChange={(v) => setParams({ threshold: Math.max(0, Number(v) || 0) })}
+                    min={0}
+                    max={65535}
+                    step={500}
+                    width={84}
+                    ariaLabel="HG saturation threshold"
+                  />
+                </Row>
+              )}
+              {/* Mertens-only smoothstep knee width. */}
+              {fusion === 'mertens' && (
+                <Row label="Knee width">
+                  <Spinbox
+                    value={Number(params.kneeWidth) || 4000}
+                    onChange={(v) => setParams({ kneeWidth: Math.max(1, Number(v) || 1) })}
+                    min={1}
+                    max={20000}
+                    step={100}
+                    width={84}
+                    ariaLabel="HDR mertens knee width"
+                  />
+                </Row>
+              )}
+              {/* Linear-only fixed mix weight. */}
+              {fusion === 'linear' && (
+                <Row label="HG/LG blend">
+                  <Slider
+                    label="HG/LG blend"
+                    value={Number.isFinite(Number(params.blend)) ? Number(params.blend) : 0.5}
+                    onChange={(v) => setParams({ blend: Math.max(0, Math.min(1, Number(v) || 0)) })}
+                    min={0}
+                    max={1}
+                    step={0.02}
+                    format={(v) => `${(Number(v) * 100).toFixed(0)}%`}
+                  />
+                </Row>
+              )}
+              {/* HG/LG amplification ratio — used by every mode. */}
+              <Row label="HG/LG ratio">
+                <Spinbox
+                  value={Number(params.gainRatio) || 16}
+                  onChange={(v) => setParams({ gainRatio: Math.max(0.1, Number(v) || 1) })}
+                  min={0.1}
+                  max={64}
+                  step={0.5}
+                  width={84}
+                  ariaLabel="HDR HG/LG amplification ratio"
+                />
+              </Row>
+              {/* Output scaling: fit the fused HDR signal back into the
+                display's [output_min, output_max] range. Linear keeps
+                proportions; Reinhard soft-clips highlights. */}
+              <Row label="Output scale">
+                <Select
+                  value={params.outputScale || 'none'}
+                  onChange={(v) => setParams({ outputScale: v })}
+                  options={[
+                    { value: 'none', label: 'None (raw, may clip > 65535)' },
+                    { value: 'linear', label: 'Linear (stretch to range)' },
+                    { value: 'reinhard', label: 'Reinhard (soft-clip to range)' },
+                  ]}
+                  data-source-hdr-output-scale
+                  ariaLabel="HDR output scaling"
+                />
+              </Row>
+              {(params.outputScale === 'linear' || params.outputScale === 'reinhard') && (
+                <>
+                  <Row label="Output min">
+                    <Slider
+                      label="Output min"
+                      value={outMinSafe}
+                      onChange={(v) => {
+                        const nv = Math.max(0, Math.min(outMaxSafe - 1, Number(v) || 0));
+                        setParams({ outputMin: nv });
+                      }}
+                      min={0}
+                      max={Math.max(1, outMaxSafe - 1)}
+                      step={256}
+                      format={(v) => Math.round(Number(v)).toString()}
+                    />
+                  </Row>
+                  <Row label="Output max">
+                    <Slider
+                      label="Output max"
+                      value={outMaxSafe}
+                      onChange={(v) => {
+                        const nv = Math.max(outMinSafe + 1, Math.min(65535, Number(v) || 65535));
+                        setParams({ outputMax: nv });
+                      }}
+                      min={Math.max(2, outMinSafe + 1)}
+                      max={65535}
+                      step={256}
+                      format={(v) => Math.round(Number(v)).toString()}
+                    />
+                  </Row>
+                </>
+              )}
+              {params.outputScale === 'reinhard' && (
+                <Row label="Reinhard white">
+                  <Spinbox
+                    value={Number(params.reinhardWhite) || 100000}
+                    onChange={(v) => setParams({ reinhardWhite: Math.max(1, Number(v) || 1) })}
+                    min={1000}
+                    max={500000}
+                    step={1000}
+                    width={84}
+                    ariaLabel="HDR Reinhard white point"
+                  />
+                </Row>
+              )}
+            </div>
+          );
+        })()}
       {category === 'raw' && activeGain !== 'HDR' && (
         <Row label="Raw channel">
           <Select
@@ -9917,30 +11238,11 @@ const SourceSectionBody = ({ view, recording, onUpdateView, onSetGain }) => {
         </Row>
       )}
       {category === 'raw' && activeGain === 'HDR' && (
-        <>
-          {/* B-0040 — HDR fusion mode toggle. 'switch' is the
-              cached default (hard threshold; visible seam at HG
-              saturation). 'mertens' re-fuses at render time with a
-              smoothstep blend so the seam disappears. The backend
-              honors the param only for HDR-* channels; non-HDR
-              renders ignore it. */}
-          <Row label="Fusion">
-            <Segmented
-              value={view.hdrFusion || 'switch'}
-              onChange={(v) => onUpdateView(view.id, { hdrFusion: v })}
-              options={[
-                { value: 'switch', label: 'Hard switch' },
-                { value: 'mertens', label: 'Smooth (Mertens)' },
-              ]}
-              data-inspector-hdr-fusion
-            />
-          </Row>
-          <div style={{ fontSize: 10.5, color: t.textFaint, padding: '4px 0' }}>
-            HDR fusion exposes only the merged Chroma (Y) channel; per-channel R/G/B aren&apos;t
-            available under HDR. Smooth (Mertens) blends near the HG saturation knee — try it if the
-            hard-switch seam is visible on your data.
-          </div>
-        </>
+        <div style={{ fontSize: 10.5, color: t.textFaint, padding: '4px 0' }}>
+          HDR fusion exposes only the merged Chroma (Y) channel; per-channel R/G/B aren&apos;t
+          available under HDR. Use the HDR mode dropdown above to switch between Switch / Mertens /
+          Linear fusion.
+        </div>
       )}
       {category === 'other' && (
         <Row label="Channel key">
@@ -10009,6 +11311,13 @@ const GradeRow = ({ label, value, onChange, min, max, step, format, testId }) =>
   const [editing, setEditing] = React.useState(false);
   const safeFormat = format || ((v) => Number(v).toFixed(2));
   const numericText = safeFormat(value);
+  // Track-fill percent — drives the accent-coloured fill div behind
+  // the thumb. Clamped to [0, 100] so out-of-range values from
+  // upstream state don't push the fill past the track.
+  const _pct = Math.max(
+    0,
+    Math.min(100, ((Number(value) - Number(min)) / (Number(max) - Number(min) || 1)) * 100)
+  );
   return (
     <div
       style={{
@@ -10033,27 +11342,64 @@ const GradeRow = ({ label, value, onChange, min, max, step, format, testId }) =>
       >
         {label}
       </span>
-      <input
-        type="range"
-        aria-label={typeof label === 'string' ? label : 'value slider'}
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="rgbnir-slider"
-        data-testid={testId}
+      {/* Visible custom track + fill behind the native range input.
+          Without this wrapper, `appearance: none` strips the native
+          track and the user sees only a floating thumb. Mirrors the
+          shared <Slider> primitive's track approach. */}
+      <div
         style={{
+          position: 'relative',
           flex: 1,
           minWidth: 0,
           height: 18,
-          appearance: 'none',
-          WebkitAppearance: 'none',
-          background: 'transparent',
-          cursor: 'pointer',
-          margin: 0,
+          display: 'flex',
+          alignItems: 'center',
         }}
-      />
+      >
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            height: 4,
+            background: t.chipBg,
+            borderRadius: 2,
+          }}
+        />
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            width: `${_pct}%`,
+            height: 4,
+            background: t.accent,
+            borderRadius: 2,
+          }}
+        />
+        <input
+          type="range"
+          aria-label={typeof label === 'string' ? label : 'value slider'}
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(e) => onChange(parseFloat(e.target.value))}
+          className="rgbnir-slider"
+          data-testid={testId}
+          style={{
+            width: '100%',
+            height: 18,
+            appearance: 'none',
+            WebkitAppearance: 'none',
+            MozAppearance: 'none',
+            background: 'transparent',
+            position: 'relative',
+            zIndex: 1,
+            cursor: 'pointer',
+            margin: 0,
+          }}
+        />
+      </div>
       {editing ? (
         <input
           type="number"
@@ -10127,6 +11473,378 @@ const GradeRow = ({ label, value, onChange, min, max, step, format, testId }) =>
 // computing the requested statistic (mean / percentile / mode). TBR
 // = tumor_value / background_value; ratio std uses standard error
 // propagation σ_R/R = sqrt((σ_T/T)² + (σ_B/B)²).
+// ---------------------------------------------------------------------------
+// RegionRoisPanel — Inspector panel for per-view ROI list with
+// per-region ISP. Each row in the table is one polygon; selecting
+// a row exposes gain / gamma / WB-Kelvin / contrast / saturation
+// sliders + an edge-feather slider that applies the same Gaussian
+// decay the overlay-mask panel uses. Polygons are drawn on the
+// canvas via the shared draw infrastructure (clicking the canvas
+// while `view.regionDraftId` is set appends a vertex to that
+// region's polygon).
+// ---------------------------------------------------------------------------
+
+let _regionIdCounter = 0;
+const _newRegionId = () => `roi-${Date.now().toString(36)}-${++_regionIdCounter}`;
+
+const RegionRoisPanel = ({ view, onUpdateView }) => {
+  const t = useTheme();
+  const regions = Array.isArray(view.regionRois) ? view.regionRois : [];
+  const draftId = view.regionDraftId || null;
+  const selectedId = view.selectedRegionId || null;
+  const selected = regions.find((r) => r.id === selectedId) || null;
+
+  const updateRegion = (id, patch) =>
+    onUpdateView({
+      regionRois: regions.map((r) => (r.id === id ? { ...r, ...patch } : r)),
+    });
+
+  const addRegion = () => {
+    const id = _newRegionId();
+    const next = [
+      ...regions,
+      {
+        id,
+        label: `Region ${regions.length + 1}`,
+        polygon: [],
+        featherPx: 0,
+        gain: 1.0,
+        gamma: 1.0,
+        wbKelvin: null,
+        contrast: 1.0,
+        saturation: 1.0,
+        // When true the ISP applies to everything OUTSIDE the
+        // polygon. Feather is applied to the rasterized polygon
+        // BEFORE the invert so a Gaussian-feathered + negated ROI
+        // fades from no-effect inside to full-effect outside.
+        negate: false,
+      },
+    ];
+    onUpdateView({
+      regionRois: next,
+      regionDraftId: id,
+      selectedRegionId: id,
+    });
+  };
+
+  const removeRegion = (id) => {
+    const next = regions.filter((r) => r.id !== id);
+    onUpdateView({
+      regionRois: next,
+      regionDraftId: view.regionDraftId === id ? null : view.regionDraftId,
+      selectedRegionId: view.selectedRegionId === id ? null : view.selectedRegionId,
+    });
+  };
+
+  const toggleDraft = (id) => {
+    onUpdateView({
+      regionDraftId: draftId === id ? null : id,
+      selectedRegionId: id,
+    });
+  };
+
+  const clearPolygon = (id) =>
+    onUpdateView({
+      regionRois: regions.map((r) => (r.id === id ? { ...r, polygon: [] } : r)),
+    });
+
+  // Same 11-step palette the canvas SVG uses, kept in sync so the
+  // table swatches match what the user sees on the image.
+  const PALETTE = [
+    '#6dd47a',
+    '#f7a83a',
+    '#7be0d3',
+    '#d381f7',
+    '#f76b9a',
+    '#88c2ff',
+    '#f7d96e',
+    '#9b9b9b',
+    '#7a7af7',
+    '#f76b6b',
+    '#c2c279',
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <Button size="sm" variant="primary" icon="plus" onClick={addRegion}>
+          Add region
+        </Button>
+        <span style={{ fontSize: 10.5, color: t.textFaint }}>
+          {regions.length} region{regions.length === 1 ? '' : 's'}
+        </span>
+      </div>
+
+      {regions.length === 0 && (
+        <div
+          style={{
+            fontSize: 11,
+            color: t.textFaint,
+            padding: '8px 4px',
+            lineHeight: 1.5,
+          }}
+        >
+          Click <strong>Add region</strong> to start a new ROI. The canvas turns into a vertex
+          picker; click to drop vertices, ESC / Enter to finish.
+        </div>
+      )}
+
+      {regions.length > 0 && (
+        <div
+          data-region-rois-table
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+            border: `1px solid ${t.border}`,
+            borderRadius: 4,
+            overflow: 'hidden',
+          }}
+        >
+          {regions.map((r, i) => {
+            const isSelected = r.id === selectedId;
+            const isDrafting = r.id === draftId;
+            const polyLen = Array.isArray(r.polygon) ? r.polygon.length : 0;
+            return (
+              <div
+                key={r.id}
+                data-region-roi-row
+                data-selected={isSelected}
+                onClick={() => onUpdateView({ selectedRegionId: r.id })}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '4px 6px',
+                  background: isSelected ? t.chipBg : 'transparent',
+                  borderLeft: `3px solid ${PALETTE[i % PALETTE.length]}`,
+                  cursor: 'pointer',
+                }}
+              >
+                <span
+                  style={{
+                    flex: 1,
+                    fontSize: 11.5,
+                    color: t.text,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title={`${r.label} · ${polyLen} vertices${r.negate ? ' · negated (applies outside)' : ''}`}
+                >
+                  {r.label}
+                  <span style={{ color: t.textFaint, fontSize: 10.5, marginLeft: 6 }}>
+                    {polyLen} pts
+                  </span>
+                  {r.negate && (
+                    <span
+                      style={{
+                        fontSize: 9,
+                        marginLeft: 6,
+                        padding: '1px 5px',
+                        borderRadius: 8,
+                        background: '#f7a83a',
+                        color: '#1a1a1a',
+                        fontWeight: 600,
+                        letterSpacing: 0.3,
+                      }}
+                    >
+                      OUTSIDE
+                    </span>
+                  )}
+                </span>
+                <Button
+                  size="xs"
+                  variant={isDrafting ? 'primary' : 'subtle'}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleDraft(r.id);
+                  }}
+                  title={isDrafting ? 'Finish drawing' : 'Draw / continue this region'}
+                >
+                  {isDrafting ? 'Done' : polyLen >= 3 ? 'Edit' : 'Draw'}
+                </Button>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    clearPolygon(r.id);
+                  }}
+                  disabled={polyLen === 0}
+                  title="Clear this region's polygon vertices"
+                >
+                  Clear
+                </Button>
+                <Button
+                  size="xs"
+                  variant="danger"
+                  icon="close"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeRegion(r.id);
+                  }}
+                  title="Remove this region entirely"
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {selected && (
+        <div
+          style={{
+            marginTop: 4,
+            paddingTop: 8,
+            borderTop: `1px solid ${t.border}`,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+          }}
+          data-region-roi-isp
+        >
+          <Row label="Label">
+            <input
+              type="text"
+              value={selected.label}
+              onChange={(e) => updateRegion(selected.id, { label: e.target.value })}
+              style={{
+                width: '100%',
+                fontSize: 11.5,
+                padding: '3px 6px',
+                background: t.inputBg,
+                color: t.text,
+                border: `1px solid ${t.border}`,
+                borderRadius: 3,
+                fontFamily: 'inherit',
+              }}
+            />
+          </Row>
+          {/* Negate — invert the alpha mask so the ISP applies to
+              everything OUTSIDE the polygon. Feather is applied
+              to the rasterized polygon BEFORE the invert, so a
+              Gaussian-feathered + negated ROI has the same smooth
+              boundary transition, just running outward instead of
+              inward. */}
+          <Row label="Apply outside">
+            <div
+              style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}
+              title="When ON, the ISP knobs below apply to everything outside this polygon. The Edge feather slider still smooths the boundary; the gradient just runs the opposite way."
+            >
+              <Checkbox
+                checked={!!selected.negate}
+                onChange={(v) => updateRegion(selected.id, { negate: !!v })}
+                ariaLabel="Negate region (apply outside polygon)"
+              />
+              <span style={{ fontSize: 10.5, color: t.textFaint, lineHeight: 1.4 }}>
+                {selected.negate
+                  ? 'Applies OUTSIDE the polygon (feather smooths the boundary)'
+                  : 'Applies inside the polygon'}
+              </span>
+            </div>
+          </Row>
+          <GradeRow
+            label="Gain"
+            value={selected.gain ?? 1.0}
+            onChange={(v) => updateRegion(selected.id, { gain: Number(v) })}
+            min={0}
+            max={8}
+            step={0.05}
+            format={(v) => Number(v).toFixed(2)}
+            testId={`region-${selected.id}-gain`}
+          />
+          <GradeRow
+            label="Gamma"
+            value={selected.gamma ?? 1.0}
+            onChange={(v) => updateRegion(selected.id, { gamma: Number(v) })}
+            min={0.2}
+            max={4}
+            step={0.05}
+            format={(v) => Number(v).toFixed(2)}
+            testId={`region-${selected.id}-gamma`}
+          />
+          <GradeRow
+            label="Contrast"
+            value={selected.contrast ?? 1.0}
+            onChange={(v) => updateRegion(selected.id, { contrast: Number(v) })}
+            min={0}
+            max={4}
+            step={0.05}
+            format={(v) => Number(v).toFixed(2)}
+            testId={`region-${selected.id}-contrast`}
+          />
+          <GradeRow
+            label="Saturation"
+            value={selected.saturation ?? 1.0}
+            onChange={(v) => updateRegion(selected.id, { saturation: Number(v) })}
+            min={0}
+            max={4}
+            step={0.05}
+            format={(v) => Number(v).toFixed(2)}
+            testId={`region-${selected.id}-saturation`}
+          />
+          <GradeRow
+            label="WB Kelvin"
+            value={selected.wbKelvin ?? 6500}
+            onChange={(v) => updateRegion(selected.id, { wbKelvin: Number(v) })}
+            min={2000}
+            max={10000}
+            step={50}
+            format={(v) => `${Math.round(Number(v))}K`}
+            testId={`region-${selected.id}-wb`}
+          />
+          <GradeRow
+            label="Edge feather"
+            value={selected.featherPx ?? 0}
+            onChange={(v) => updateRegion(selected.id, { featherPx: Number(v) })}
+            min={0}
+            max={60}
+            step={1}
+            format={(v) => `${Math.round(Number(v))} px`}
+            testId={`region-${selected.id}-feather`}
+          />
+          <Row label="Reset ISP">
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() =>
+                updateRegion(selected.id, {
+                  gain: 1.0,
+                  gamma: 1.0,
+                  contrast: 1.0,
+                  saturation: 1.0,
+                  wbKelvin: null,
+                  featherPx: 0,
+                  negate: false,
+                })
+              }
+              title="Reset every ISP slider for this region (including negate) to identity / no-op."
+            >
+              Reset
+            </Button>
+          </Row>
+        </div>
+      )}
+
+      <div
+        style={{
+          marginTop: 4,
+          padding: 6,
+          fontSize: 10.5,
+          color: t.textMuted,
+          background: t.chipBg,
+          borderRadius: 3,
+          lineHeight: 1.45,
+        }}
+      >
+        Region ISP is applied to the BASE layer before the display pipeline (Low/High threshold,
+        colormap, invert), with the same Gaussian edge feather as the overlay-mask panel.
+      </div>
+    </div>
+  );
+};
+
 const TbrAnalysisPanel = ({
   view,
   recording,
@@ -12249,7 +13967,13 @@ const PlayCacheStatusBar = ({ recordingsLoading = 0 }) => {
 const InspectorSection = ({ title, icon, viewType, defaultOpen = false, children }) => {
   const t = useTheme();
   // Per-view-type collapse persistence — spec §7.1.8.
-  const storageKey = `playback/inspectorSection/${viewType || 'default'}/${title}`;
+  // Namespace bumped to v2 so the "everything except Source is closed"
+  // default reliably applies on first load even for users who had
+  // older sections force-opened in their localStorage. v1 keys are
+  // simply orphaned (never read); the browser's quota is bounded so
+  // they age out naturally. To force-clean now, the user can clear
+  // localStorage entries prefixed `mantis/playback/inspectorSection/`.
+  const storageKey = `playback/inspectorSection-v2/${viewType || 'default'}/${title}`;
   const [open, setOpen] = useLocalStorageState(storageKey, defaultOpen);
   return (
     <div
@@ -12706,6 +14430,8 @@ const OverlayBuilderModal = ({ view, recording, onClose, onApply }) => {
       strength: draft.strength ?? 0.6,
       overlayLow: draft.overlayLow ?? null,
       overlayHigh: draft.overlayHigh ?? null,
+      baseIsp: draft.baseIsp || null,
+      overlayIsp: draft.overlayIsp || null,
       maxDim: 480,
       applyDark: view?.applyDark !== false,
     });
