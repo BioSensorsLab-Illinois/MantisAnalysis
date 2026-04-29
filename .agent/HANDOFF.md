@@ -1,36 +1,57 @@
 # HANDOFF — current live state pointer
 
-Last updated: **2026-04-28** (Night session) — the
-`play-export-and-roi-fixes-v1` initiative addressing 7 user-reported
-Play-mode defects. Six milestones (M0 scaffold → M6 close), all
-green; 3 reviewers spawned at M5 (fastapi-backend-reviewer,
-frontend-react-engineer, risk-skeptic) all returned fix-then-ship,
-with P0/P1 batch resolved before close. Initiative artifacts at
-[`.agent/runs/play-export-and-roi-fixes-v1/`](runs/play-export-and-roi-fixes-v1/).
-Prior PM-session ultra-review work (27-item Phase-A/B/C sweep,
-plan at `/Users/zz4/.claude/plans/tranquil-growing-lollipop.md`)
-was committed in `8a1e056` / `b01d8f7` / `d1c0a9b` before this
-session began.
+Last updated: **2026-04-29** — `usaf-channel-manual-points-v1`
+closed on branch `codex/usaf-channel-manual-points`. The USAF picker
+now stores manual 5-point extrema per channel, Profile Preview
+re-measures the active display channel with that channel's saved
+manual points, and `/api/usaf/analyze` applies
+`manual_points_by_channel[ch]` only to the matching analysis channel.
+Initiative artifacts at
+[`.agent/runs/usaf-channel-manual-points-v1/`](runs/usaf-channel-manual-points-v1/).
 
 ## Current state of the working tree
 
-- Branch: `main` (50 commits ahead of `origin/main`, still never
-  pushed — B-0010 still open). Most-recent commit is the B-0037
-  Phase 2-4 module extractions (sourceModes, RoiOverlay,
-  WarningCenter, SmallModals).
-- **Uncommitted: play-export-and-roi-fixes-v1 closed but unpushed.**
-  All 7 user-reported Play-mode bugs fixed; 3 reviewers green; all
-  P0/P1 resolved + verified. Touches:
-  * `mantisanalysis/server.py` (overlay labels, export_video CRF +
-    ISP, MultiSourceVideoRequest with Field/Literal validation, 4
-    new `/api/play/exports/*` routes, JOBS shutdown hook).
-  * `mantisanalysis/export_jobs.py` (NEW — JobStore + ExportJob).
-  * `web/src/playback.tsx` (vertex drag/delete/insert, TBR overlay
-    channel picker + skip-gain, multi-source export polling +
-    progress UI, Spinbox decoupled validation, hi-res defaults).
-  * `tests/unit/test_export_jobs.py` (NEW — 11 tests).
-  * `.agent/runs/play-export-and-roi-fixes-v1/` (NEW — initiative
-    + reviews/).
+- Branch: `codex/usaf-channel-manual-points`.
+- Uncommitted bugfix files:
+  * `mantisanalysis/server.py` — `ManualUSAFPointsIn`,
+    `LineSpecIn.manual_points_by_channel`, and per-channel override
+    lookup in `/api/usaf/analyze`.
+  * `web/src/usaf.tsx` — `manualPointsByChannel` state/config,
+    per-display-channel preview remeasurement, and analysis payload
+    emission only for matching analysis channels.
+  * `tests/unit/test_usaf_manual_points_api.py` — regression proving
+    HG-G and LG-G can use different manual profile indices in the same
+    analysis request.
+  * `.agent/ARCHITECTURE.md` and
+    `.agent/runs/usaf-channel-manual-points-v1/` — contract/status
+    documentation.
+- Pre-existing untracked files still present and intentionally not
+  touched: `.agents/`, `START_MANTIS_WEBVIEW.md`.
+- Backup of original code before this fix:
+  `/Users/mini-09/BioSensorsLab/MantisAnalysis_backup_usaf_manual_points_20260429_000626`.
+- Local server is running on `http://127.0.0.1:8765/` from
+  `.venv/bin/python -m mantisanalysis --no-browser --port 8765`;
+  refresh the in-app browser to load the new backend/frontend.
+
+## Smoke status, last verified 2026-04-29
+
+- `.venv/bin/python scripts/smoke_test.py --tier 0` — PASS
+- `.venv/bin/python scripts/smoke_test.py --tier 1` — PASS
+- `.venv/bin/python scripts/smoke_test.py --tier 2` — PASS
+- `.venv/bin/python scripts/smoke_test.py --tier 3` — PASS
+- `.venv/bin/python -m pytest -q` — PASS, 306 passed / 4 skipped
+- `PATH="/opt/homebrew/opt/node@24/bin:$PATH" npm run build` — PASS
+- Live server `/api/health` and `/api/usaf/analyze` curl checks — PASS
+- Browser screenshots/manual UI walkthrough deferred: Playwright is
+  not installed and Browser Use tooling was unavailable.
+
+## Where to pick up next
+
+1. Refresh `http://127.0.0.1:8765/` and manually try: calibrate
+   `LG-R`, switch to `LG-G`, calibrate separately, switch back and
+   confirm Profile Preview keeps each channel's saved extrema.
+2. If manual UI behavior looks good, commit branch
+   `codex/usaf-channel-manual-points`.
 - The **prior** "Three layered changes" listed below were **all
   committed** before this session began — see commits `8a1e056`
   (polish-sweep), `b01d8f7` (B-0037/B-0040/B-0041/B-0042), and

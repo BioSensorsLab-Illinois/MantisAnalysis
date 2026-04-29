@@ -708,3 +708,33 @@ the pre-merge Tier-4 gate will not run it.
 keyboard-only control on a projector) surface concrete a11y issues,
 re-introduce a targeted axe smoke for the affected surface — not a
 blanket gate.
+
+
+## D-0019 — USAF manual extrema are channel-local profile indices (2026-04-29)
+
+**Status**: Active.
+
+**Context**: A user found that manually corrected USAF Profile Preview
+extrema could become wrong when switching Display channel and then
+running multi-channel analysis. The old picker state treated manual
+5-point extrema as line-level data, but the indices refer to sample
+positions in a 1-D profile extracted from one concrete channel image.
+
+**Decision**: Store manual extrema as `line.manualPointsByChannel[ch]`
+in the React picker and send them to `/api/usaf/analyze` as
+`manual_points_by_channel`. The FastAPI route looks up overrides by
+the requested analysis channel and passes them to `measure_line` only
+for that channel. Legacy unscoped manual bars/gaps remain a
+display-preview fallback only; they are not fanned out across a
+multi-channel analysis request.
+
+**Consequences**:
+- Users can calibrate `LG-R`, `LG-G`, `LG-B`, `LG-NIR`, and `LG-Y`
+  separately and run them together without cross-channel point reuse.
+- Saved USAF configs now preserve `manualPointsByChannel`.
+- Cross-channel physical registration remains out of scope; this
+  decision only scopes profile sample indices correctly.
+
+**Revisit**: If the lab later wants one calibrated channel to seed
+another channel, add an explicit "copy extrema to selected channels"
+command rather than implicit reuse.

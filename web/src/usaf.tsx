@@ -72,6 +72,39 @@ const sCycTag = (s) =>
 // RGB/grayscale sources as well as H5 HG-/LG- sources.
 const chipId = (c) => (c.includes('-') ? c : c === 'L' ? 'HG-Y' : `HG-${c}`);
 
+const normalizeManualPoints = (raw) => {
+  if (!raw) return null;
+  const bars = raw.bars ?? raw.bar_indices;
+  const gaps = raw.gaps ?? raw.gap_indices;
+  if (!Array.isArray(bars) || !Array.isArray(gaps)) return null;
+  if (bars.length !== 3 || gaps.length !== 2) return null;
+  return { bars: bars.map((v) => Number(v)), gaps: gaps.map((v) => Number(v)) };
+};
+
+const getManualPointsForChannel = (line, channel, includeLegacy = false) => {
+  if (!line || !channel) return null;
+  const byChannel = line.manualPointsByChannel || {};
+  const scoped = normalizeManualPoints(byChannel[channel]);
+  if (scoped) return scoped;
+  if (!includeLegacy) return null;
+  // Backward compatibility for in-memory / saved configs from before manual
+  // points were channel-scoped. Only the current display channel may use this
+  // fallback; multi-channel analysis must not fan one legacy correction out to
+  // unrelated channels.
+  return normalizeManualPoints({ bars: line.manualBars, gaps: line.manualGaps });
+};
+
+const manualPayloadForChannels = (line, channels) => {
+  const entries = {};
+  for (const ch of channels || []) {
+    const manual = getManualPointsForChannel(line, ch);
+    if (manual) {
+      entries[ch] = { bar_indices: manual.bars, gap_indices: manual.gaps };
+    }
+  }
+  return Object.keys(entries).length ? entries : undefined;
+};
+
 const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFile }) => {
   const t = useTheme();
   const source = useSource();
@@ -401,11 +434,31 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
 
   // Update a single line's manual 5-point override and re-measure.
   const updateLinePoints = useCallbackU(
-    (lineId, nextBars, nextGaps) => {
+    (lineId, channel, nextBars, nextGaps) => {
       setLines((prev) =>
-        prev.map((l) =>
-          l.id === lineId ? { ...l, manualBars: nextBars, manualGaps: nextGaps, pending: true } : l
-        )
+        prev.map((l) => {
+          if (l.id !== lineId) return l;
+          const manualPointsByChannel = { ...(l.manualPointsByChannel || {}) };
+          if (
+            channel &&
+            Array.isArray(nextBars) &&
+            nextBars.length === 3 &&
+            Array.isArray(nextGaps) &&
+            nextGaps.length === 2
+          ) {
+            manualPointsByChannel[channel] = { bars: nextBars, gaps: nextGaps };
+          } else if (channel) {
+            delete manualPointsByChannel[channel];
+          }
+          return {
+            ...l,
+            manualPointsByChannel,
+            // Drop legacy globals once the channel-scoped model is used.
+            manualBars: undefined,
+            manualGaps: undefined,
+            pending: true,
+          };
+        })
       );
       const line = lines.find((l) => l.id === lineId);
       if (!line) return;
@@ -458,13 +511,18 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
     (async () => {
       const updated = await Promise.all(
         lines.map(async (l) => {
-          const m = await measureOne({
-            group: l.group,
-            element: l.element,
-            direction: l.direction,
-            p0: l.p0,
-            p1: l.p1,
-          });
+          const manual = getManualPointsForChannel(l, activeChannel, true);
+          const m = await measureOne(
+            {
+              group: l.group,
+              element: l.element,
+              direction: l.direction,
+              p0: l.p0,
+              p1: l.p1,
+            },
+            manual?.bars,
+            manual?.gaps
+          );
           return m ? { ...l, m, pending: false } : l;
         })
       );
@@ -838,16 +896,17 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
     if (!lines.length) return;
     const updated = await Promise.all(
       lines.map(async (l) => {
+        const manual = getManualPointsForChannel(l, activeChannel, true);
         const m = await measureOne(
           { group: l.group, element: l.element, direction: l.direction, p0: l.p0, p1: l.p1 },
-          l.manualBars,
-          l.manualGaps
+          manual?.bars,
+          manual?.gaps
         );
         return { ...l, m, pending: false };
       })
     );
     setLines(updated);
-  }, [lines, measureOne]);
+  }, [lines, measureOne, activeChannel]);
   const exportConfig = () => {
     const cfg = {
       kind: 'mantis-usaf-config',
@@ -891,6 +950,7 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
         direction: l.direction,
         p0: l.p0,
         p1: l.p1,
+        manualPointsByChannel: l.manualPointsByChannel || {},
       })),
       selectedIds: [...selectedIds],
       sortCol,
@@ -1004,13 +1064,18 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
         // Re-measure each line against the current source.
         const measured = await Promise.all(
           placeholder.map(async (l) => {
-            const m = await measureOne({
-              group: l.group,
-              element: l.element,
-              direction: l.direction,
-              p0: l.p0,
-              p1: l.p1,
-            });
+            const manual = getManualPointsForChannel(l, activeChannel, true);
+            const m = await measureOne(
+              {
+                group: l.group,
+                element: l.element,
+                direction: l.direction,
+                p0: l.p0,
+                p1: l.p1,
+              },
+              manual?.bars,
+              manual?.gaps
+            );
             return { ...l, m, pending: false };
           })
         );
@@ -1067,13 +1132,17 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
       const body = {
         source_id: source.source_id,
         channels: analysisChannels,
-        lines: lines.map((l) => ({
-          group: l.group,
-          element: l.element,
-          direction: l.direction,
-          p0: l.p0,
-          p1: l.p1,
-        })),
+        lines: lines.map((l) => {
+          const manualPoints = manualPayloadForChannels(l, analysisChannels);
+          return {
+            group: l.group,
+            element: l.element,
+            direction: l.direction,
+            p0: l.p0,
+            p1: l.p1,
+            ...(manualPoints ? { manual_points_by_channel: manualPoints } : {}),
+          };
+        }),
         threshold,
         transform: { rotation, flip_h: flipH, flip_v: flipV },
         isp: buildIspPayload(),
@@ -1099,17 +1168,19 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
   const profilePreviewBody = (
     <ProfilePreview
       line={selectedLine}
+      channel={activeChannel}
+      manualPoints={getManualPointsForChannel(selectedLine, activeChannel, true)}
       method={method}
       multiCount={selectedIds.size}
       threshold={threshold}
       ispApplied={ispEnabled && ispLive}
       onPointsChange={(bars, gaps) => {
         if (!selectedLine) return;
-        updateLinePoints(selectedLine.id, bars, gaps);
+        updateLinePoints(selectedLine.id, activeChannel, bars, gaps);
       }}
       onReset={() => {
         if (!selectedLine) return;
-        updateLinePoints(selectedLine.id, null, null);
+        updateLinePoints(selectedLine.id, activeChannel, null, null);
       }}
     />
   );
@@ -3148,6 +3219,8 @@ const michelson5pt = (profile, bars, gaps) => {
 
 const ProfilePreview = ({
   line,
+  channel,
+  manualPoints,
   _method,
   multiCount,
   threshold,
@@ -3163,7 +3236,7 @@ const ProfilePreview = ({
   const [dragOverride, setDragOverride] = React.useState(null);
   React.useEffect(() => {
     setDragOverride(null);
-  }, [line?.id]);
+  }, [line?.id, channel]);
 
   if (!line) {
     return (
@@ -3200,10 +3273,11 @@ const ProfilePreview = ({
   const p10y = yOf(m.profile_p10);
   const p90y = yOf(m.profile_p90);
 
-  // Effective bars/gaps = (drag-in-progress override) ?? (committed manual) ?? (auto-detected).
-  const bars = (dragOverride?.bars ?? line.manualBars ?? m.bar_indices ?? []).slice();
-  const gaps = (dragOverride?.gaps ?? line.manualGaps ?? m.gap_indices ?? []).slice();
-  const manual = Boolean(line.manualBars || line.manualGaps || dragOverride);
+  // Effective bars/gaps = (drag-in-progress override) ?? (committed manual
+  // for this display channel) ?? (auto-detected for this display channel).
+  const bars = (dragOverride?.bars ?? manualPoints?.bars ?? m.bar_indices ?? []).slice();
+  const gaps = (dragOverride?.gaps ?? manualPoints?.gaps ?? m.gap_indices ?? []).slice();
+  const manual = Boolean(manualPoints || dragOverride);
 
   // Live client-side 5-point recompute (updates on drag, no server round-trip).
   const primary5pt = michelson5pt(profile, bars, gaps);
@@ -3258,6 +3332,11 @@ const ProfilePreview = ({
         <div style={{ fontSize: 10.5, color: t.textMuted, marginBottom: 6 }}>
           {multiCount} lines selected · showing G{line.group}E{line.element}
           {line.direction}
+        </div>
+      )}
+      {channel && (
+        <div style={{ fontSize: 10.5, color: t.textMuted, marginBottom: 6 }}>
+          {manual ? `Manual extrema saved for ${channel}` : `Auto extrema for ${channel}`}
         </div>
       )}
       <div

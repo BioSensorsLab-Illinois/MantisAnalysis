@@ -125,7 +125,10 @@ Analysis response shape:
   samples-per-cycle + reliability flag + profile array).
 - `/api/usaf/analyze` → native JSON: channel × line measurements grid +
   per-channel detection limit + base64 channel thumbnails (no PNG
-  plots — frontend draws native charts).
+  plots — frontend draws native charts). Each line may include optional
+  `manual_points_by_channel` overrides keyed by channel name; the server
+  applies a manual 3-bar/2-gap profile calibration only to the matching
+  requested channel.
 - `/api/fpn/compute` → small summary stats for live-drag ROI updates
   (extended in `fpn-rewrite-v1` with `mean_signal`, row/col-only DSNU,
   row/col peak frequencies, hot/cold counts, drift order).

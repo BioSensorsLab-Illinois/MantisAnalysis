@@ -193,6 +193,17 @@ class LocateFileRequest(BaseModel):
     max_depth: int = 6
 
 
+class ManualUSAFPointsIn(BaseModel):
+    """Manual 5-point extrema for one channel/profile.
+
+    Indices are sample positions in the extracted 1-D USAF profile. They are
+    channel-local: a correction made on LG-R should not be reused for LG-G.
+    """
+    model_config = ConfigDict(extra="forbid")
+    bar_indices: List[int] = Field(min_length=3, max_length=3)
+    gap_indices: List[int] = Field(min_length=2, max_length=2)
+
+
 class LineSpecIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     group: int
@@ -200,6 +211,7 @@ class LineSpecIn(BaseModel):
     direction: str                        # "H" or "V"
     p0: Tuple[float, float]
     p1: Tuple[float, float]
+    manual_points_by_channel: Dict[str, ManualUSAFPointsIn] = Field(default_factory=dict)
 
 
 class ISPParams(BaseModel):
@@ -2866,9 +2878,13 @@ def _mount_api(app: FastAPI) -> None:
             measurements:             {channel: [MeasureResponse-like | null, ...]}
             channel_thumbnails:       {channel: "data:image/png;base64,..."}
             per_channel_detection_limit: {channel: lp_mm | null}
+            manual_points_by_channel on each line is optional; when present
+            for a requested channel, those profile sample indices override
+            that channel's automatic 5-point extrema detection.
         """
         src = _must_get(req.source_id)
-        specs = [_line_spec(l) for l in req.lines]
+        line_inputs = list(req.lines)
+        specs = [_line_spec(l) for l in line_inputs]
         chs_requested = req.channels or list(src.channels.keys())
         # Apply dark subtraction first (no-op if no dark attached), then ISP.
         channel_images = {
@@ -2886,9 +2902,17 @@ def _mount_api(app: FastAPI) -> None:
         for ch, img in channel_images.items():
             ms: List[Any] = []
             lm_list = []
-            for spec in specs:
+            for line_in, spec in zip(line_inputs, specs):
                 try:
-                    m = measure_line(img, spec, swath_width=8.0, method="five_point")
+                    manual = (line_in.manual_points_by_channel or {}).get(ch)
+                    m = measure_line(
+                        img,
+                        spec,
+                        swath_width=8.0,
+                        method="five_point",
+                        bar_indices=manual.bar_indices if manual else None,
+                        gap_indices=manual.gap_indices if manual else None,
+                    )
                     ms.append(_measure_to_response(m).model_dump())
                     lm_list.append(m)
                 except Exception:
