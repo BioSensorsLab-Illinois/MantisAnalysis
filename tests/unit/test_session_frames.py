@@ -7,6 +7,7 @@ Uses tiny synthetic H5 fixtures shaped like real MantisCam recordings
 H5 binaries are committed; the fixture writes into ``tmp_path`` and the
 file is GC'd at test teardown.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -17,25 +18,27 @@ import pytest
 
 from mantisanalysis.session import (
     PLAYBACK_CACHE_SIZE,
-    LoadedSource,
     SessionStore,
     _hash_isp_config,
     _load_dark_channels,
 )
 
-
 # ---------------------------------------------------------------------------
 # Synthetic H5 builder — emulates a MantisCam recording
 # ---------------------------------------------------------------------------
 
-def _make_synthetic_h5(path: Path, *,
-                       n_frames: int = 5,
-                       half_h: int = 16,
-                       half_w: int = 16,   # full width = 2 * half_w
-                       exposure_s: float = 0.1,
-                       ts0: float = 1_000_000.0,
-                       ts_step: float = 0.04,
-                       seed: int = 0) -> Path:
+
+def _make_synthetic_h5(
+    path: Path,
+    *,
+    n_frames: int = 5,
+    half_h: int = 16,
+    half_w: int = 16,  # full width = 2 * half_w
+    exposure_s: float = 0.1,
+    ts0: float = 1_000_000.0,
+    ts_step: float = 0.04,
+    seed: int = 0,
+) -> Path:
     """Write a small synthetic dual-gain H5 in MantisCam format.
 
     Each frame's pixel values encode (frame_index, row, col) so different
@@ -70,8 +73,9 @@ def synth_h5(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def synth_h5_b(tmp_path: Path) -> Path:
-    return _make_synthetic_h5(tmp_path / "rec_b.h5", n_frames=4, exposure_s=0.05,
-                              ts0=2_000_000.0, seed=42)
+    return _make_synthetic_h5(
+        tmp_path / "rec_b.h5", n_frames=4, exposure_s=0.05, ts0=2_000_000.0, seed=42
+    )
 
 
 @pytest.fixture
@@ -80,7 +84,10 @@ def synth_dark(tmp_path: Path) -> Path:
     low values so the averaged-dark math is easy to assert."""
     return _make_synthetic_h5(
         tmp_path / "dark_a.h5",
-        n_frames=4, exposure_s=0.1, ts0=999_000.0, seed=99,
+        n_frames=4,
+        exposure_s=0.1,
+        ts0=999_000.0,
+        seed=99,
     )
 
 
@@ -89,12 +96,17 @@ def synth_dark(tmp_path: Path) -> Path:
 # Used to prove load_from_path emits the canonical W-* warnings.
 # ---------------------------------------------------------------------------
 
-def _make_synthetic_h5_missing(path: Path, *, omit: tuple[str, ...],
-                               n_frames: int = 4,
-                               half_h: int = 16,
-                               half_w: int = 16,
-                               exposure_s: float = 0.1,
-                               seed: int = 7) -> Path:
+
+def _make_synthetic_h5_missing(
+    path: Path,
+    *,
+    omit: tuple[str, ...],
+    n_frames: int = 4,
+    half_h: int = 16,
+    half_w: int = 16,
+    exposure_s: float = 0.1,
+    seed: int = 7,
+) -> Path:
     """Same shape as `_make_synthetic_h5` but skips listed `camera/*` datasets.
 
     `omit` may include ``"timestamp"`` and/or ``"integration-time"``.
@@ -125,6 +137,7 @@ def _make_synthetic_h5_missing(path: Path, *, omit: tuple[str, ...],
 # Frame metadata + count
 # ---------------------------------------------------------------------------
 
+
 def test_load_h5_populates_frame_metadata(synth_h5: Path):
     store = SessionStore(max_entries=4)
     src = store.load_from_path(synth_h5)
@@ -144,6 +157,7 @@ def test_load_h5_populates_frame_metadata(synth_h5: Path):
 
 def test_summary_dict_carries_frame_count(synth_h5: Path):
     from mantisanalysis.session import _summary_dict
+
     store = SessionStore(max_entries=4)
     src = store.load_from_path(synth_h5)
     try:
@@ -156,6 +170,7 @@ def test_summary_dict_carries_frame_count(synth_h5: Path):
 
 def test_image_source_has_frame_count_one(tmp_path: Path):
     from PIL import Image
+
     p = tmp_path / "rgb.png"
     Image.fromarray(np.zeros((8, 8, 3), dtype=np.uint8)).save(p)
     store = SessionStore(max_entries=4)
@@ -170,6 +185,7 @@ def test_image_source_has_frame_count_one(tmp_path: Path):
 # ---------------------------------------------------------------------------
 # extract_frame correctness + caching
 # ---------------------------------------------------------------------------
+
 
 def test_extract_frame_returns_distinct_arrays_per_frame(synth_h5: Path):
     """Different frames must produce different channel arrays."""
@@ -248,6 +264,7 @@ def test_extract_frame_out_of_range_raises(synth_h5: Path):
 # Multi-source independence (the prior "couldn't open second recording" failure)
 # ---------------------------------------------------------------------------
 
+
 def test_two_sources_load_independently(synth_h5: Path, synth_h5_b: Path):
     """Loading B after A leaves both retrievable and independent."""
     store = SessionStore(max_entries=4)
@@ -315,7 +332,7 @@ def test_lru_eviction_closes_frame_reader(synth_h5: Path, tmp_path: Path):
     assert first._frame_reader._h5 is not None
     # Now load two more — first will be evicted on the second of these
     # because max=2.
-    second = store.load_from_path(extra_paths[0])
+    store.load_from_path(extra_paths[0])
     third = store.load_from_path(extra_paths[1])  # noqa: F841 — just to trigger eviction
     try:
         assert store.was_evicted(first.source_id) is True
@@ -329,6 +346,7 @@ def test_lru_eviction_closes_frame_reader(synth_h5: Path, tmp_path: Path):
 # Dark-frame averaging
 # ---------------------------------------------------------------------------
 
+
 def test_load_dark_channels_averages_h5(synth_dark: Path):
     """Averaged dark for an N-frame H5 differs from frame-0 alone."""
     chs = _load_dark_channels(synth_dark, isp_mode_id="rgb_nir", isp_config={})
@@ -338,6 +356,7 @@ def test_load_dark_channels_averages_h5(synth_dark: Path):
     # (central limit theorem). Check that simply by re-extracting frame 0
     # and confirming arrays differ.
     from mantisanalysis.image_io import load_h5_channels
+
     single, _attrs, _raw, _mode_id, _cfg = load_h5_channels(synth_dark, frame_index=0)
     assert single["HG-G"].shape == chs["HG-G"].shape
     # Different — averaged is not equal to frame 0
@@ -354,6 +373,7 @@ def test_attach_dark_uses_averaged_h5(synth_h5: Path, synth_dark: Path):
         # Compare against the legacy frame-0-only loader output to confirm
         # we're NOT just storing frame 0.
         from mantisanalysis.image_io import load_h5_channels
+
         single, _, _, _, _ = load_h5_channels(synth_dark, frame_index=0)
         assert not np.array_equal(a2.dark_channels["HG-G"], single["HG-G"])
     finally:
@@ -363,6 +383,7 @@ def test_attach_dark_uses_averaged_h5(synth_h5: Path, synth_dark: Path):
 # ---------------------------------------------------------------------------
 # ISP reconfigure invalidates the per-frame extraction cache
 # ---------------------------------------------------------------------------
+
 
 def test_isp_reconfigure_clears_frame_cache(synth_h5: Path):
     store = SessionStore(max_entries=4)
@@ -381,6 +402,7 @@ def test_isp_reconfigure_clears_frame_cache(synth_h5: Path):
 # Hash helper sanity
 # ---------------------------------------------------------------------------
 
+
 def test_hash_isp_config_stable_over_reorder():
     a = _hash_isp_config({"x": [1, 2], "y": 3})
     b = _hash_isp_config({"y": 3, "x": [1, 2]})
@@ -398,6 +420,7 @@ def test_hash_isp_config_changes_with_value():
 # (post-M11: FileNotFoundError on per-frame extract because the upload
 # tempfile got unlinked while the LoadedSource still pointed at it.)
 # ---------------------------------------------------------------------------
+
 
 def test_load_from_bytes_h5_keeps_tempfile_alive(synth_h5: Path):
     """An H5 uploaded via load_from_bytes must keep its backing file
@@ -436,6 +459,7 @@ def test_load_from_bytes_image_unlinks_immediately(tmp_path: Path):
     """Image uploads have only frame 0; the tempfile can be unlinked
     right away (no per-frame access needed)."""
     from PIL import Image
+
     p = tmp_path / "rgb.png"
     Image.fromarray(np.zeros((4, 4, 3), dtype=np.uint8)).save(p)
     raw = p.read_bytes()
@@ -456,6 +480,7 @@ def test_load_from_bytes_image_unlinks_immediately(tmp_path: Path):
 # M16 — load-time warnings on missing metadata
 # ---------------------------------------------------------------------------
 
+
 def test_complete_h5_emits_no_warnings(synth_h5: Path):
     """Baseline: a normal H5 with timestamp + integration-time emits zero warnings."""
     store = SessionStore(max_entries=4)
@@ -467,9 +492,7 @@ def test_complete_h5_emits_no_warnings(synth_h5: Path):
 
 
 def test_h5_missing_timestamp_emits_w_meta_ts(tmp_path: Path):
-    p = _make_synthetic_h5_missing(
-        tmp_path / "no_ts.h5", omit=("timestamp",), n_frames=3
-    )
+    p = _make_synthetic_h5_missing(tmp_path / "no_ts.h5", omit=("timestamp",), n_frames=3)
     store = SessionStore(max_entries=4)
     src = store.load_from_path(p)
     try:
@@ -488,9 +511,7 @@ def test_h5_missing_timestamp_emits_w_meta_ts(tmp_path: Path):
 
 
 def test_h5_missing_integration_time_emits_w_meta_exp(tmp_path: Path):
-    p = _make_synthetic_h5_missing(
-        tmp_path / "no_exp.h5", omit=("integration-time",), n_frames=3
-    )
+    p = _make_synthetic_h5_missing(tmp_path / "no_exp.h5", omit=("integration-time",), n_frames=3)
     store = SessionStore(max_entries=4)
     src = store.load_from_path(p)
     try:
@@ -523,9 +544,8 @@ def test_summary_dict_includes_warnings(tmp_path: Path):
     """Round-trip: warnings populated on LoadedSource must show up in
     `_summary_dict` (and therefore in the API SourceSummary payload)."""
     from mantisanalysis.session import _summary_dict
-    p = _make_synthetic_h5_missing(
-        tmp_path / "no_ts.h5", omit=("timestamp",), n_frames=3
-    )
+
+    p = _make_synthetic_h5_missing(tmp_path / "no_ts.h5", omit=("timestamp",), n_frames=3)
     store = SessionStore(max_entries=4)
     src = store.load_from_path(p)
     try:

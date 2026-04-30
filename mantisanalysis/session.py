@@ -6,6 +6,7 @@ them without re-uploading. One process, one user — this is a local-only
 tool, not multi-tenant. A dict keyed by session id with LRU eviction is
 plenty.
 """
+
 from __future__ import annotations
 
 import io
@@ -23,7 +24,6 @@ import numpy as np
 from . import isp_modes as _isp
 from .extract import load_recording
 from .image_io import extract_with_mode, load_any_detail, luminance_from_rgb
-
 
 # Per-source LRU bound for the frame extraction cache. Each entry is a
 # dict of channel arrays — for the GSense RGB-NIR mode, ~10 channels of
@@ -50,11 +50,11 @@ class FrameReader:
 
     def __init__(self, path: Path):
         self.path: Path = path
-        self._h5: Optional[h5py.File] = None
-        self._frames_ds: Optional[h5py.Dataset] = None
-        self._n: Optional[int] = None
-        self._exposures_s: Optional[np.ndarray] = None
-        self._timestamps: Optional[np.ndarray] = None
+        self._h5: h5py.File | None = None
+        self._frames_ds: h5py.Dataset | None = None
+        self._n: int | None = None
+        self._exposures_s: np.ndarray | None = None
+        self._timestamps: np.ndarray | None = None
 
     def _ensure_open(self) -> None:
         if self._h5 is not None:
@@ -68,7 +68,11 @@ class FrameReader:
             # copy on every property access — the underlying h5 dataset
             # closes when the handle is released.
             it = cam["integration-time"][...] if "integration-time" in cam else np.zeros(self._n)
-            ts = cam["timestamp"][...] if "timestamp" in cam else np.arange(self._n, dtype=np.float64)
+            ts = (
+                cam["timestamp"][...]
+                if "timestamp" in cam
+                else np.arange(self._n, dtype=np.float64)
+            )
             self._exposures_s = np.asarray(it, dtype=np.float64)
             self._timestamps = np.asarray(ts, dtype=np.float64)
             self._frames_ds = ds  # type: ignore[assignment]
@@ -116,7 +120,7 @@ class FrameReader:
                 self._frames_ds = None
 
 
-def _hash_isp_config(cfg: Optional[Dict[str, object]]) -> str:
+def _hash_isp_config(cfg: dict[str, object] | None) -> str:
     """Stable fingerprint of an ISP config for cache keys.
 
     The config is small and JSON-shaped (lists/dicts/scalars + tuples
@@ -127,6 +131,7 @@ def _hash_isp_config(cfg: Optional[Dict[str, object]]) -> str:
         return ""
     # ``sort_keys`` works for nested dicts; tuples become lists in repr.
     import json
+
     try:
         return json.dumps(cfg, sort_keys=True, default=lambda x: list(x))
     except TypeError:
@@ -136,19 +141,20 @@ def _hash_isp_config(cfg: Optional[Dict[str, object]]) -> str:
 @dataclass
 class LoadedSource:
     """One loaded file with its extracted channel dict."""
+
     source_id: str
     name: str
-    source_kind: str                    # "h5" or "image"
-    channels: Dict[str, np.ndarray]
-    attrs: Dict[str, str]
-    shape_hw: Tuple[int, int]           # per-channel pixel dims (H, W)
+    source_kind: str  # "h5" or "image"
+    channels: dict[str, np.ndarray]
+    attrs: dict[str, str]
+    shape_hw: tuple[int, int]  # per-channel pixel dims (H, W)
     # Raw mosaic dimensions of one frame BEFORE channel-split. For modern
     # MantisCam recordings this is the full ``camera/frames`` H × W
     # (typically 2048 × 4096); for legacy gsbsi files it's
     # ``LEGACY_FRAME_HW`` (2048 × 1024); for image sources it's the image
     # shape. Surfaced on the SourceSummary so the FilePill can display
     # "raw file resolution" alongside the per-channel ``shape_hw``.
-    raw_shape: Tuple[int, int] = (0, 0)
+    raw_shape: tuple[int, int] = (0, 0)
     # Raw bit depth of the underlying sensor data. 12 for legacy gsbsi
     # (raw values 0–4095, normalized to uint16 at the read boundary by a
     # 4-bit left shift), 16 for modern MantisCam recordings, 8 for PNG /
@@ -157,23 +163,23 @@ class LoadedSource:
     raw_bit_depth: int = 16
     raw_dtype: str = "uint16"
     loaded_at: float = field(default_factory=time.time)
-    path: Optional[str] = None          # absolute disk path when known
-                                        # (None for browser uploads — the
-                                        # tempfile path is gone after load)
+    path: str | None = None  # absolute disk path when known
+    # (None for browser uploads — the
+    # tempfile path is gone after load)
     # Optional per-pixel dark frame attached to this source. Stored as a
     # parallel channel dict (same keys + shapes as `channels`), validated
     # at attach time. When set, server-side analysis subtracts this from
     # every channel before ISP / thumbnail / measurement.
-    dark_channels: Optional[Dict[str, np.ndarray]] = None
-    dark_name: Optional[str] = None
-    dark_path: Optional[str] = None
+    dark_channels: dict[str, np.ndarray] | None = None
+    dark_name: str | None = None
+    dark_path: str | None = None
     # ISP-modes-v1: cache the raw frame + active mode so the user can
     # reconfigure extraction geometry / channel renames without re-reading
     # from disk. ``raw_frame`` is the array *before* dual-gain split and
     # Bayer extraction — exactly what load_any_detail returned.
-    raw_frame: Optional[np.ndarray] = None
+    raw_frame: np.ndarray | None = None
     isp_mode_id: str = "rgb_nir"
-    isp_config: Dict[str, object] = field(default_factory=dict)
+    isp_config: dict[str, object] = field(default_factory=dict)
 
     # play-tab-recording-inspection-rescue-v1 M1: per-frame access for
     # the new Play mode. ``frame_count`` is 1 for image sources, ≥1 for H5.
@@ -181,38 +187,38 @@ class LoadedSource:
     # populated for H5 (None for images). ``_h5_path`` lets the lazy
     # FrameReader open the file on first frame request.
     frame_count: int = 1
-    per_frame_exposures_s: Optional[np.ndarray] = None
-    per_frame_timestamps: Optional[np.ndarray] = None
+    per_frame_exposures_s: np.ndarray | None = None
+    per_frame_timestamps: np.ndarray | None = None
     # M16: per-source warnings emitted at load time (missing metadata,
     # partial reads, etc.). Each entry is a dict ``{code, severity, detail}``
     # with code ∈ canonical W-* IDs (W-META-TS, W-META-EXP, W-FRAME-FAIL,
     # ...). Frontend renders chips on the FilePill and aggregates the same
     # entries into the Warning Center modal.
-    warnings: List[Dict[str, str]] = field(default_factory=list)
-    _h5_path: Optional[Path] = field(default=None, repr=False)
+    warnings: list[dict[str, str]] = field(default_factory=list)
+    _h5_path: Path | None = field(default=None, repr=False)
     # M11 hardening: when load_from_bytes wrote the upload to a temp
     # file, we hold on to that path here so per-frame access (which
     # reopens the H5 lazily) doesn't FileNotFoundError after the
     # tempfile would have otherwise been unlinked. close_frame_reader
     # cleans it up on eviction / removal.
-    _owned_tempfile: Optional[Path] = field(default=None, repr=False)
+    _owned_tempfile: Path | None = field(default=None, repr=False)
     # Captured at upload time from the trusted UploadFile metadata.
     # Used by /api/sources/{sid}/attach-path as a trust anchor — the
     # candidate disk path must match BOTH basename and byte-size before
     # we agree to bind it. Without this guard, a malformed body could
     # bind /etc/passwd to a source so DELETE could unlink it.
-    upload_basename: Optional[str] = field(default=None, repr=False)
-    upload_size: Optional[int] = field(default=None, repr=False)
+    upload_basename: str | None = field(default=None, repr=False)
+    upload_size: int | None = field(default=None, repr=False)
     # Pinned sources are skipped by ``_evict_locked`` so the LRU never
     # silently boots them. Used for transient handoff sources created
     # by ``create_transient_from_frame`` — without pinning, 65 right-
     # click handoffs could evict the user's loaded recordings to make
     # room for the throwaway ones. Explicit removal still works.
     pinned: bool = field(default=False, repr=False)
-    _frame_reader: Optional[FrameReader] = field(default=None, repr=False)
+    _frame_reader: FrameReader | None = field(default=None, repr=False)
     # Per-source LRU of extracted channel dicts keyed by (frame_idx, isp_hash).
     # Bounded to PLAYBACK_CACHE_SIZE entries.
-    _frame_extract_cache: "OrderedDict[Tuple[int, str], Dict[str, np.ndarray]]" = field(
+    _frame_extract_cache: OrderedDict[tuple[int, str], dict[str, np.ndarray]] = field(
         default_factory=OrderedDict, repr=False
     )
     # M11 reviewer P0: FastAPI runs sync handlers in a threadpool, so two
@@ -220,7 +226,7 @@ class LoadedSource:
     # FrameReader init AND the OrderedDict mutation. Per-source RLock
     # serializes the cache + reader-open critical section. This is finer-
     # grained than STORE._lock (which would serialise ALL playback).
-    _lock: "threading.RLock" = field(default_factory=threading.RLock, repr=False)
+    _lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
     # Play-only compatibility shim for the legacy gsbsi-prefix H5 container
     # (see ``legacy_h5.py``). When True, ``extract_frame`` swaps in a
     # ``LegacyFrameReader`` + ``extract_legacy_channels`` pipeline instead
@@ -236,7 +242,7 @@ class LoadedSource:
     def has_dark(self) -> bool:
         return self.dark_channels is not None and len(self.dark_channels) > 0
 
-    def extract_frame(self, idx: int) -> Dict[str, np.ndarray]:
+    def extract_frame(self, idx: int) -> dict[str, np.ndarray]:
         """Extract per-channel arrays for frame ``idx``.
 
         Frame 0 of an H5 source is byte-identical to ``self.channels``
@@ -251,9 +257,7 @@ class LoadedSource:
         """
         if self.source_kind != "h5":
             if idx != 0:
-                raise IndexError(
-                    f"frame index {idx} not supported for {self.source_kind!r} source"
-                )
+                raise IndexError(f"frame index {idx} not supported for {self.source_kind!r} source")
             return self.channels
         # All H5 paths grab the per-source lock so concurrent FastAPI
         # threadpool workers don't race the FrameReader init or the
@@ -272,6 +276,7 @@ class LoadedSource:
                     )
                 if self._legacy:
                     from .legacy_h5 import LegacyFrameReader
+
                     self._frame_reader = LegacyFrameReader(self._h5_path)
                 else:
                     self._frame_reader = FrameReader(self._h5_path)
@@ -299,6 +304,7 @@ class LoadedSource:
                 chs["LG-Y"] = luminance_from_rgb(lg)
                 # M25 — synthesize HDR-{R,G,B,NIR,Y} alongside.
                 from .hdr_fusion import add_hdr_channels
+
                 add_hdr_channels(chs)
             cache[cache_key] = chs
             while len(cache) > PLAYBACK_CACHE_SIZE:
@@ -328,7 +334,7 @@ class LoadedSource:
                 # Clear _h5_path too so a stale reference doesn't survive.
                 self._h5_path = None
 
-    def resolve_disk_target(self) -> Optional[Path]:
+    def resolve_disk_target(self) -> Path | None:
         """Return the on-disk file the user owns for this source, or
         None if this source has no externally-resolvable file (e.g. the
         synthetic sample / transient handoff sources).
@@ -361,13 +367,13 @@ class SessionStore:
 
     def __init__(self, max_entries: int = 256, evicted_memory: int = 1024):
         self._lock = threading.RLock()
-        self._items: Dict[str, LoadedSource] = {}
+        self._items: dict[str, LoadedSource] = {}
         self._max = max_entries
         # Remember recently-evicted source IDs (FIFO) so we can surface
         # 410 Gone instead of 404 when the frontend holds a stale
         # cached id. Capped to a fixed size so memory stays bounded.
         # See R-0009.
-        self._evicted: "list[str]" = []
+        self._evicted: list[str] = []
         self._evicted_max = evicted_memory
 
     def was_evicted(self, source_id: str) -> bool:
@@ -381,9 +387,9 @@ class SessionStore:
             self._evicted.remove(source_id)
         self._evicted.append(source_id)
         if len(self._evicted) > self._evicted_max:
-            self._evicted = self._evicted[-self._evicted_max:]
+            self._evicted = self._evicted[-self._evicted_max :]
 
-    def load_from_path(self, path: str | Path, name: Optional[str] = None) -> LoadedSource:
+    def load_from_path(self, path: str | Path, name: str | None = None) -> LoadedSource:
         """Load a file from local disk and register it under a new source id."""
         resolved = Path(path).expanduser().resolve()
         # Play-only compatibility: legacy gsbsi-prefix H5 files use a different
@@ -392,6 +398,7 @@ class SessionStore:
         # and dispatch to a self-contained loader so the modern path stays
         # byte-identical.
         from .legacy_h5 import is_legacy_gsbsi_h5
+
         if is_legacy_gsbsi_h5(resolved):
             return self._load_legacy_gsbsi(resolved, name=name)
         channels, attrs, raw, mode_id, cfg, kind = load_any_detail(resolved)
@@ -427,42 +434,48 @@ class SessionStore:
         # Per-frame metadata for H5 sources — Play mode needs frame count,
         # exposures, and timestamps without re-opening the file.
         frame_count = 1
-        per_frame_exposures: Optional[np.ndarray] = None
-        per_frame_timestamps: Optional[np.ndarray] = None
-        h5_path: Optional[Path] = None
+        per_frame_exposures: np.ndarray | None = None
+        per_frame_timestamps: np.ndarray | None = None
+        h5_path: Path | None = None
         # M16: collect any soft-warnings emitted at load time. These get
         # serialized into the SourceSummary so the frontend can chip them
         # on the FilePill + the Warning Center.
-        load_warnings: List[Dict[str, str]] = []
+        load_warnings: list[dict[str, str]] = []
         if kind == "h5":
             try:
                 with h5py.File(resolved, "r") as f:
                     cam = f["camera"]
                     frame_count = int(cam["frames"].shape[0])
                     if "integration-time" in cam:
-                        per_frame_exposures = np.asarray(cam["integration-time"][...], dtype=np.float64)
+                        per_frame_exposures = np.asarray(
+                            cam["integration-time"][...], dtype=np.float64
+                        )
                     else:
                         per_frame_exposures = np.zeros(frame_count, dtype=np.float64)
-                        load_warnings.append({
-                            "code": "W-META-EXP",
-                            "severity": "warning",
-                            "detail": (
-                                f"{resolved.name} is missing the 'camera/integration-time' "
-                                "dataset; per-frame exposure shows as 0 s."
-                            ),
-                        })
+                        load_warnings.append(
+                            {
+                                "code": "W-META-EXP",
+                                "severity": "warning",
+                                "detail": (
+                                    f"{resolved.name} is missing the 'camera/integration-time' "
+                                    "dataset; per-frame exposure shows as 0 s."
+                                ),
+                            }
+                        )
                     if "timestamp" in cam:
                         per_frame_timestamps = np.asarray(cam["timestamp"][...], dtype=np.float64)
                     else:
                         per_frame_timestamps = np.arange(frame_count, dtype=np.float64)
-                        load_warnings.append({
-                            "code": "W-META-TS",
-                            "severity": "warning",
-                            "detail": (
-                                f"{resolved.name} is missing the 'camera/timestamp' "
-                                "dataset; frame index is used as a stand-in (1 s spacing)."
-                            ),
-                        })
+                        load_warnings.append(
+                            {
+                                "code": "W-META-TS",
+                                "severity": "warning",
+                                "detail": (
+                                    f"{resolved.name} is missing the 'camera/timestamp' "
+                                    "dataset; frame index is used as a stand-in (1 s spacing)."
+                                ),
+                            }
+                        )
                 h5_path = resolved
             except Exception as exc:
                 # Fall back to single-frame view if metadata read fails;
@@ -473,14 +486,16 @@ class SessionStore:
                 per_frame_exposures = None
                 per_frame_timestamps = None
                 h5_path = None
-                load_warnings.append({
-                    "code": "W-FRAME-FAIL",
-                    "severity": "warning",
-                    "detail": (
-                        f"{resolved.name} per-frame metadata read failed "
-                        f"({type(exc).__name__}); only frame 0 is available."
-                    ),
-                })
+                load_warnings.append(
+                    {
+                        "code": "W-FRAME-FAIL",
+                        "severity": "warning",
+                        "detail": (
+                            f"{resolved.name} per-frame metadata read failed "
+                            f"({type(exc).__name__}); only frame 0 is available."
+                        ),
+                    }
+                )
         src = LoadedSource(
             source_id=uuid.uuid4().hex[:12],
             name=name or Path(path).name,
@@ -506,7 +521,7 @@ class SessionStore:
             self._evict_locked()
         return src
 
-    def _load_legacy_gsbsi(self, resolved: Path, *, name: Optional[str]) -> LoadedSource:
+    def _load_legacy_gsbsi(self, resolved: Path, *, name: str | None) -> LoadedSource:
         """Build a ``LoadedSource`` from a legacy gsbsi H5 (Play mode only).
 
         Mirrors ``load_from_path`` for a modern H5: extracts frame 0 channels
@@ -552,12 +567,12 @@ class SessionStore:
         add_hdr_channels(channels)
         any_ch = next(iter(channels.values()))
         shape_hw = (int(any_ch.shape[0]), int(any_ch.shape[1]))
-        attrs: Dict[str, str] = {
+        attrs: dict[str, str] = {
             "format": "legacy_gsbsi",
             "frame_hw": f"{LEGACY_FRAME_HW[0]}x{LEGACY_FRAME_HW[1]}",
             "frame_count": str(n_frames),
         }
-        warnings: List[Dict[str, str]] = [
+        warnings: list[dict[str, str]] = [
             {
                 "code": "W-META-TS",
                 "severity": "warning",
@@ -635,12 +650,15 @@ class SessionStore:
             f.write(data)
             tmp_path = Path(f.name)
         return self._finalize_upload_from_tempfile(
-            tmp_path, name=name,
-            upload_basename=upload_basename, upload_size=upload_size,
+            tmp_path,
+            name=name,
+            upload_basename=upload_basename,
+            upload_size=upload_size,
         )
 
-    def load_from_uploaded_tempfile(self, tmp_path: Path, *, name: str,
-                                    upload_size: int) -> LoadedSource:
+    def load_from_uploaded_tempfile(
+        self, tmp_path: Path, *, name: str, upload_size: int
+    ) -> LoadedSource:
         """Variant of ``load_from_bytes`` that takes a tempfile path the
         caller already streamed bytes into. Used by the FastAPI upload
         route to avoid reading the entire body into a single Python
@@ -654,14 +672,15 @@ class SessionStore:
         """
         upload_basename = Path(name).name
         return self._finalize_upload_from_tempfile(
-            tmp_path, name=name,
+            tmp_path,
+            name=name,
             upload_basename=upload_basename,
             upload_size=int(upload_size),
         )
 
-    def _finalize_upload_from_tempfile(self, tmp_path: Path, *, name: str,
-                                       upload_basename: str,
-                                       upload_size: int) -> LoadedSource:
+    def _finalize_upload_from_tempfile(
+        self, tmp_path: Path, *, name: str, upload_basename: str, upload_size: int
+    ) -> LoadedSource:
         """Shared completion path: load via ``load_from_path`` and rebind
         tempfile ownership / upload metadata. Both ``load_from_bytes``
         (legacy whole-body buffer) and ``load_from_uploaded_tempfile``
@@ -710,13 +729,16 @@ class SessionStore:
     def list(self) -> list[dict]:
         """Serializable summary of every loaded source."""
         with self._lock:
-            return [_summary_dict(s) for s in
-                    sorted(self._items.values(), key=lambda s: s.loaded_at, reverse=True)]
+            return [
+                _summary_dict(s)
+                for s in sorted(self._items.values(), key=lambda s: s.loaded_at, reverse=True)
+            ]
 
     # ---- Dark-frame attachment ------------------------------------------
 
-    def attach_dark_from_path(self, source_id: str, path: str | Path,
-                              name: Optional[str] = None) -> "LoadedSource":
+    def attach_dark_from_path(
+        self, source_id: str, path: str | Path, name: str | None = None
+    ) -> LoadedSource:
         """Load a dark frame from disk and attach it to `source_id`.
 
         For H5 dark files, averages all frames into a single master dark
@@ -745,12 +767,12 @@ class SessionStore:
             # when serving thumbnails, so cache stays valid. No invalidation.
         return src
 
-    def attach_dark_from_bytes(self, source_id: str, data: bytes, name: str
-                               ) -> "LoadedSource":
+    def attach_dark_from_bytes(self, source_id: str, data: bytes, name: str) -> LoadedSource:
         """Persist uploaded dark bytes to a temp file and attach under the
         source's currently active ISP mode + config. Averaging applies
         for H5 darks (see ``attach_dark_from_path``)."""
         import tempfile
+
         suffix = Path(name).suffix
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
             f.write(data)
@@ -769,10 +791,12 @@ class SessionStore:
                 src.dark_path = None  # uploads have no original path
             return src
         finally:
-            try: tmp_path.unlink()
-            except OSError: pass
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
 
-    def clear_dark(self, source_id: str) -> "LoadedSource":
+    def clear_dark(self, source_id: str) -> LoadedSource:
         src = self.get(source_id)
         with self._lock:
             src.dark_channels = None
@@ -780,8 +804,9 @@ class SessionStore:
             src.dark_path = None
         return src
 
-    def create_transient_from_frame(self, parent_sid: str, frame_index: int,
-                                    name_suffix: str = "") -> "LoadedSource":
+    def create_transient_from_frame(
+        self, parent_sid: str, frame_index: int, name_suffix: str = ""
+    ) -> LoadedSource:
         """Materialize one frame of a parent source as a standalone image
         source. Used by the M30 right-click handoff: the user picks a frame
         in Play and sends it to USAF / FPN / DoF, which expect single-frame
@@ -806,14 +831,15 @@ class SessionStore:
         # without holding a reference to the parent's mutable dict.
         dark_snapshot = (
             {k: v.copy() for k, v in parent.dark_channels.items()}
-            if parent.dark_channels is not None else None
+            if parent.dark_channels is not None
+            else None
         )
         # Reconstruct a raw_frame so reconfigure_isp on the transient
         # works the same way as on its parent. For modern + legacy h5
         # parents the parent's `read_frame(frame_index)` returns the raw
         # mosaic; pull it directly via the FrameReader if available so
         # we cache the right thing.
-        raw_for_transient: Optional[np.ndarray] = None
+        raw_for_transient: np.ndarray | None = None
         with parent._lock:
             if parent._frame_reader is not None:
                 try:
@@ -829,8 +855,9 @@ class SessionStore:
             channels={k: v.copy() for k, v in chs.items()},
             attrs=dict(parent.attrs),
             shape_hw=(int(any_ch.shape[0]), int(any_ch.shape[1])),
-            raw_shape=tuple(parent.raw_shape) if any(parent.raw_shape) else (
-                int(any_ch.shape[0]), int(any_ch.shape[1])),
+            raw_shape=tuple(parent.raw_shape)
+            if any(parent.raw_shape)
+            else (int(any_ch.shape[0]), int(any_ch.shape[1])),
             raw_dtype=parent.raw_dtype,
             raw_bit_depth=int(parent.raw_bit_depth),
             raw_frame=raw_for_transient,
@@ -879,9 +906,9 @@ class SessionStore:
             self._items.clear()
 
     # ---- ISP reconfigure -----------------------------------------------
-    def reconfigure_isp(self, source_id: str, mode_id: str,
-                        overrides: Optional[Dict[str, object]] = None
-                        ) -> LoadedSource:
+    def reconfigure_isp(
+        self, source_id: str, mode_id: str, overrides: dict[str, object] | None = None
+    ) -> LoadedSource:
         """Swap the ISP mode + overrides on an already-loaded source.
 
         Re-runs channel extraction from the cached raw frame. The dark
@@ -912,11 +939,13 @@ class SessionStore:
         # endpoints get the wrong shape). Mirror load_image_channels's
         # behaviour verbatim so reconfigure round-trips cleanly.
         # See bugfix bug_001.
-        if (src.source_kind == "image"
-                and mode.id == _isp.RGB_IMAGE.id
-                and src.raw_frame is not None
-                and src.raw_frame.ndim == 3
-                and src.raw_frame.shape[-1] in (3, 4)):
+        if (
+            src.source_kind == "image"
+            and mode.id == _isp.RGB_IMAGE.id
+            and src.raw_frame is not None
+            and src.raw_frame.ndim == 3
+            and src.raw_frame.shape[-1] in (3, 4)
+        ):
             arr = src.raw_frame
             if arr.shape[-1] == 4:
                 arr = arr[..., :3]
@@ -939,6 +968,7 @@ class SessionStore:
                 new_channels["LG-Y"] = luminance_from_rgb(lg)
                 # M25 — keep HDR channels in sync after ISP reconfig.
                 from .hdr_fusion import add_hdr_channels
+
                 add_hdr_channels(new_channels)
             elif src.source_kind == "image" and mode.id == _isp.RGB_IMAGE.id:
                 # RGB image path synthesizes Y too, for parity with
@@ -1009,11 +1039,13 @@ STORE = SessionStore()
 # Dark-frame helpers (validation + subtraction math)
 # ---------------------------------------------------------------------------
 
-def _load_dark_channels(path: str | Path,
-                        *,
-                        isp_mode_id: str,
-                        isp_config: Optional[Dict[str, object]],
-                        ) -> Dict[str, np.ndarray]:
+
+def _load_dark_channels(
+    path: str | Path,
+    *,
+    isp_mode_id: str,
+    isp_config: dict[str, object] | None,
+) -> dict[str, np.ndarray]:
     """Load a dark file and return per-channel arrays.
 
     For H5 dark files, **averages all frames** along axis 0 before running
@@ -1029,7 +1061,9 @@ def _load_dark_channels(path: str | Path,
     # Image dark — single-frame, fall through to the existing loader.
     if suf in {".png", ".tif", ".tiff", ".jpg", ".jpeg", ".bmp"}:
         chs, _attrs, _raw, _mode_id, _cfg, _kind = load_any_detail(
-            p, isp_mode_id=isp_mode_id, isp_config=isp_config,
+            p,
+            isp_mode_id=isp_mode_id,
+            isp_config=isp_config,
         )
         return chs
     # H5 dark — open, read all frames, average.
@@ -1061,12 +1095,12 @@ def _load_dark_channels(path: str | Path,
         # subtraction can target the HDR-* keys when the user is
         # rendering an HDR view.
         from .hdr_fusion import add_hdr_channels
+
         add_hdr_channels(chs)
     return chs
 
 
-def _validate_dark_shapes(src: LoadedSource,
-                          dark_channels: Dict[str, np.ndarray]) -> None:
+def _validate_dark_shapes(src: LoadedSource, dark_channels: dict[str, np.ndarray]) -> None:
     """Raise ValueError if the dark dict isn't compatible with the source.
 
     Requires:
@@ -1091,12 +1125,10 @@ def _validate_dark_shapes(src: LoadedSource,
         if ds != ss:
             mismatched.append(f"  · {k}: source shape {ss} ≠ dark shape {ds}")
     if mismatched:
-        raise ValueError(
-            "dark frame is incompatible with source:\n" + "\n".join(mismatched)
-        )
+        raise ValueError("dark frame is incompatible with source:\n" + "\n".join(mismatched))
 
 
-def subtract_dark(image: np.ndarray, dark: Optional[np.ndarray]) -> np.ndarray:
+def subtract_dark(image: np.ndarray, dark: np.ndarray | None) -> np.ndarray:
     """Per-pixel dark subtraction with hard guards.
 
     All math runs in float64 so there's no risk of integer wrap-around or
@@ -1130,8 +1162,7 @@ def _summary_dict(s: LoadedSource) -> dict:
     # rename-eligible slots resolved to (e.g. "nir" → "UV-650").
     names = dict((s.isp_config or {}).get("channel_name_overrides") or {})
     isp_channel_map = {
-        spec.slot_id: _isp.resolved_channel_name(mode, spec, names)
-        for spec in mode.channels
+        spec.slot_id: _isp.resolved_channel_name(mode, spec, names) for spec in mode.channels
     }
     # Serialize any per-slot loc overrides as plain [r, c] lists so the
     # JSON payload stays strict-JSON (tuples from normalize_config would
@@ -1176,12 +1207,9 @@ def _summary_dict(s: LoadedSource) -> dict:
         # settings window and RGB-composite toggle.
         "isp_mode_id": mode.id,
         "isp_config": {
-            "origin": list(s.isp_config.get("origin",
-                                             mode.default_origin)),
-            "sub_step": list(s.isp_config.get("sub_step",
-                                               mode.default_sub_step)),
-            "outer_stride": list(s.isp_config.get("outer_stride",
-                                                    mode.default_outer_stride)),
+            "origin": list(s.isp_config.get("origin", mode.default_origin)),
+            "sub_step": list(s.isp_config.get("sub_step", mode.default_sub_step)),
+            "outer_stride": list(s.isp_config.get("outer_stride", mode.default_outer_stride)),
             "channel_name_overrides": names,
             "channel_loc_overrides": loc_overrides,
         },
@@ -1194,6 +1222,7 @@ def _summary_dict(s: LoadedSource) -> dict:
 # Helpers used by both server and test harness
 # ---------------------------------------------------------------------------
 
+
 def channel_to_png_bytes(
     image: np.ndarray,
     *,
@@ -1201,8 +1230,8 @@ def channel_to_png_bytes(
     clip_hi_pct: float = 99.5,
     max_dim: int = 1600,
     colormap: str = "gray",
-    vmin: Optional[float] = None,
-    vmax: Optional[float] = None,
+    vmin: float | None = None,
+    vmax: float | None = None,
     show_clipping: bool = False,
     normalize_mode: str = "none",
     brightness: float = 0.0,
@@ -1276,8 +1305,10 @@ def channel_to_png_bytes(
             im = Image.fromarray(n8, mode="L")
     else:
         import matplotlib
+
         matplotlib.use("Agg")
         from matplotlib import colormaps
+
         try:
             cmap = colormaps[cmap_name]
         except KeyError:
@@ -1311,7 +1342,7 @@ def channel_histogram(
     image: np.ndarray,
     *,
     bins: int = 64,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Compute a 64-bin (default) histogram of a channel array.
 
     Returned dict has:
@@ -1327,7 +1358,10 @@ def channel_histogram(
         return {
             "counts": [0] * int(bins),
             "edges": [0.0] * (int(bins) + 1),
-            "min": 0.0, "max": 0.0, "p1": 0.0, "p99": 0.0,
+            "min": 0.0,
+            "max": 0.0,
+            "p1": 0.0,
+            "p99": 0.0,
         }
     lo = float(np.min(a))
     hi = float(np.max(a))

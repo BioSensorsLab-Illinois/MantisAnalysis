@@ -13,6 +13,7 @@ Covers:
 
 Synthetic fixture from test_session_frames.py.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -23,7 +24,6 @@ from fastapi.testclient import TestClient
 
 from mantisanalysis.server import app
 from mantisanalysis.session import STORE
-
 from tests.unit.test_session_frames import _make_synthetic_h5
 
 
@@ -178,6 +178,7 @@ def test_roi_stats_polygon_validator_rejects_non_finite():
     encode NaN, and FastAPI's error-response serializer would itself
     choke on the NaN-containing error envelope."""
     import pydantic
+
     from mantisanalysis.server import ROIStatsRequest
 
     with pytest.raises(pydantic.ValidationError) as exc_info:
@@ -198,7 +199,8 @@ def test_roi_stats_rejects_too_few_vertices(client: TestClient, loaded: dict):
 
 
 def test_roi_stats_response_carries_pipeline_version(
-    client: TestClient, loaded: dict,
+    client: TestClient,
+    loaded: dict,
 ):
     """Every successful response — back-compat or new — declares
     pipeline_version=2 so the frontend can stop showing the v1 chip

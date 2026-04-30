@@ -39,13 +39,14 @@ Usage
     python scripts/check_agent_docs.py            # default scan
     python scripts/check_agent_docs.py --strict   # also forbid TODO markers
 """
+
 from __future__ import annotations
 
 import argparse
 import re
 import sys
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, List, Tuple
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -146,8 +147,8 @@ def _is_exempt(p: Path) -> bool:
     return False
 
 
-def collect_docs() -> List[Path]:
-    seen: List[Path] = []
+def collect_docs() -> list[Path]:
+    seen: list[Path] = []
     for pattern in DOC_GLOBS:
         for p in ROOT.glob(pattern):
             if p.is_file() and p not in seen:
@@ -155,11 +156,11 @@ def collect_docs() -> List[Path]:
     return seen
 
 
-def scan_qt_drift(paths: Iterable[Path]) -> List[Tuple[Path, int, str, str]]:
+def scan_qt_drift(paths: Iterable[Path]) -> list[tuple[Path, int, str, str]]:
     """Return (file, lineno, line, matched_pattern) for Qt-drift hits
     that are NOT inside an explicit qt-allowed block, AND report
     oversized qt-allowed regions as pseudo-hits."""
-    hits: List[Tuple[Path, int, str, str]] = []
+    hits: list[tuple[Path, int, str, str]] = []
     compiled = [re.compile(p) for p in QT_PATTERNS]
     for p in paths:
         try:
@@ -184,10 +185,7 @@ def scan_qt_drift(paths: Iterable[Path]) -> List[Tuple[Path, int, str, str]]:
                 # Region size cap check — skipped for known-historical files.
                 if total_lines > 0 and not _is_exempt(p):
                     frac = allow_line_count / total_lines
-                    if (
-                        allow_line_count > QT_ALLOW_MAX_LINES
-                        or frac > QT_ALLOW_MAX_FRACTION
-                    ):
+                    if allow_line_count > QT_ALLOW_MAX_LINES or frac > QT_ALLOW_MAX_FRACTION:
                         hits.append(
                             (
                                 p,
@@ -259,7 +257,7 @@ PYTEST_PATH_RE = re.compile(
 )
 
 
-def scan_command_paths(paths: Iterable[Path]) -> List[Tuple[Path, int, str]]:
+def scan_command_paths(paths: Iterable[Path]) -> list[tuple[Path, int, str]]:
     """Return (file, lineno, missing-target) for documented commands
     whose target file / module doesn't resolve.
 
@@ -267,7 +265,7 @@ def scan_command_paths(paths: Iterable[Path]) -> List[Tuple[Path, int, str]]:
     `python -m <mantisanalysis...>` modules, and `pytest tests/...`
     directories.
     """
-    missing: List[Tuple[Path, int, str]] = []
+    missing: list[tuple[Path, int, str]] = []
     for p in paths:
         if _is_exempt(p):
             continue
@@ -309,7 +307,13 @@ def scan_command_paths(paths: Iterable[Path]) -> List[Tuple[Path, int, str]]:
                 if val.startswith("{") or val in ("N",):
                     continue
                 if val not in KNOWN_SMOKE_TIERS:
-                    missing.append((p, i, f"smoke_test.py --tier {val} (invalid tier; known: {sorted(KNOWN_SMOKE_TIERS)})"))
+                    missing.append(
+                        (
+                            p,
+                            i,
+                            f"smoke_test.py --tier {val} (invalid tier; known: {sorted(KNOWN_SMOKE_TIERS)})",
+                        )
+                    )
     return missing
 
 
@@ -320,16 +324,14 @@ MANIFEST_PATH_RE = re.compile(r"-\s*path:\s*([^\s]+)")
 MANIFEST_IMPORTANT_DOC_RE = re.compile(
     r"^\s*[a-zA-Z_][a-zA-Z0-9_]*:\s*(\.[a-zA-Z0-9_/.-]+\.[a-zA-Z0-9]+)\s*(?:#.*)?$"
 )
-MANIFEST_TOP_SCALAR_RE = re.compile(
-    r"^\s*(?:handoff|user_readme)\s*:\s*([^\s#]+)"
-)
+MANIFEST_TOP_SCALAR_RE = re.compile(r"^\s*(?:handoff|user_readme)\s*:\s*([^\s#]+)")
 
 
-def scan_manifest() -> List[str]:
+def scan_manifest() -> list[str]:
     """Return list of manifest-referenced paths that don't exist."""
     if not MANIFEST.is_file():
         return []
-    missing: List[str] = []
+    missing: list[str] = []
     in_important = False
     for i, line in enumerate(MANIFEST.read_text().splitlines(), start=1):
         # `- path: <x>` entries under major_modules:
@@ -378,7 +380,7 @@ AGENT_REF_REL_RE = re.compile(r"(?:\.\./)?agents/([a-z][a-z0-9-]+)\.md")
 SKILL_REF_REL_RE = re.compile(r"(?:\.\./)?skills/([a-z][a-z0-9-]+)/SKILL\.md")
 
 
-def scan_cross_references(paths: Iterable[Path]) -> List[Tuple[Path, int, str]]:
+def scan_cross_references(paths: Iterable[Path]) -> list[tuple[Path, int, str]]:
     """Return (file, lineno, broken-reference) for agent/skill
     references that don't resolve to real files.
 
@@ -386,11 +388,13 @@ def scan_cross_references(paths: Iterable[Path]) -> List[Tuple[Path, int, str]]:
     initiative folders + append-only logs) — broken cross-references
     in archived material are archaeology, not live drift.
     """
-    missing: List[Tuple[Path, int, str]] = []
+    missing: list[tuple[Path, int, str]] = []
     agents_dir = ROOT / ".agent" / "agents"
     skills_dir = ROOT / ".agent" / "skills"
     known_agents = {p.stem for p in agents_dir.glob("*.md")} if agents_dir.is_dir() else set()
-    known_skills = {p.name for p in skills_dir.iterdir() if p.is_dir()} if skills_dir.is_dir() else set()
+    known_skills = (
+        {p.name for p in skills_dir.iterdir() if p.is_dir()} if skills_dir.is_dir() else set()
+    )
     for p in paths:
         if _is_exempt(p):
             continue
@@ -415,6 +419,7 @@ def scan_cross_references(paths: Iterable[Path]) -> List[Tuple[Path, int, str]]:
 
 
 # --- orchestration ---------------------------------------------------------
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(
@@ -466,7 +471,7 @@ def main() -> int:
             print(f"  {rel}:{lineno}  {target}")
 
     if args.strict:
-        todo_hits: List[Tuple[Path, int, str]] = []
+        todo_hits: list[tuple[Path, int, str]] = []
         for p in docs:
             try:
                 text = p.read_text(encoding="utf-8")

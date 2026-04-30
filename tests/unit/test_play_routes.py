@@ -7,6 +7,7 @@ Uses ``fastapi.testclient.TestClient`` (matches the convention in
 ``test_session_frames``; we re-import the builder here so the route tests
 can run independently.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -17,9 +18,7 @@ from fastapi.testclient import TestClient
 
 from mantisanalysis.server import app
 from mantisanalysis.session import STORE
-
 from tests.unit.test_session_frames import _make_synthetic_h5
-
 
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
@@ -45,6 +44,7 @@ def loaded_h5(client: TestClient, tmp_path: Path) -> dict:
 # ---------------------------------------------------------------------------
 # /api/sources/{sid}/frames
 # ---------------------------------------------------------------------------
+
 
 def test_frames_metadata_endpoint(client: TestClient, loaded_h5: dict):
     sid = loaded_h5["source_id"]
@@ -74,6 +74,7 @@ def test_frames_metadata_404_for_unknown_source(client: TestClient):
 # /api/sources/{sid}/frame/{i}/channel/{ch}/thumbnail.png
 # ---------------------------------------------------------------------------
 
+
 def test_per_frame_channel_thumbnail_returns_png(client: TestClient, loaded_h5: dict):
     sid = loaded_h5["source_id"]
     r = client.get(f"/api/sources/{sid}/frame/0/channel/HG-G/thumbnail.png")
@@ -94,7 +95,9 @@ def test_different_frames_produce_different_pngs(client: TestClient, loaded_h5: 
     r0 = client.get(f"/api/sources/{sid}/frame/0/channel/HG-G/thumbnail.png")
     r4 = client.get(f"/api/sources/{sid}/frame/4/channel/HG-G/thumbnail.png")
     assert r0.status_code == 200 and r4.status_code == 200
-    assert r0.content != r4.content, "frame 0 and frame 4 PNG bytes are identical — extraction not honoring frame index"
+    assert r0.content != r4.content, (
+        "frame 0 and frame 4 PNG bytes are identical — extraction not honoring frame index"
+    )
 
 
 def test_per_frame_thumbnail_404_on_bad_index(client: TestClient, loaded_h5: dict):
@@ -131,6 +134,7 @@ def test_per_frame_thumbnail_with_colormap(client: TestClient, loaded_h5: dict):
 # /api/sources/{sid}/frame/{i}/rgb.png
 # ---------------------------------------------------------------------------
 
+
 def test_per_frame_rgb_composite(client: TestClient, loaded_h5: dict):
     sid = loaded_h5["source_id"]
     r = client.get(f"/api/sources/{sid}/frame/0/rgb.png?gain=hg")
@@ -157,6 +161,7 @@ def test_per_frame_rgb_composite_404_on_bad_index(client: TestClient, loaded_h5:
 # ---------------------------------------------------------------------------
 # /api/sources/{sid}/frame/{i}/overlay.png
 # ---------------------------------------------------------------------------
+
 
 def test_per_frame_overlay_renders(client: TestClient, loaded_h5: dict):
     sid = loaded_h5["source_id"]
@@ -195,6 +200,7 @@ def test_per_frame_overlay_blend_modes(client: TestClient, loaded_h5: dict):
 # ---------------------------------------------------------------------------
 # Multi-source independence at the HTTP layer
 # ---------------------------------------------------------------------------
+
 
 def test_two_sources_addressable_independently(client: TestClient, tmp_path: Path):
     """Loading recording B after A: both frames endpoints work, both
@@ -238,11 +244,10 @@ def test_two_sources_addressable_independently(client: TestClient, tmp_path: Pat
 # M20 — histogram route + show_clipping query param
 # ---------------------------------------------------------------------------
 
+
 def test_per_frame_histogram_returns_64_bins(client: TestClient, loaded_h5: dict):
     sid = loaded_h5["source_id"]
-    r = client.get(
-        f"/api/sources/{sid}/frame/0/channel/HG-G/histogram?bins=64"
-    )
+    r = client.get(f"/api/sources/{sid}/frame/0/channel/HG-G/histogram?bins=64")
     assert r.status_code == 200, r.text
     body = r.json()
     assert isinstance(body["counts"], list)
@@ -282,13 +287,13 @@ def test_thumbnail_show_clipping_emits_rgb_with_magenta(client: TestClient, load
     pixels at or above the high threshold. We force vmax small so the
     brightest pixel(s) clip, then read the PNG and assert at least one
     magenta pixel exists."""
-    from PIL import Image
     import io as _io
+
+    from PIL import Image
 
     sid = loaded_h5["source_id"]
     r = client.get(
-        f"/api/sources/{sid}/frame/0/channel/HG-G/thumbnail.png"
-        f"?show_clipping=true&vmin=0&vmax=10"
+        f"/api/sources/{sid}/frame/0/channel/HG-G/thumbnail.png?show_clipping=true&vmin=0&vmax=10"
     )
     assert r.status_code == 200
     assert r.headers["content-type"] == "image/png"
@@ -304,8 +309,9 @@ def test_thumbnail_no_clipping_returns_grayscale_when_no_colormap(
 ):
     """Default (no show_clipping, no colormap) keeps the cheap L-mode
     PNG output — verifies we didn't regress the non-clipping path."""
-    from PIL import Image
     import io as _io
+
+    from PIL import Image
 
     sid = loaded_h5["source_id"]
     r = client.get(f"/api/sources/{sid}/frame/0/channel/HG-G/thumbnail.png")
@@ -319,11 +325,10 @@ def test_thumbnail_no_clipping_returns_grayscale_when_no_colormap(
 # M22 — auto-wb route + grading round-trip
 # ---------------------------------------------------------------------------
 
+
 def test_auto_wb_returns_three_gain_keys(client: TestClient, loaded_h5: dict):
     sid = loaded_h5["source_id"]
-    r = client.post(
-        f"/api/sources/{sid}/frame/0/rgb/auto-wb?gain=hg&method=gray-world"
-    )
+    r = client.post(f"/api/sources/{sid}/frame/0/rgb/auto-wb?gain=hg&method=gray-world")
     assert r.status_code == 200, r.text
     body = r.json()
     assert set(body.keys()) >= {"gain_r", "gain_g", "gain_b"}
@@ -347,9 +352,7 @@ def test_rgb_with_grading_renders_different_bytes(client: TestClient, loaded_h5:
     the encoder."""
     sid = loaded_h5["source_id"]
     r0 = client.get(f"/api/sources/{sid}/frame/0/rgb.png?gain=hg")
-    r1 = client.get(
-        f"/api/sources/{sid}/frame/0/rgb.png?gain=hg&gain_r=2.0&gain_b=0.5"
-    )
+    r1 = client.get(f"/api/sources/{sid}/frame/0/rgb.png?gain=hg&gain_r=2.0&gain_b=0.5")
     assert r0.status_code == 200 and r1.status_code == 200
     assert r0.content != r1.content
 
@@ -365,6 +368,7 @@ def test_rgb_with_wb_kelvin_renders_different_bytes(client: TestClient, loaded_h
 # ---------------------------------------------------------------------------
 # M23 — tiled image export
 # ---------------------------------------------------------------------------
+
 
 def test_image_tiled_400_when_no_views(client: TestClient):
     r = client.post("/api/sources/export/image-tiled", json={"views": []})
@@ -410,8 +414,9 @@ def test_image_tiled_layouts_render(client: TestClient, loaded_h5: dict):
     """Each layout preset returns a valid PNG; canvas dimensions
     differ between presets (proves the layout selector actually
     rearranges tiles, not just relabels)."""
-    from PIL import Image
     import io as _io
+
+    from PIL import Image
 
     sid = loaded_h5["source_id"]
     base_view = {
@@ -445,8 +450,7 @@ def test_image_tiled_413_when_too_many_views(client: TestClient, loaded_h5: dict
     sid = loaded_h5["source_id"]
     body = {
         "views": [
-            {"source_id": sid, "frame_index": 0, "render": "rgb_composite",
-             "normalize": "auto"}
+            {"source_id": sid, "frame_index": 0, "render": "rgb_composite", "normalize": "auto"}
             for _ in range(17)
         ],
         "layout": "auto",
@@ -457,8 +461,7 @@ def test_image_tiled_413_when_too_many_views(client: TestClient, loaded_h5: dict
 
 def test_image_tiled_404_on_unknown_source(client: TestClient, loaded_h5: dict):
     body = {
-        "views": [{"source_id": "DEADBEEF", "frame_index": 0,
-                   "render": "rgb_composite"}],
+        "views": [{"source_id": "DEADBEEF", "frame_index": 0, "render": "rgb_composite"}],
         "layout": "auto",
     }
     r = client.post("/api/sources/export/image-tiled", json=body)
@@ -468,10 +471,15 @@ def test_image_tiled_404_on_unknown_source(client: TestClient, loaded_h5: dict):
 def test_image_tiled_jpeg_format(client: TestClient, loaded_h5: dict):
     sid = loaded_h5["source_id"]
     body = {
-        "views": [{
-            "source_id": sid, "frame_index": 0, "render": "rgb_composite",
-            "gain": "hg", "normalize": "auto",
-        }],
+        "views": [
+            {
+                "source_id": sid,
+                "frame_index": 0,
+                "render": "rgb_composite",
+                "gain": "hg",
+                "normalize": "auto",
+            }
+        ],
         "layout": "auto",
         "format": "jpeg",
     }
@@ -486,6 +494,7 @@ def test_image_tiled_jpeg_format(client: TestClient, loaded_h5: dict):
 # M24 — tiled video export
 # ---------------------------------------------------------------------------
 
+
 def test_video_tiled_400_when_no_views(client: TestClient):
     r = client.post("/api/sources/export/video-tiled", json={"views": []})
     assert r.status_code == 400
@@ -493,8 +502,7 @@ def test_video_tiled_400_when_no_views(client: TestClient):
 
 def test_video_tiled_404_unknown_source(client: TestClient):
     body = {
-        "views": [{"source_id": "DEADBEEF", "frame_index": 0,
-                   "render": "rgb_composite"}],
+        "views": [{"source_id": "DEADBEEF", "frame_index": 0, "render": "rgb_composite"}],
         "layout": "auto",
         "format": "zip",
     }
@@ -511,10 +519,21 @@ def test_video_tiled_zip_emits_one_png_per_frame(client: TestClient, loaded_h5: 
     sid = loaded_h5["source_id"]
     body = {
         "views": [
-            {"source_id": sid, "frame_index": 0, "render": "rgb_composite",
-             "gain": "hg", "normalize": "auto"},
-            {"source_id": sid, "frame_index": 0, "render": "channel",
-             "channel": "HG-G", "colormap": "gray", "normalize": "auto"},
+            {
+                "source_id": sid,
+                "frame_index": 0,
+                "render": "rgb_composite",
+                "gain": "hg",
+                "normalize": "auto",
+            },
+            {
+                "source_id": sid,
+                "frame_index": 0,
+                "render": "channel",
+                "channel": "HG-G",
+                "colormap": "gray",
+                "normalize": "auto",
+            },
         ],
         "layout": "1xN",
         "fps": 5.0,
@@ -545,8 +564,11 @@ def test_video_tiled_layout_changes_canvas(client: TestClient, loaded_h5: dict):
 
     sid = loaded_h5["source_id"]
     base_view = {
-        "source_id": sid, "frame_index": 0, "render": "rgb_composite",
-        "gain": "hg", "normalize": "auto",
+        "source_id": sid,
+        "frame_index": 0,
+        "render": "rgb_composite",
+        "gain": "hg",
+        "normalize": "auto",
     }
     sizes = {}
     for layout in ("1xN", "2xM"):
@@ -573,10 +595,15 @@ def test_video_tiled_layout_changes_canvas(client: TestClient, loaded_h5: dict):
 def test_video_tiled_413_when_too_many_frames(client: TestClient, loaded_h5: dict):
     sid = loaded_h5["source_id"]
     body = {
-        "views": [{
-            "source_id": sid, "frame_index": 0, "render": "rgb_composite",
-            "gain": "hg", "normalize": "auto",
-        }],
+        "views": [
+            {
+                "source_id": sid,
+                "frame_index": 0,
+                "render": "rgb_composite",
+                "gain": "hg",
+                "normalize": "auto",
+            }
+        ],
         "layout": "auto",
         "format": "zip",
         "start": 0,
@@ -595,12 +622,18 @@ def test_video_tiled_clamps_end_to_source(client: TestClient, loaded_h5: dict):
     """fixture has 5 frames; passing end=999 must clamp without error."""
     import io as _io
     import zipfile
+
     sid = loaded_h5["source_id"]
     body = {
-        "views": [{
-            "source_id": sid, "frame_index": 0, "render": "rgb_composite",
-            "gain": "hg", "normalize": "auto",
-        }],
+        "views": [
+            {
+                "source_id": sid,
+                "frame_index": 0,
+                "render": "rgb_composite",
+                "gain": "hg",
+                "normalize": "auto",
+            }
+        ],
         "layout": "auto",
         "format": "zip",
         "start": 0,
@@ -617,15 +650,12 @@ def test_video_tiled_clamps_end_to_source(client: TestClient, loaded_h5: dict):
 # M26 — non-linear sharpen / FPN ISP chain on Play per-frame routes
 # ---------------------------------------------------------------------------
 
-def test_frame_channel_thumbnail_accepts_sharpen_chain(
-    client: TestClient, loaded_h5: dict
-):
+
+def test_frame_channel_thumbnail_accepts_sharpen_chain(client: TestClient, loaded_h5: dict):
     """Per-frame channel route honors `sharpen_method` + `sharpen_amount`
     and produces output bytes distinct from the no-sharpen baseline."""
     sid = loaded_h5["source_id"]
-    base = client.get(
-        f"/api/sources/{sid}/frame/0/channel/HG-G/thumbnail.png"
-    )
+    base = client.get(f"/api/sources/{sid}/frame/0/channel/HG-G/thumbnail.png")
     sharp = client.get(
         f"/api/sources/{sid}/frame/0/channel/HG-G/thumbnail.png"
         f"?sharpen_method=Unsharp%20mask&sharpen_amount=2.0&sharpen_radius=2.0"
@@ -637,17 +667,12 @@ def test_frame_channel_thumbnail_accepts_sharpen_chain(
     )
 
 
-def test_frame_channel_thumbnail_accepts_fpn_chain(
-    client: TestClient, loaded_h5: dict
-):
+def test_frame_channel_thumbnail_accepts_fpn_chain(client: TestClient, loaded_h5: dict):
     """Per-frame channel route honors median + Gaussian FPN smoothing."""
     sid = loaded_h5["source_id"]
-    base = client.get(
-        f"/api/sources/{sid}/frame/0/channel/HG-G/thumbnail.png"
-    )
+    base = client.get(f"/api/sources/{sid}/frame/0/channel/HG-G/thumbnail.png")
     smooth = client.get(
-        f"/api/sources/{sid}/frame/0/channel/HG-G/thumbnail.png"
-        f"?median_size=5&gaussian_sigma=2.0"
+        f"/api/sources/{sid}/frame/0/channel/HG-G/thumbnail.png?median_size=5&gaussian_sigma=2.0"
     )
     assert base.status_code == 200 and smooth.status_code == 200
     assert base.content != smooth.content, (
@@ -655,9 +680,7 @@ def test_frame_channel_thumbnail_accepts_fpn_chain(
     )
 
 
-def test_frame_rgb_composite_accepts_sharpen_chain(
-    client: TestClient, loaded_h5: dict
-):
+def test_frame_rgb_composite_accepts_sharpen_chain(client: TestClient, loaded_h5: dict):
     """Per-frame RGB composite route honors the sharpen chain too."""
     sid = loaded_h5["source_id"]
     base = client.get(f"/api/sources/{sid}/frame/0/rgb.png?gain=hg")
@@ -666,30 +689,35 @@ def test_frame_rgb_composite_accepts_sharpen_chain(
         f"&sharpen_method=Unsharp%20mask&sharpen_amount=2.0&sharpen_radius=2.0"
     )
     assert base.status_code == 200 and sharp.status_code == 200
-    assert base.content != sharp.content, (
-        "rgb.png with sharpen_method should differ from baseline"
-    )
+    assert base.content != sharp.content, "rgb.png with sharpen_method should differ from baseline"
 
 
-def test_tiled_image_export_honors_sharpen_chain(
-    client: TestClient, loaded_h5: dict
-):
+def test_tiled_image_export_honors_sharpen_chain(client: TestClient, loaded_h5: dict):
     """Tiled-image export bakes the sharpen chain into per-tile renders."""
     sid = loaded_h5["source_id"]
     base_body = {
-        "views": [{
-            "source_id": sid, "frame_index": 0,
-            "render": "channel", "channel": "HG-G",
-            "colormap": "gray", "normalize": "auto",
-        }],
+        "views": [
+            {
+                "source_id": sid,
+                "frame_index": 0,
+                "render": "channel",
+                "channel": "HG-G",
+                "colormap": "gray",
+                "normalize": "auto",
+            }
+        ],
         "layout": "auto",
         "format": "png",
     }
     sharp_body = dict(base_body)
-    sharp_body["views"] = [dict(base_body["views"][0],
-                                sharpen_method="Unsharp mask",
-                                sharpen_amount=2.0,
-                                sharpen_radius=2.0)]
+    sharp_body["views"] = [
+        dict(
+            base_body["views"][0],
+            sharpen_method="Unsharp mask",
+            sharpen_amount=2.0,
+            sharpen_radius=2.0,
+        )
+    ]
     r_base = client.post("/api/sources/export/image-tiled", json=base_body)
     r_sharp = client.post("/api/sources/export/image-tiled", json=sharp_body)
     assert r_base.status_code == 200 and r_sharp.status_code == 200
@@ -714,9 +742,7 @@ def test_frame_channel_thumbnail_no_sharpen_params_byte_identical(
         f"&median_size=0&gaussian_sigma=0.0&hot_pixel_thr=0.0&bilateral=false"
     )
     assert a.status_code == 200 and b.status_code == 200
-    assert a.content == b.content, (
-        "no-op sharpen params must not perturb the rendered PNG"
-    )
+    assert a.content == b.content, "no-op sharpen params must not perturb the rendered PNG"
 
 
 # ---------------------------------------------------------------------------
@@ -749,9 +775,7 @@ def test_channel_range_with_frame_index(client, loaded_h5):
 
 def test_channel_range_oob_frame_returns_404(client, loaded_h5):
     sid = loaded_h5["source_id"]
-    r = client.get(
-        f"/api/sources/{sid}/channel/HG-G/range?frame_index=99999"
-    )
+    r = client.get(f"/api/sources/{sid}/channel/HG-G/range?frame_index=99999")
     assert r.status_code == 404
 
 
@@ -764,11 +788,13 @@ def test_attach_path_basename_size_required(client, tmp_path):
     # .h5 suffix. The server captures upload_basename + upload_size at
     # this point.
     from io import BytesIO
+
     payload = b"\x89HDF\r\n\x1a\n" + b"\x00" * 200
     files = {"file": ("upload-test.h5", BytesIO(payload), "application/octet-stream")}
     # The upload route calls h5py to load — synthesize a real H5 first.
     p = tmp_path / "upload-test.h5"
     from tests.unit.test_session_frames import _make_synthetic_h5
+
     _make_synthetic_h5(p, n_frames=2, exposure_s=0.1, seed=7)
     real_bytes = p.read_bytes()
     files = {"file": ("upload-test.h5", BytesIO(real_bytes), "application/octet-stream")}
@@ -780,24 +806,18 @@ def test_attach_path_basename_size_required(client, tmp_path):
     # rejected.
     rogue = tmp_path / "rogue.h5"
     _make_synthetic_h5(rogue, n_frames=2, exposure_s=0.1, seed=99)
-    r = client.post(
-        f"/api/sources/{sid}/attach-path", json={"path": str(rogue)}
-    )
+    r = client.post(f"/api/sources/{sid}/attach-path", json={"path": str(rogue)})
     assert r.status_code == 400
     assert "basename" in r.json()["detail"].lower()
 
     # Attempt to attach a file with a non-recording extension — rejected.
     secret = tmp_path / "upload-test.txt"
     secret.write_text("nope")
-    r = client.post(
-        f"/api/sources/{sid}/attach-path", json={"path": str(secret)}
-    )
+    r = client.post(f"/api/sources/{sid}/attach-path", json={"path": str(secret)})
     assert r.status_code == 400
     assert "extension" in r.json()["detail"].lower()
 
     # Now attach the matching file — succeeds.
-    r = client.post(
-        f"/api/sources/{sid}/attach-path", json={"path": str(p)}
-    )
+    r = client.post(f"/api/sources/{sid}/attach-path", json={"path": str(p)})
     assert r.status_code == 200
     assert r.json()["path"] == str(p.resolve())

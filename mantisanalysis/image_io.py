@@ -10,20 +10,16 @@ to override can pass ``isp_mode_id`` + ``isp_config`` to dispatch through
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
 from . import isp_modes as _isp
 from .extract import (
-    LOC,
-    ORIGIN,
     extract_by_spec,
-    extract_rgb_nir,
     load_recording,
     split_dual_gain,
 )
-
 
 H5_EXTS = {".h5", ".hdf5"}
 IMAGE_EXTS = {".png", ".tif", ".tiff", ".jpg", ".jpeg", ".bmp"}
@@ -44,7 +40,7 @@ def is_h5_recording(path: Path) -> bool:
         return False
 
 
-def luminance_from_rgb(rgb: Dict[str, np.ndarray]) -> np.ndarray:
+def luminance_from_rgb(rgb: dict[str, np.ndarray]) -> np.ndarray:
     """Rec.601 luminance Y = 0.299·R + 0.587·G + 0.114·B (in source dtype)."""
     r = rgb["R"].astype(np.float64)
     g = rgb["G"].astype(np.float64)
@@ -57,8 +53,9 @@ def luminance_from_rgb(rgb: Dict[str, np.ndarray]) -> np.ndarray:
     return y.astype(out_dtype, copy=False)
 
 
-def rgb_composite(channels: Dict[str, np.ndarray],
-                  mapping: Optional[Dict[str, str]] = None) -> np.ndarray:
+def rgb_composite(
+    channels: dict[str, np.ndarray], mapping: dict[str, str] | None = None
+) -> np.ndarray:
     """Stack three named grayscale channels into an H×W×3 array.
 
     ``mapping`` picks which channel keys play R, G, B. Default maps each
@@ -76,7 +73,7 @@ def rgb_composite(channels: Dict[str, np.ndarray],
 # ---------------------------------------------------------------------------
 
 
-def _crop_channels_to_common_shape(channels: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+def _crop_channels_to_common_shape(channels: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     """Trim every channel to the minimum (H, W) across the dict.
 
     Needed because ``half[r::s, c::s]`` can yield slightly different
@@ -90,17 +87,18 @@ def _crop_channels_to_common_shape(channels: Dict[str, np.ndarray]) -> Dict[str,
         return channels
     min_h = min(a.shape[0] for a in channels.values())
     min_w = min(a.shape[1] for a in channels.values())
-    same = all(a.shape[0] == min_h and a.shape[1] == min_w
-               for a in channels.values())
+    same = all(a.shape[0] == min_h and a.shape[1] == min_w for a in channels.values())
     if same:
         return channels
-    return {k: (v if (v.shape[0] == min_h and v.shape[1] == min_w) else v[:min_h, :min_w])
-            for k, v in channels.items()}
+    return {
+        k: (v if (v.shape[0] == min_h and v.shape[1] == min_w) else v[:min_h, :min_w])
+        for k, v in channels.items()
+    }
 
 
-def _apply_mode_to_half(half: np.ndarray,
-                        mode: _isp.ISPMode,
-                        config: Dict[str, Any]) -> Dict[str, np.ndarray]:
+def _apply_mode_to_half(
+    half: np.ndarray, mode: _isp.ISPMode, config: dict[str, Any]
+) -> dict[str, np.ndarray]:
     """Run ``extract_by_spec`` for every slot in ``mode`` against one half.
 
     ``config`` is the output of ``isp_modes.normalize_config``. Channel
@@ -115,7 +113,7 @@ def _apply_mode_to_half(half: np.ndarray,
     origin = config["origin"]
     sub_step = config["sub_step"]
     outer_stride = config["outer_stride"]
-    out: Dict[str, np.ndarray] = {}
+    out: dict[str, np.ndarray] = {}
     for spec in mode.channels:
         name = _isp.resolved_channel_name(mode, spec, names)
         loc = tuple(loc_overrides.get(spec.slot_id, spec.loc))
@@ -123,9 +121,9 @@ def _apply_mode_to_half(half: np.ndarray,
     return _crop_channels_to_common_shape(out)
 
 
-def extract_with_mode(raw_frame: np.ndarray,
-                      mode: _isp.ISPMode,
-                      config: Dict[str, Any]) -> Dict[str, np.ndarray]:
+def extract_with_mode(
+    raw_frame: np.ndarray, mode: _isp.ISPMode, config: dict[str, Any]
+) -> dict[str, np.ndarray]:
     """Top-level extraction entry point for ISP-aware loaders.
 
     For dual-gain modes the frame is split into HG / LG halves first
@@ -150,21 +148,17 @@ def extract_with_mode(raw_frame: np.ndarray,
             # surviving rows of each half so the 2x2 sub-tile pattern
             # (B@(0,0), R@(0,1), G@(1,0), NIR@(1,1)) lands at the same
             # (loc[0]*2, loc[1]) positions used by the modern mode.
-            lg_half = np.empty(
-                (arr.shape[0] // 2, arr.shape[1]), dtype=arr.dtype
-            )
+            lg_half = np.empty((arr.shape[0] // 2, arr.shape[1]), dtype=arr.dtype)
             lg_half[0::2] = arr[0::4]
             lg_half[1::2] = arr[2::4]
-            hg_half = np.empty(
-                (arr.shape[0] // 2, arr.shape[1]), dtype=arr.dtype
-            )
+            hg_half = np.empty((arr.shape[0] // 2, arr.shape[1]), dtype=arr.dtype)
             hg_half[0::2] = arr[1::4]
             hg_half[1::2] = arr[3::4]
         else:
             hg_half, lg_half = split_dual_gain(raw_frame)
         hg = _apply_mode_to_half(hg_half, mode, config)
         lg = _apply_mode_to_half(lg_half, mode, config)
-        out: Dict[str, np.ndarray] = {}
+        out: dict[str, np.ndarray] = {}
         for k, v in hg.items():
             out[f"HG-{k}"] = v
         for k, v in lg.items():
@@ -186,11 +180,12 @@ def extract_with_mode(raw_frame: np.ndarray,
 # ---------------------------------------------------------------------------
 
 
-def load_h5_channels(path: Path, frame_index: int = 0,
-                     isp_mode_id: Optional[str] = None,
-                     isp_config: Optional[Dict[str, Any]] = None,
-                     ) -> Tuple[Dict[str, np.ndarray], Dict[str, str],
-                                np.ndarray, str, Dict[str, Any]]:
+def load_h5_channels(
+    path: Path,
+    frame_index: int = 0,
+    isp_mode_id: str | None = None,
+    isp_config: dict[str, Any] | None = None,
+) -> tuple[dict[str, np.ndarray], dict[str, str], np.ndarray, str, dict[str, Any]]:
     """Load an H5 dual-gain recording and extract channels.
 
     Returns ``(channels, attrs, raw_frame, mode_id, resolved_config)``.
@@ -204,8 +199,7 @@ def load_h5_channels(path: Path, frame_index: int = 0,
     """
     rec = load_recording(path, frame_slice=slice(frame_index, frame_index + 1))
     frame = rec.frames[0]
-    mode_id = isp_mode_id or _isp.default_mode_id_for_source_kind("h5",
-                                                                   is_dual_gain=True)
+    mode_id = isp_mode_id or _isp.default_mode_id_for_source_kind("h5", is_dual_gain=True)
     mode = _isp.get_mode(mode_id)
     cfg = _isp.normalize_config(mode, isp_config)
     channels = extract_with_mode(frame, mode, cfg)
@@ -219,15 +213,16 @@ def load_h5_channels(path: Path, frame_index: int = 0,
         channels["LG-Y"] = luminance_from_rgb(lg)
         # M25 — synthesize HDR-{R,G,B,NIR,Y} via saturation-aware fusion.
         from .hdr_fusion import add_hdr_channels
+
         add_hdr_channels(channels)
     return channels, dict(rec.attrs), frame, mode.id, cfg
 
 
-def load_image_channels(path: Path,
-                        isp_mode_id: Optional[str] = None,
-                        isp_config: Optional[Dict[str, Any]] = None,
-                        ) -> Tuple[Dict[str, np.ndarray], Dict[str, str],
-                                   np.ndarray, str, Dict[str, Any]]:
+def load_image_channels(
+    path: Path,
+    isp_mode_id: str | None = None,
+    isp_config: dict[str, Any] | None = None,
+) -> tuple[dict[str, np.ndarray], dict[str, str], np.ndarray, str, dict[str, Any]]:
     """Load a PNG/TIFF/JPG and return per-channel dict + raw array.
 
     For backward compat, the default path emits ``R/G/B/Y`` for 3-channel
@@ -238,9 +233,11 @@ def load_image_channels(path: Path,
     arr: np.ndarray
     if suf in (".tif", ".tiff"):
         import tifffile
+
         arr = np.asarray(tifffile.imread(str(path)))
     else:
         from PIL import Image
+
         with Image.open(path) as im:
             arr = np.asarray(im)
     attrs = {"source": str(path), "shape": str(arr.shape)}
@@ -273,10 +270,11 @@ def load_image_channels(path: Path,
     raise ValueError(f"unsupported image shape: {arr.shape}")
 
 
-def load_any(path: str | Path,
-             isp_mode_id: Optional[str] = None,
-             isp_config: Optional[Dict[str, Any]] = None,
-             ) -> Tuple[Dict[str, np.ndarray], Dict[str, str], str]:
+def load_any(
+    path: str | Path,
+    isp_mode_id: str | None = None,
+    isp_config: dict[str, Any] | None = None,
+) -> tuple[dict[str, np.ndarray], dict[str, str], str]:
     """Returns (channel_dict, attrs, source_kind in {"h5", "image"}).
 
     Backward-compatible signature — ``load_any(path)`` keeps working
@@ -285,16 +283,18 @@ def load_any(path: str | Path,
     raw frame (for later reconfiguration) should hit ``load_any_detail``.
     """
     channels, attrs, _raw, _mode_id, _cfg, kind = load_any_detail(
-        path, isp_mode_id=isp_mode_id, isp_config=isp_config,
+        path,
+        isp_mode_id=isp_mode_id,
+        isp_config=isp_config,
     )
     return channels, attrs, kind
 
 
-def load_any_detail(path: str | Path,
-                    isp_mode_id: Optional[str] = None,
-                    isp_config: Optional[Dict[str, Any]] = None,
-                    ) -> Tuple[Dict[str, np.ndarray], Dict[str, str],
-                               np.ndarray, str, Dict[str, Any], str]:
+def load_any_detail(
+    path: str | Path,
+    isp_mode_id: str | None = None,
+    isp_config: dict[str, Any] | None = None,
+) -> tuple[dict[str, np.ndarray], dict[str, str], np.ndarray, str, dict[str, Any], str]:
     """Like ``load_any`` but also returns the raw frame + resolved mode.
 
     Session store uses this so it can cache the raw frame for
@@ -305,12 +305,17 @@ def load_any_detail(path: str | Path,
         raise FileNotFoundError(p)
     if looks_like_image(p):
         channels, attrs, raw, mode_id, cfg = load_image_channels(
-            p, isp_mode_id=isp_mode_id, isp_config=isp_config,
+            p,
+            isp_mode_id=isp_mode_id,
+            isp_config=isp_config,
         )
         return channels, attrs, raw, mode_id, cfg, "image"
     if is_h5_recording(p):
         channels, attrs, raw, mode_id, cfg = load_h5_channels(
-            p, frame_index=0, isp_mode_id=isp_mode_id, isp_config=isp_config,
+            p,
+            frame_index=0,
+            isp_mode_id=isp_mode_id,
+            isp_config=isp_config,
         )
         return channels, attrs, raw, mode_id, cfg, "h5"
     raise ValueError(f"unrecognized file type: {p}")

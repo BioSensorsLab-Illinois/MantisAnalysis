@@ -10,23 +10,19 @@ play-export-and-roi-fixes-v1 M4.
 
 from __future__ import annotations
 
-import io
 import time
-from pathlib import Path
-from unittest.mock import patch
 
-import numpy as np
 import pytest
 from fastapi.testclient import TestClient
-from PIL import Image
 
 import mantisanalysis.export_jobs as export_jobs
-from mantisanalysis.export_jobs import JobStore, ExportJob
+from mantisanalysis.export_jobs import ExportJob, JobStore
 
 
 def test_jobstore_create_and_run_to_completion():
     store = JobStore()
     try:
+
         def runner(job: ExportJob) -> None:
             for i in range(5):
                 if job.cancel_event.is_set():
@@ -57,6 +53,7 @@ def test_jobstore_create_and_run_to_completion():
 def test_jobstore_cancel_mid_run_yields_cancelled_status():
     store = JobStore()
     try:
+
         def runner(job: ExportJob) -> None:
             for i in range(50):
                 if job.cancel_event.is_set():
@@ -85,6 +82,7 @@ def test_jobstore_cancel_mid_run_yields_cancelled_status():
 def test_jobstore_cancel_after_done_returns_false():
     store = JobStore()
     try:
+
         def runner(job: ExportJob) -> None:
             job.status = "done"
             job.progress = 1.0
@@ -104,6 +102,7 @@ def test_jobstore_cancel_after_done_returns_false():
 def test_jobstore_runner_exception_marks_error_status():
     store = JobStore()
     try:
+
         def bad_runner(job: ExportJob) -> None:
             raise ValueError("boom")
 
@@ -123,6 +122,7 @@ def test_jobstore_runner_exception_marks_error_status():
 def test_jobstore_public_snapshot_excludes_path():
     store = JobStore()
     try:
+
         def runner(job: ExportJob) -> None:
             job.status = "done"
             job.progress = 1.0
@@ -147,6 +147,7 @@ def test_jobstore_public_snapshot_excludes_path():
 @pytest.fixture
 def app_client():
     from mantisanalysis.server import create_app
+
     app = create_app()
     return TestClient(app)
 
@@ -204,9 +205,7 @@ def test_play_export_post_returns_job_id_and_polls_to_done(app_client):
 
 def test_play_export_unknown_source_returns_400_or_404(app_client):
     body = {
-        "sources": [
-            {"source_id": "doesnotexist", "render": "channel", "channel": "HG-G"}
-        ],
+        "sources": [{"source_id": "doesnotexist", "render": "channel", "channel": "HG-G"}],
     }
     r = app_client.post("/api/play/exports", json=body)
     # Must be a 4xx — exact code is _must_get's choice (404).
@@ -252,7 +251,9 @@ def test_play_export_delete_cancels_running_job(app_client):
             time.sleep(0.01)
 
     job = export_jobs.JOBS.create(
-        kind="test_cancel", runner=stuck, total_frames=500,
+        kind="test_cancel",
+        runner=stuck,
+        total_frames=500,
     )
     time.sleep(0.05)
     r = app_client.delete(f"/api/play/exports/{job.job_id}")

@@ -10,6 +10,7 @@ Covers:
   * Labels actually mutate pixels at the configured corner (so a
     visual regression on the underlying renderer can be flagged).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -20,10 +21,10 @@ import pytest
 from mantisanalysis import labels as labels_mod
 from mantisanalysis.labels import render_labels
 
-
 # ---------------------------------------------------------------------------
 # Bundled font
 # ---------------------------------------------------------------------------
+
 
 def test_bundled_font_present_in_package():
     """The wheel must ship JetBrainsMono-Regular.ttf so render_labels
@@ -40,6 +41,7 @@ def test_bundled_font_present_in_package():
 # No-op paths
 # ---------------------------------------------------------------------------
 
+
 def test_no_op_when_config_is_none():
     a = np.zeros((16, 16, 3), dtype=np.uint8)
     out = render_labels(a, None)
@@ -50,8 +52,11 @@ def test_no_op_when_config_is_none():
 def test_no_op_when_all_flags_off():
     a = np.full((16, 16, 3), 80, dtype=np.uint8)
     cfg = {
-        "timestamp": False, "frame": False, "channel": False,
-        "source_file": False, "scale_bar": False,
+        "timestamp": False,
+        "frame": False,
+        "channel": False,
+        "source_file": False,
+        "scale_bar": False,
         "position": "bottom-left",
     }
     out = render_labels(a, cfg)
@@ -61,6 +66,7 @@ def test_no_op_when_all_flags_off():
 # ---------------------------------------------------------------------------
 # Crash safety
 # ---------------------------------------------------------------------------
+
 
 def test_does_not_crash_on_1x1_image():
     """1×1 images break naive font sizing; renderer should clamp + skip
@@ -84,13 +90,17 @@ def test_handles_non_rgb_input_gracefully():
 # Determinism
 # ---------------------------------------------------------------------------
 
+
 def test_renders_are_deterministic():
     """Two render passes with the same inputs must produce identical bytes."""
     a = np.full((64, 96, 3), 60, dtype=np.uint8)
     cfg = {
-        "timestamp": True, "ts_value": 1771_577_589.74,
-        "frame": True, "frame_index": 12,
-        "channel": True, "channel_name": "HG-G",
+        "timestamp": True,
+        "ts_value": 1771_577_589.74,
+        "frame": True,
+        "frame_index": 12,
+        "channel": True,
+        "channel_name": "HG-G",
         "position": "bottom-left",
         "font_size": 12,
     }
@@ -104,8 +114,10 @@ def test_labels_actually_modify_pixels_at_anchor():
     that corner but NOT in the top-right (the configured anchor opposite)."""
     a = np.full((80, 240, 3), 70, dtype=np.uint8)
     cfg = {
-        "frame": True, "frame_index": 99,
-        "channel": True, "channel_name": "HG-NIR",
+        "frame": True,
+        "frame_index": 99,
+        "channel": True,
+        "channel_name": "HG-NIR",
         "position": "bottom-left",
         "font_size": 12,
     }
@@ -125,7 +137,8 @@ def test_position_swaps_anchor():
     paint-changes accordingly."""
     a = np.full((80, 240, 3), 70, dtype=np.uint8)
     base_cfg = {
-        "frame": True, "frame_index": 1,
+        "frame": True,
+        "frame_index": 1,
         "font_size": 12,
     }
     bl = render_labels(a.copy(), {**base_cfg, "position": "bottom-left"})
@@ -137,6 +150,7 @@ def test_position_swaps_anchor():
 # ---------------------------------------------------------------------------
 # Optional fields
 # ---------------------------------------------------------------------------
+
 
 def test_timestamp_without_value_renders_em_dash():
     """When `timestamp=True` but `ts_value` is None, the renderer falls

@@ -23,11 +23,11 @@ from __future__ import annotations
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
-
+from typing import Any
 
 # How long after a job finishes (done / error / cancelled) we keep its
 # tempfile + record around so the client can still fetch the result.
@@ -46,21 +46,22 @@ class ExportJob:
     current_frame: int = 0
     total_frames: int = 0
     started_at: float = field(default_factory=time.time)
-    finished_at: Optional[float] = None
-    error: Optional[str] = None
+    finished_at: float | None = None
+    error: str | None = None
     # Set by the runner when status = "done". The route handler reads
     # the bytes off disk and unlinks after streaming.
-    result_path: Optional[Path] = None
-    result_filename: Optional[str] = None
-    result_media_type: Optional[str] = None
+    result_path: Path | None = None
+    result_filename: str | None = None
+    result_media_type: str | None = None
     # Cancellation flag — runner checks between frames. Once tripped
     # the runner sets status = "cancelled" and bails.
     cancel_event: threading.Event = field(default_factory=threading.Event)
     # Free-form payload describing the export request, included in
     # progress responses so the client can render a sane title.
-    label: Optional[str] = None
+    label: str | None = None
+
     # Public-state snapshot for /api/play/exports/{id}.
-    def public(self) -> Dict[str, Any]:
+    def public(self) -> dict[str, Any]:
         return {
             "job_id": self.job_id,
             "kind": self.kind,
@@ -74,8 +75,7 @@ class ExportJob:
             "label": self.label,
             # Don't leak the on-disk path; clients fetch via the
             # /result subroute which validates the job_id.
-            "has_result": self.result_path is not None
-            and self.result_path.exists(),
+            "has_result": self.result_path is not None and self.result_path.exists(),
             "result_filename": self.result_filename,
         }
 
@@ -90,19 +90,17 @@ class JobStore:
     """
 
     def __init__(self) -> None:
-        self._jobs: Dict[str, ExportJob] = {}
-        self._futures: Dict[str, Future] = {}
+        self._jobs: dict[str, ExportJob] = {}
+        self._futures: dict[str, Future] = {}
         self._lock = threading.Lock()
-        self._executor = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="export-job"
-        )
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="export-job")
 
     def create(
         self,
         *,
         kind: str,
         runner: Callable[[ExportJob], None],
-        label: Optional[str] = None,
+        label: str | None = None,
         total_frames: int = 0,
     ) -> ExportJob:
         """Create + queue a job. The runner callable must update
@@ -134,12 +132,13 @@ class JobStore:
                 job.finished_at = time.time()
         except Exception as exc:  # noqa: BLE001 — runner can raise anything
             import traceback
+
             traceback.print_exc()
             job.status = "error"
             job.error = f"{type(exc).__name__}: {exc}"
             job.finished_at = time.time()
 
-    def get(self, job_id: str) -> Optional[ExportJob]:
+    def get(self, job_id: str) -> ExportJob | None:
         with self._lock:
             return self._jobs.get(job_id)
 
@@ -169,8 +168,7 @@ class JobStore:
             stale = [
                 jid
                 for jid, job in self._jobs.items()
-                if job.finished_at is not None
-                and (now - job.finished_at) > JOB_TTL_SECONDS
+                if job.finished_at is not None and (now - job.finished_at) > JOB_TTL_SECONDS
             ]
             for jid in stale:
                 job = self._jobs.pop(jid, None)

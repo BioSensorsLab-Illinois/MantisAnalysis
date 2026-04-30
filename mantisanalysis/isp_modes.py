@@ -21,9 +21,7 @@ GSense masks, and alignment pipelines are deferred.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Dict, Optional, Tuple
-
+from dataclasses import dataclass
 
 # ---------------------------------------------------------------------------
 # Dataclasses
@@ -33,9 +31,10 @@ from typing import Dict, Optional, Tuple
 @dataclass(frozen=True)
 class ChannelSpec:
     """One channel slot inside an ISP mode."""
-    slot_id: str              # stable key ("r", "g", "b", "nir", "i0", "raw", "l")
-    default_name: str         # user-facing display name ("R", "G", "B", "NIR", ...)
-    loc: Tuple[int, int]      # (loc_r, loc_c) — sub-tile position
+
+    slot_id: str  # stable key ("r", "g", "b", "nir", "i0", "raw", "l")
+    default_name: str  # user-facing display name ("R", "G", "B", "NIR", ...)
+    loc: tuple[int, int]  # (loc_r, loc_c) — sub-tile position
     renameable: bool = False  # only ``rgb_nir`` 4th slot is renameable in v1
     color_hint: str = "#888"  # propagated into plotting.CHANNEL_COLORS
 
@@ -43,14 +42,15 @@ class ChannelSpec:
 @dataclass(frozen=True)
 class ISPMode:
     """A named sensor layout the UI can switch between."""
+
     id: str
     display_name: str
     description: str
     dual_gain: bool
-    channels: Tuple[ChannelSpec, ...]
-    default_origin: Tuple[int, int]
-    default_sub_step: Tuple[int, int]
-    default_outer_stride: Tuple[int, int]
+    channels: tuple[ChannelSpec, ...]
+    default_origin: tuple[int, int]
+    default_sub_step: tuple[int, int]
+    default_outer_stride: tuple[int, int]
     supports_rgb_composite: bool = False
     # How to derive HG / LG halves from a raw mosaic. ``"horizontal"``
     # (default) splits ``frame[:, :W//2] | frame[:, W//2:]`` — the
@@ -59,15 +59,15 @@ class ISPMode:
     # the legacy gsbsi-prefix layout. Same channel locs (R/G/B/NIR
     # within a 2x2 sub-tile) apply to both halves; only the HG/LG
     # separation algorithm differs. ``None`` for non-dual-gain modes.
-    split_kind: Optional[str] = "horizontal"
+    split_kind: str | None = "horizontal"
 
-    def slot_default_names(self) -> Tuple[str, ...]:
+    def slot_default_names(self) -> tuple[str, ...]:
         return tuple(c.default_name for c in self.channels)
 
-    def slot_ids(self) -> Tuple[str, ...]:
+    def slot_ids(self) -> tuple[str, ...]:
         return tuple(c.slot_id for c in self.channels)
 
-    def get_slot(self, slot_id: str) -> Optional[ChannelSpec]:
+    def get_slot(self, slot_id: str) -> ChannelSpec | None:
         for c in self.channels:
             if c.slot_id == slot_id:
                 return c
@@ -91,9 +91,9 @@ _C_L = "#000000"
 _C_RAW = "#444444"
 # Polarization (HSV quadrants — matches cv2 HSV colormap breakpoints so
 # the analysis legend and the camera-side AoP map line up visually).
-_C_I0 = "#d62728"    # red
-_C_I45 = "#e0a400"   # amber
-_C_I90 = "#2ca02c"   # green
+_C_I0 = "#d62728"  # red
+_C_I45 = "#e0a400"  # amber
+_C_I90 = "#2ca02c"  # green
 _C_I135 = "#4a6fd6"  # blue
 
 
@@ -110,8 +110,7 @@ BARE_SINGLE = ISPMode(
         "where you want to inspect raw pixels."
     ),
     dual_gain=False,
-    channels=(ChannelSpec(slot_id="l", default_name="L",
-                          loc=(0, 0), color_hint=_C_L),),
+    channels=(ChannelSpec(slot_id="l", default_name="L", loc=(0, 0), color_hint=_C_L),),
     default_origin=(0, 0),
     default_sub_step=(1, 1),
     default_outer_stride=(1, 1),
@@ -126,8 +125,7 @@ BARE_DUALGAIN = ISPMode(
         "demosaic."
     ),
     dual_gain=True,
-    channels=(ChannelSpec(slot_id="raw", default_name="RAW",
-                          loc=(0, 0), color_hint=_C_RAW),),
+    channels=(ChannelSpec(slot_id="raw", default_name="RAW", loc=(0, 0), color_hint=_C_RAW),),
     default_origin=(0, 0),
     default_sub_step=(1, 1),
     default_outer_stride=(1, 1),
@@ -144,11 +142,12 @@ RGB_NIR = ISPMode(
     dual_gain=True,
     channels=(
         # Byte-identical to legacy LOC: B@(0,0) R@(0,1) G@(1,0) NIR@(1,1).
-        ChannelSpec(slot_id="b",   default_name="B",   loc=(0, 0), color_hint=_C_B),
-        ChannelSpec(slot_id="r",   default_name="R",   loc=(0, 1), color_hint=_C_R),
-        ChannelSpec(slot_id="g",   default_name="G",   loc=(1, 0), color_hint=_C_G),
-        ChannelSpec(slot_id="nir", default_name="NIR", loc=(1, 1),
-                    renameable=True, color_hint=_C_NIR),
+        ChannelSpec(slot_id="b", default_name="B", loc=(0, 0), color_hint=_C_B),
+        ChannelSpec(slot_id="r", default_name="R", loc=(0, 1), color_hint=_C_R),
+        ChannelSpec(slot_id="g", default_name="G", loc=(1, 0), color_hint=_C_G),
+        ChannelSpec(
+            slot_id="nir", default_name="NIR", loc=(1, 1), renameable=True, color_hint=_C_NIR
+        ),
     ),
     default_origin=(0, 0),
     default_sub_step=(2, 2),
@@ -177,11 +176,12 @@ LEGACY_GSBSI_RGB_NIR = ISPMode(
         # B at (1,1) within each 2×2 super-pixel. Coordinates are shared
         # by the HG and LG halves (the row-interleaved split walks the
         # mosaic to produce the gain halves before per-slot extraction).
-        ChannelSpec(slot_id="nir", default_name="NIR", loc=(0, 0),
-                    renameable=True, color_hint=_C_NIR),
-        ChannelSpec(slot_id="g",   default_name="G",   loc=(0, 1), color_hint=_C_G),
-        ChannelSpec(slot_id="r",   default_name="R",   loc=(1, 0), color_hint=_C_R),
-        ChannelSpec(slot_id="b",   default_name="B",   loc=(1, 1), color_hint=_C_B),
+        ChannelSpec(
+            slot_id="nir", default_name="NIR", loc=(0, 0), renameable=True, color_hint=_C_NIR
+        ),
+        ChannelSpec(slot_id="g", default_name="G", loc=(0, 1), color_hint=_C_G),
+        ChannelSpec(slot_id="r", default_name="R", loc=(1, 0), color_hint=_C_R),
+        ChannelSpec(slot_id="b", default_name="B", loc=(1, 1), color_hint=_C_B),
     ),
     default_origin=(0, 0),
     default_sub_step=(1, 1),
@@ -214,8 +214,7 @@ GRAYSCALE_IMAGE = ISPMode(
     display_name="Grayscale image",
     description="Single-channel PNG / TIFF / JPG — one channel ``L``.",
     dual_gain=False,
-    channels=(ChannelSpec(slot_id="l", default_name="L",
-                          loc=(0, 0), color_hint=_C_L),),
+    channels=(ChannelSpec(slot_id="l", default_name="L", loc=(0, 0), color_hint=_C_L),),
     default_origin=(0, 0),
     default_sub_step=(1, 1),
     default_outer_stride=(1, 1),
@@ -232,9 +231,9 @@ POLARIZATION_SINGLE = ISPMode(
     ),
     dual_gain=False,
     channels=(
-        ChannelSpec(slot_id="i0",   default_name="I0",   loc=(0, 0), color_hint=_C_I0),
-        ChannelSpec(slot_id="i45",  default_name="I45",  loc=(0, 1), color_hint=_C_I45),
-        ChannelSpec(slot_id="i90",  default_name="I90",  loc=(1, 1), color_hint=_C_I90),
+        ChannelSpec(slot_id="i0", default_name="I0", loc=(0, 0), color_hint=_C_I0),
+        ChannelSpec(slot_id="i45", default_name="I45", loc=(0, 1), color_hint=_C_I45),
+        ChannelSpec(slot_id="i90", default_name="I90", loc=(1, 1), color_hint=_C_I90),
         ChannelSpec(slot_id="i135", default_name="I135", loc=(1, 0), color_hint=_C_I135),
     ),
     default_origin=(0, 0),
@@ -251,9 +250,9 @@ POLARIZATION_DUAL = ISPMode(
     ),
     dual_gain=True,
     channels=(
-        ChannelSpec(slot_id="i0",   default_name="I0",   loc=(0, 0), color_hint=_C_I0),
-        ChannelSpec(slot_id="i45",  default_name="I45",  loc=(0, 1), color_hint=_C_I45),
-        ChannelSpec(slot_id="i90",  default_name="I90",  loc=(1, 1), color_hint=_C_I90),
+        ChannelSpec(slot_id="i0", default_name="I0", loc=(0, 0), color_hint=_C_I0),
+        ChannelSpec(slot_id="i45", default_name="I45", loc=(0, 1), color_hint=_C_I45),
+        ChannelSpec(slot_id="i90", default_name="I90", loc=(1, 1), color_hint=_C_I90),
         ChannelSpec(slot_id="i135", default_name="I135", loc=(1, 0), color_hint=_C_I135),
     ),
     default_origin=(0, 0),
@@ -266,8 +265,9 @@ POLARIZATION_DUAL = ISPMode(
 # Registry
 # ---------------------------------------------------------------------------
 
-ALL_MODES: Dict[str, ISPMode] = {
-    m.id: m for m in (
+ALL_MODES: dict[str, ISPMode] = {
+    m.id: m
+    for m in (
         BARE_SINGLE,
         BARE_DUALGAIN,
         RGB_NIR,
@@ -286,13 +286,11 @@ def get_mode(mode_id: str) -> ISPMode:
         return ALL_MODES[mode_id]
     except KeyError as exc:
         raise KeyError(
-            f"unknown ISP mode {mode_id!r}; "
-            f"expected one of {sorted(ALL_MODES)}"
+            f"unknown ISP mode {mode_id!r}; expected one of {sorted(ALL_MODES)}"
         ) from exc
 
 
-def default_mode_id_for_source_kind(source_kind: str,
-                                    is_dual_gain: bool = False) -> str:
+def default_mode_id_for_source_kind(source_kind: str, is_dual_gain: bool = False) -> str:
     """Pick a sensible ISP mode when the caller hasn't specified one.
 
     Preserves pre-initiative behavior:
@@ -307,8 +305,8 @@ def default_mode_id_for_source_kind(source_kind: str,
         # is an obvious place to extend.
         return RGB_NIR.id if is_dual_gain else BARE_SINGLE.id
     if source_kind == "image":
-        return RGB_IMAGE.id   # overridden to grayscale_image by caller
-                              # when the actual array came back 1-channel.
+        return RGB_IMAGE.id  # overridden to grayscale_image by caller
+        # when the actual array came back 1-channel.
     if source_kind == "synthetic":
         return RGB_NIR.id
     return RGB_NIR.id
@@ -320,8 +318,7 @@ def default_mode_id_for_source_kind(source_kind: str,
 # ---------------------------------------------------------------------------
 
 
-def normalize_config(mode: ISPMode,
-                     overrides: Optional[Dict[str, object]]) -> Dict[str, object]:
+def normalize_config(mode: ISPMode, overrides: dict[str, object] | None) -> dict[str, object]:
     """Merge per-mode defaults with user overrides; validate ranges."""
     o = dict(overrides or {})
 
@@ -358,7 +355,7 @@ def normalize_config(mode: ISPMode,
     # and the UI surfaces a toast. See bugfix merged_bug_004.
     slot_by_id = {c.slot_id: c for c in mode.channels}
     for slot_id, new_name in names.items():
-        spec = slot_by_id[slot_id]
+        slot_by_id[slot_id]
         # Collides with another slot's (locked) default name.
         for other in mode.channels:
             if other.slot_id == slot_id:
@@ -387,19 +384,15 @@ def normalize_config(mode: ISPMode,
     # are silently dropped, matching the rename-override convention.
     raw_locs = dict(o.get("channel_loc_overrides") or {})
     known_slots = {c.slot_id for c in mode.channels}
-    loc_overrides: Dict[str, object] = {}
+    loc_overrides: dict[str, object] = {}
     for k, v in raw_locs.items():
         if k not in known_slots:
             continue
         if not (isinstance(v, (list, tuple)) and len(v) == 2):
-            raise ValueError(
-                f"channel_loc_overrides[{k!r}] must be a 2-tuple, got {v!r}"
-            )
+            raise ValueError(f"channel_loc_overrides[{k!r}] must be a 2-tuple, got {v!r}")
         r, c = int(v[0]), int(v[1])
         if r < 0 or c < 0:
-            raise ValueError(
-                f"channel_loc_overrides[{k!r}] components must be >= 0, got {v!r}"
-            )
+            raise ValueError(f"channel_loc_overrides[{k!r}] components must be >= 0, got {v!r}")
         loc_overrides[k] = (r, c)
 
     return {
@@ -411,23 +404,23 @@ def normalize_config(mode: ISPMode,
     }
 
 
-def resolved_channel_name(mode: ISPMode, spec: ChannelSpec,
-                          channel_name_overrides: Dict[str, str]) -> str:
+def resolved_channel_name(
+    mode: ISPMode, spec: ChannelSpec, channel_name_overrides: dict[str, str]
+) -> str:
     """Apply a rename override if present; else fall back to the default."""
     return channel_name_overrides.get(spec.slot_id, spec.default_name)
 
 
-def build_channel_keys(mode: ISPMode,
-                       channel_name_overrides: Dict[str, str],
-                       include_luminance: bool) -> Tuple[str, ...]:
+def build_channel_keys(
+    mode: ISPMode, channel_name_overrides: dict[str, str], include_luminance: bool
+) -> tuple[str, ...]:
     """The exact list of keys ``load_any()`` / ``reconfigure_isp`` emit.
 
     ``include_luminance`` tracks whether load_any appends an H5-style
     ``Y`` channel (only true for rgb_nir today, to preserve the frozen
     channel schema at ARCHITECTURE.md Key invariants #3).
     """
-    names = [resolved_channel_name(mode, c, channel_name_overrides)
-             for c in mode.channels]
+    names = [resolved_channel_name(mode, c, channel_name_overrides) for c in mode.channels]
     if mode.dual_gain:
         keys = [f"HG-{n}" for n in names] + [f"LG-{n}" for n in names]
         if include_luminance:

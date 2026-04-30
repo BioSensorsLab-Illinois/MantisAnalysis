@@ -39,32 +39,32 @@ Output scaling (post-fusion):
 
 Both fusion + scaling run in pure NumPy — no FastAPI/React/Qt.
 """
+
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 import numpy as np
-
 
 # Defaults match GSense documentation. The "saturation threshold" is
 # the HG value above which we trust LG more; the "gain ratio" is the
 # HG/LG amplification factor (HG ≈ R × LG below saturation).
-_DEFAULT_PARAMS: Dict[str, Any] = {
+_DEFAULT_PARAMS: dict[str, Any] = {
     "fusion": "switch",
     "hg_saturation_threshold": 60000.0,
     "hg_lg_gain_ratio": 16.0,
-    "knee_width": 4000.0,         # mertens-only smoothstep knee
-    "hg_lg_blend": 0.5,           # linear-only HG/LG mix weight (1=HG, 0=LG)
-    "output_scale": "none",       # 'none' | 'linear' | 'reinhard'
-    "output_min": 0.0,            # post-scale floor (lifts the black point)
-    "output_max": 65535.0,        # post-scale ceiling (the display range)
-    "reinhard_white": 100000.0,   # reinhard L_white knee
+    "knee_width": 4000.0,  # mertens-only smoothstep knee
+    "hg_lg_blend": 0.5,  # linear-only HG/LG mix weight (1=HG, 0=LG)
+    "output_scale": "none",  # 'none' | 'linear' | 'reinhard'
+    "output_min": 0.0,  # post-scale floor (lifts the black point)
+    "output_max": 65535.0,  # post-scale ceiling (the display range)
+    "reinhard_white": 100000.0,  # reinhard L_white knee
 }
 
 
-def fuse_hdr(hg_arr: np.ndarray,
-             lg_arr: np.ndarray,
-             params: Optional[Dict[str, Any]] = None) -> np.ndarray:
+def fuse_hdr(
+    hg_arr: np.ndarray, lg_arr: np.ndarray, params: dict[str, Any] | None = None
+) -> np.ndarray:
     """Fuse one HG/LG channel pair into a single HDR channel.
 
     Both inputs must have the same shape. Output is float32 in the
@@ -77,9 +77,7 @@ def fuse_hdr(hg_arr: np.ndarray,
     if hg_arr is None or lg_arr is None:
         return hg_arr if hg_arr is not None else lg_arr
     if hg_arr.shape != lg_arr.shape:
-        raise ValueError(
-            f"fuse_hdr shape mismatch: hg={hg_arr.shape} vs lg={lg_arr.shape}"
-        )
+        raise ValueError(f"fuse_hdr shape mismatch: hg={hg_arr.shape} vs lg={lg_arr.shape}")
     p = dict(_DEFAULT_PARAMS)
     if params:
         p.update(params)
@@ -154,10 +152,11 @@ def fuse_hdr(hg_arr: np.ndarray,
     return out.astype(np.float32, copy=False)
 
 
-def add_hdr_channels(channels: Dict[str, np.ndarray],
-                     *,
-                     params: Optional[Dict[str, Any]] = None,
-                     ) -> Dict[str, np.ndarray]:
+def add_hdr_channels(
+    channels: dict[str, np.ndarray],
+    *,
+    params: dict[str, Any] | None = None,
+) -> dict[str, np.ndarray]:
     """Mutate ``channels`` in-place to add ``HDR-{R,G,B,NIR,Y}``.
 
     Expects HG-* / LG-* keys for R / G / B / NIR (the GSense RGB-NIR
@@ -168,19 +167,18 @@ def add_hdr_channels(channels: Dict[str, np.ndarray],
     the existing HDR-* entries. play-tab-recording-inspection-rescue-v1
     M25.
     """
-    needed = ("HG-R", "HG-G", "HG-B", "HG-NIR",
-              "LG-R", "LG-G", "LG-B", "LG-NIR")
+    needed = ("HG-R", "HG-G", "HG-B", "HG-NIR", "LG-R", "LG-G", "LG-B", "LG-NIR")
     if not all(k in channels for k in needed):
         return channels
     for c in ("R", "G", "B", "NIR"):
         channels[f"HDR-{c}"] = fuse_hdr(
-            channels[f"HG-{c}"], channels[f"LG-{c}"], params=params,
+            channels[f"HG-{c}"],
+            channels[f"LG-{c}"],
+            params=params,
         )
     # Rec. 601 luma over the fused R/G/B.
     r = channels["HDR-R"].astype(np.float32, copy=False)
     g = channels["HDR-G"].astype(np.float32, copy=False)
     b = channels["HDR-B"].astype(np.float32, copy=False)
-    channels["HDR-Y"] = (0.299 * r + 0.587 * g + 0.114 * b).astype(
-        np.float32, copy=False
-    )
+    channels["HDR-Y"] = (0.299 * r + 0.587 * g + 0.114 * b).astype(np.float32, copy=False)
     return channels
