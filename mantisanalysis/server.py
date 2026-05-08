@@ -597,6 +597,38 @@ class ROIStatsRequest(BaseModel):
         return v
 
 
+class PixelRequest(BaseModel):
+    """POST body for the per-frame channel single-pixel readback route.
+
+    Used by the Play-mode "Pixel inspector" canvas overlay to show the
+    pipeline-applied DN value at the cursor position. Pipeline matches
+    ``ROIStatsRequest`` byte-for-byte (dark + analysis_isp + pre_norm)
+    so a 1-pixel readback equals what the user would see if they drew
+    a 1-pixel ROI at the same coordinate. play-lod-ratio-tools-v1 M1.
+
+    ``x`` and ``y`` are integer image-pixel coordinates (post-Bayer-
+    extraction, so the natural channel array shape, not the raw mosaic).
+    """
+    model_config = ConfigDict(extra="forbid")
+    x: int = Field(ge=0)
+    y: int = Field(ge=0)
+    apply_dark: bool = True
+    black_level: float = 0.0
+    view_config: Optional[ROIStatsViewConfig] = None
+    # HDR fusion parity with ROIStatsRequest (honored when channel is
+    # HDR-*). Defaults to "switch" so a pixel readback matches existing
+    # ROI-stats values for the same (frame, channel, view_config).
+    hdr_fusion: str = Field("switch", pattern=r"^(switch|mertens|linear)$")
+    hdr_threshold: Optional[float] = Field(None, ge=0.0)
+    hdr_knee: Optional[float] = Field(None, ge=1.0)
+    hdr_ratio: Optional[float] = Field(None, gt=0.0)
+    hdr_blend: Optional[float] = Field(None, ge=0.0, le=1.0)
+    hdr_output_scale: Optional[str] = Field(None, pattern=r"^(none|linear|reinhard)$")
+    hdr_output_min: Optional[float] = Field(None, ge=0.0)
+    hdr_output_max: Optional[float] = Field(None, gt=0.0)
+    hdr_reinhard_white: Optional[float] = Field(None, gt=0.0)
+
+
 class AttachPathRequest(BaseModel):
     """POST body for ``/api/sources/{source_id}/attach-path``.
 
@@ -2475,6 +2507,128 @@ def _mount_api(app: FastAPI) -> None:
             raise HTTPException(
                 500,
                 f"frame {frame_index} ROI stats failed: "
+                f"{type(e).__name__}: {e}",
+            )
+
+    @app.post(
+        "/api/sources/{source_id}/frame/{frame_index}/channel/{channel}/pixel",
+        responses={200: {"content": {"application/json": {}}}},
+    )
+    def frame_channel_pixel(
+        source_id: str,
+        frame_index: int,
+        channel: str,
+        body: PixelRequest,
+    ):
+        """Single-pixel readback at (x, y) on one channel of one frame.
+
+        play-lod-ratio-tools-v1 M1. Powers the Play-mode "Pixel
+        inspector" canvas overlay — hovering the cursor anywhere on the
+        canvas shows the pipeline-applied DN value at that position.
+
+        Pipeline matches ``frame_channel_roi_stats`` byte-for-byte:
+        per-frame channel extraction → optional dark subtract →
+        ``_apply_analysis_isp`` (sharpen + denoise + FPN) →
+        ``_apply_pre_norm`` (black_level + gain + offset) → ``arr[y, x]``.
+        Tone curve (brightness / contrast / gamma) and colormap are NOT
+        applied — the response is a physical-DN-scaled-by-gain value, so
+        a 1-pixel readback equals what an ROI mean would report on a
+        1-pixel polygon at the same coordinate.
+
+        Returns 404 if (x, y) is outside the frame's channel array.
+        """
+        try:
+            src = _must_get(source_id)
+            try:
+                chs = src.extract_frame(int(frame_index))
+            except IndexError as e:
+                raise HTTPException(404, str(e))
+            except RuntimeError as e:
+                raise HTTPException(409, str(e))
+            chs = _resolve_hdr_channels(
+                chs, body.hdr_fusion,
+                hdr_threshold=body.hdr_threshold,
+                hdr_knee=body.hdr_knee,
+                hdr_ratio=body.hdr_ratio,
+                hdr_blend=body.hdr_blend,
+                hdr_output_scale=body.hdr_output_scale,
+                hdr_output_min=body.hdr_output_min,
+                hdr_output_max=body.hdr_output_max,
+                hdr_reinhard_white=body.hdr_reinhard_white,
+            )
+            if channel not in chs:
+                raise HTTPException(
+                    404,
+                    f"channel {channel!r} not in frame {frame_index} of source {source_id!r}; "
+                    f"available: {sorted(chs)!r}",
+                )
+            apply_dark = bool(body.apply_dark)
+            black_level = float(body.black_level)
+            vc = body.view_config
+            vc_gain = float(vc.gain) if vc else 1.0
+            vc_offset = float(vc.offset) if vc else 0.0
+            vc_sharpen_method = vc.sharpen_method if vc else None
+            vc_sharpen_amount = float(vc.sharpen_amount) if vc else 1.0
+            vc_sharpen_radius = float(vc.sharpen_radius) if vc else 2.0
+            vc_denoise_sigma = float(vc.denoise_sigma) if vc else 0.0
+            vc_median_size = int(vc.median_size) if vc else 0
+            vc_gaussian_sigma = float(vc.gaussian_sigma) if vc else 0.0
+            vc_hot_pixel_thr = float(vc.hot_pixel_thr) if vc else 0.0
+            vc_bilateral = bool(vc.bilateral) if vc else False
+            isp_pre_chain = _isp_chain_from_query(
+                sharpen_method=vc_sharpen_method,
+                sharpen_amount=vc_sharpen_amount,
+                sharpen_radius=vc_sharpen_radius,
+                denoise_sigma=vc_denoise_sigma,
+                median_size=vc_median_size,
+                gaussian_sigma=vc_gaussian_sigma,
+                hot_pixel_thr=vc_hot_pixel_thr,
+                bilateral=vc_bilateral,
+            )
+            image = chs[channel]
+            if apply_dark and src.has_dark and src.dark_channels is not None:
+                d = src.dark_channels.get(channel)
+                if d is not None:
+                    image = subtract_dark(image, d)
+            if isp_pre_chain is not None:
+                image = _apply_analysis_isp(image, isp_pre_chain)
+            arr = _apply_pre_norm(
+                image, black_level=black_level, gain=vc_gain, offset=vc_offset,
+            ).astype(np.float64, copy=False)
+            H, W = arr.shape
+            x = int(body.x)
+            y = int(body.y)
+            if x < 0 or x >= W or y < 0 or y >= H:
+                raise HTTPException(
+                    404,
+                    f"pixel ({x}, {y}) is outside channel {channel!r} frame "
+                    f"({W}×{H}) of source {source_id!r}",
+                )
+            value = float(arr[y, x])
+            return JSONResponse(
+                {
+                    "x": x,
+                    "y": y,
+                    "channel": channel,
+                    "value": value,
+                    "frame_shape": [H, W],
+                    "apply_dark": apply_dark,
+                    "black_level": black_level,
+                    "pipeline_version": 2,
+                    "view_config_applied": isp_pre_chain is not None
+                    or abs(vc_gain - 1.0) > 1e-9
+                    or abs(vc_offset) > 1e-9,
+                },
+                headers={"Cache-Control": "no-store"},
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(
+                500,
+                f"frame {frame_index} pixel readback failed: "
                 f"{type(e).__name__}: {e}",
             )
 

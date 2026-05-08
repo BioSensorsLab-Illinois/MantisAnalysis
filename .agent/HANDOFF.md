@@ -1,11 +1,22 @@
 # HANDOFF — current live state pointer
 
-Last updated: **2026-04-28** (Night session) — the
-`play-export-and-roi-fixes-v1` initiative addressing 7 user-reported
-Play-mode defects. Six milestones (M0 scaffold → M6 close), all
-green; 3 reviewers spawned at M5 (fastapi-backend-reviewer,
-frontend-react-engineer, risk-skeptic) all returned fix-then-ship,
-with P0/P1 batch resolved before close. Initiative artifacts at
+Last updated: **2026-05-07** — the `play-lod-ratio-tools-v1`
+initiative addressing 6 user-requested Play-mode data-inspection
+features (live cursor pixel readback; TBR ergonomics rework;
+LoD/Ratio dual-mode rename with k·σ LoD calculation; flexible
+labels + numericValue + unit; reorder; detachable FloatingWindow
+panel). Seven milestones (M0 scaffold → M1 pixel-readback → M2
+mode rename + migration → M3 table ergonomics → M4 FloatingWindow
+pop-out → M5 LoD analysis modal → M6 reviewer pass + close).
+3 reviewers spawned at M6 (fastapi-backend-reviewer,
+frontend-react-engineer, risk-skeptic). risk-skeptic flagged 2 P0s
+(degenerate-baseline collapses threshold to μ; cross-channel
+baseline+signal silently produces meaningless number) — both
+fixed inline before close, with diagnostic banners surfaced in
+the LoD modal + a panel-level commit guard. All P1s resolved.
+Initiative artifacts at
+[`.agent/runs/play-lod-ratio-tools-v1/`](runs/play-lod-ratio-tools-v1/).
+Prior `play-export-and-roi-fixes-v1` initiative artifacts at
 [`.agent/runs/play-export-and-roi-fixes-v1/`](runs/play-export-and-roi-fixes-v1/).
 Prior PM-session ultra-review work (27-item Phase-A/B/C sweep,
 plan at `/Users/zz4/.claude/plans/tranquil-growing-lollipop.md`)

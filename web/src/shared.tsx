@@ -3131,6 +3131,31 @@ const DraggablePanelList = ({ order, setOrder, panels }) => {
 // ---------------------------------------------------------------------------
 const FloatingWindow = ({ title, icon, x, y, w, h, onChange, onClose, children }) => {
   const t = useTheme();
+  // M6 risk-skeptic P1-G (play-lod-ratio-tools-v1) — clamp on mount
+  // so a saved (x, y) from a 2× monitor doesn't render the window
+  // off-screen on a smaller laptop. Runs once per mount; subsequent
+  // drags are clamped via the move handler. We use a layout effect
+  // so the clamp lands BEFORE the user sees a flash at the saved
+  // position.
+  React.useLayoutEffect(() => {
+    if (typeof window === 'undefined') return;
+    const vw = window.innerWidth || 0;
+    const vh = window.innerHeight || 0;
+    if (vw <= 0 || vh <= 0) return;
+    // Keep at least a 60-px header strip visible so the user can
+    // grab + drag the window back into view if they later resize.
+    const minVisible = 60;
+    const maxX = Math.max(0, vw - minVisible);
+    const maxY = Math.max(0, vh - minVisible);
+    const cx = Math.min(Math.max(0, x), maxX);
+    const cy = Math.min(Math.max(0, y), maxY);
+    if (cx !== x || cy !== y) {
+      onChange({ x: cx, y: cy, w, h });
+    }
+    // Mount-only — caller's onChange already handles user-initiated
+    // drags. Re-running on every prop change would fight the user.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const startDrag = (e) => {
     e.preventDefault();
     const sx = e.clientX,

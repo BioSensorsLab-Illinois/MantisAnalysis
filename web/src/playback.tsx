@@ -69,6 +69,9 @@ import {
   useLocalStorageState,
   useViewport,
   ResizeHandle,
+  // play-lod-ratio-tools-v1 M4 — drag/resize floating panel for the
+  // pop-out LoD/Ratio Analysis surface.
+  FloatingWindow,
 } from './shared.tsx';
 
 // ---------------------------------------------------------------------------
@@ -564,6 +567,107 @@ const buildFrameUrl = (recording, view, frameIdx) => {
     });
   }
   return null;
+};
+
+// ---------------------------------------------------------------------------
+// Pixel-readback helpers — play-lod-ratio-tools-v1 M1.
+//
+// Powers the bottom-left "Pixel inspector" canvas badge. Three cheap
+// helpers + one debounced fetch path. The helpers below are pure /
+// presentational; the fetch lives inside ViewerCard so it can hook
+// into the component's lifecycle (refs, cleanup).
+// ---------------------------------------------------------------------------
+
+/**
+ * Pick the readback channel for a view. Mirrors the channel-resolution
+ * logic in TbrAnalysisPanel so the cursor badge and the LoD/Ratio
+ * panel both report the same physical-DN scale.
+ *
+ * - `channel` view → that channel.
+ * - `raw` view → the user-picked rawChannel.
+ * - `overlay` view → the overlay channel (the colormapped layer).
+ * - `rgb` / `rgb_image` view → green (strongest tissue signal).
+ *
+ * Returns null when no resolvable channel exists for the recording.
+ */
+const _resolveReadbackChannel = (view, recording) => {
+  if (!view || !recording) return null;
+  const meta = sourceModeMeta(view.sourceMode) || {};
+  const split = splitSourceMode(view.sourceMode) || {};
+  const gainPrefix = (split.gain || 'HG').toUpperCase();
+  const chs = recording.channels || [];
+  let candidate = null;
+  if (meta.kind === 'channel') candidate = meta.channel;
+  else if (meta.kind === 'raw') candidate = view.rawChannel;
+  else if (meta.kind === 'overlay') {
+    candidate =
+      view?.overlay?.overlayChannel || meta.overlayChannel || `${gainPrefix}-NIR`;
+  } else if (meta.kind === 'rgb' || meta.kind === 'rgb_image') {
+    candidate = `${gainPrefix}-G`;
+  }
+  if (candidate && chs.includes(candidate)) return candidate;
+  // Fallback — first available channel of the same gain.
+  const sameGain = chs.find((c) => c.startsWith(`${gainPrefix}-`));
+  return sameGain || chs[0] || null;
+};
+
+/**
+ * Build the view_config payload for /pixel — must match
+ * TbrAnalysisPanel.buildViewConfig byte-for-byte so a 1-pixel readback
+ * equals a tiny ROI mean at the same coordinate. Overlay views skip
+ * gain/offset (those scale the display path, not the underlying DN
+ * units the LoD/Ratio panel measures in).
+ */
+const _buildPixelViewConfig = (view) => {
+  if (!view) return {};
+  const ip = view.isp || {};
+  const isOverlay = sourceModeMeta(view.sourceMode)?.kind === 'overlay';
+  return {
+    gain: isOverlay ? 1.0 : (view.gain ?? 1.0),
+    offset: isOverlay ? 0.0 : (view.offset ?? 0.0),
+    sharpen_method: ip.sharpen_method || null,
+    sharpen_amount: ip.sharpen_amount ?? 1.0,
+    sharpen_radius: ip.sharpen_radius ?? 2.0,
+    denoise_sigma: ip.denoise_sigma ?? 0.0,
+    median_size: ip.median_size ?? 0,
+    gaussian_sigma: ip.gaussian_sigma ?? 0.0,
+    hot_pixel_thr: ip.hot_pixel_thr ?? 0.0,
+    bilateral: !!ip.bilateral,
+  };
+};
+
+/**
+ * Sample one pixel of the displayed <img> via a hidden 1×1 canvas.
+ * Returns [r, g, b] in 0–255 or null when sampling fails (e.g. img
+ * not yet loaded, cross-origin taint). Cheap — drawImage with a 1×1
+ * source crop runs in microseconds, fast enough for mousemove.
+ *
+ * Same-origin blob URLs (which is all we use) are never tainted, so
+ * getImageData succeeds. Cross-origin sources would throw a
+ * SecurityError on getImageData; the try/catch returns null in that
+ * case so the badge degrades gracefully.
+ */
+const _sampleDisplayedRgb = (imgEl, ix, iy) => {
+  if (!imgEl || !imgEl.naturalWidth || !imgEl.naturalHeight) return null;
+  if (ix < 0 || iy < 0 || ix >= imgEl.naturalWidth || iy >= imgEl.naturalHeight) {
+    return null;
+  }
+  try {
+    const c =
+      _sampleDisplayedRgb._canvas ||
+      (_sampleDisplayedRgb._canvas = document.createElement('canvas'));
+    if (c.width !== 1) c.width = 1;
+    if (c.height !== 1) c.height = 1;
+    const ctx =
+      _sampleDisplayedRgb._ctx ||
+      (_sampleDisplayedRgb._ctx = c.getContext('2d', { willReadFrequently: true }));
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.drawImage(imgEl, ix, iy, 1, 1, 0, 0, 1, 1);
+    const data = ctx.getImageData(0, 0, 1, 1).data;
+    return [data[0], data[1], data[2]];
+  } catch {
+    return null;
+  }
 };
 
 // ---------------------------------------------------------------------------
@@ -1164,12 +1268,67 @@ export const PlaybackMode = ({
   // retain all entries even if I removed all h5 recording from the page").
   // Storage key is versioned so a future schema change can drop legacy
   // entries instead of corrupting state.
-  const TBR_STORAGE_KEY = 'mantis.play.tbrEntries.v1';
+  //
+  // play-lod-ratio-tools-v1 M2 — bumped v1 → v2 to mark the schema
+  // expansion (new fields: kind, label, numericValue, unit, order,
+  // analysisMode, signalPolygon/signalValue/signalStd/signalN as
+  // canonical names with tumor* aliases preserved). Migration from v1
+  // is one-way: at boot we read the old key, transform every entry,
+  // write to the new key, and delete the old one. Downgrades aren't
+  // supported — there's no field-level loss but the rename is sticky.
+  const TBR_STORAGE_KEY_V1 = 'mantis.play.tbrEntries.v1';
+  const LOD_RATIO_STORAGE_KEY = 'mantis.play.lodRatioEntries.v2';
+  // Migrate one v1 entry → v2 shape. v1 entries always have a tumor
+  // and a background ROI (they were paired Ratio measurements), so
+  // every migrated entry gets `kind: 'ratio'`. The `order` field is
+  // assigned in array order so the user's pre-existing visual
+  // ordering carries over. tumorPolygon/tumorValue/tumorStd/tumorN are
+  // copied to signal* AND retained under their old names so any
+  // remaining v1-aware code path continues to work during the
+  // M2 → M5 transition.
+  const _migrateEntryV1ToV2 = (e, idx) => {
+    if (!e || typeof e !== 'object') return null;
+    const out = { ...e };
+    out.kind = e.kind || 'ratio';
+    out.analysisMode = e.analysisMode || 'ratio';
+    out.order = typeof e.order === 'number' ? e.order : idx;
+    if (e.tumorPolygon != null && out.signalPolygon == null) {
+      out.signalPolygon = e.tumorPolygon;
+    }
+    if (e.tumorValue != null && out.signalValue == null) {
+      out.signalValue = e.tumorValue;
+    }
+    if (e.tumorStd != null && out.signalStd == null) {
+      out.signalStd = e.tumorStd;
+    }
+    if (e.tumorN != null && out.signalN == null) {
+      out.signalN = e.tumorN;
+    }
+    return out;
+  };
   const [tbrEntries, setTbrEntries] = React.useState(() => {
     try {
-      const raw = window.localStorage?.getItem(TBR_STORAGE_KEY);
-      const parsed = raw ? JSON.parse(raw) : null;
-      return Array.isArray(parsed) ? parsed : [];
+      // Prefer v2.
+      const v2raw = window.localStorage?.getItem(LOD_RATIO_STORAGE_KEY);
+      const v2 = v2raw ? JSON.parse(v2raw) : null;
+      if (Array.isArray(v2)) return v2;
+      // Fall back to v1 with one-shot migration.
+      const v1raw = window.localStorage?.getItem(TBR_STORAGE_KEY_V1);
+      const v1 = v1raw ? JSON.parse(v1raw) : null;
+      if (!Array.isArray(v1)) return [];
+      const migrated = v1
+        .map((e, i) => _migrateEntryV1ToV2(e, i))
+        .filter((e) => e != null);
+      // Persist the migrated set immediately so a partial-failure
+      // reload doesn't repeat the migration. Drop the v1 key so the
+      // next load takes the fast v2 path.
+      try {
+        window.localStorage?.setItem(LOD_RATIO_STORAGE_KEY, JSON.stringify(migrated));
+        window.localStorage?.removeItem(TBR_STORAGE_KEY_V1);
+      } catch {
+        /* quota or disabled — keep in-memory state, accept double-migration */
+      }
+      return migrated;
     } catch {
       return [];
     }
@@ -1179,12 +1338,42 @@ export const PlaybackMode = ({
   // would risk losing the latest commit on a tab close.
   React.useEffect(() => {
     try {
-      window.localStorage?.setItem(TBR_STORAGE_KEY, JSON.stringify(tbrEntries));
+      window.localStorage?.setItem(LOD_RATIO_STORAGE_KEY, JSON.stringify(tbrEntries));
     } catch {
       /* localStorage quota or disabled — silent fallback to in-memory */
     }
   }, [tbrEntries]);
   const [tbrAnalysisOpen, setTbrAnalysisOpen] = React.useState(false);
+  // play-lod-ratio-tools-v1 M2 — top-level analysis mode toggle
+  // (Ratio | Intensity). Persisted so the user's last choice survives
+  // a reload. Default 'ratio' matches legacy TBR-only behavior.
+  const ANALYSIS_MODE_KEY = 'mantis.play.lodRatioMode.v1';
+  const [analysisMode, setAnalysisMode] = React.useState(() => {
+    try {
+      const v = window.localStorage?.getItem(ANALYSIS_MODE_KEY);
+      return v === 'intensity' ? 'intensity' : 'ratio';
+    } catch {
+      return 'ratio';
+    }
+  });
+  React.useEffect(() => {
+    try {
+      window.localStorage?.setItem(ANALYSIS_MODE_KEY, analysisMode);
+    } catch {
+      /* ignore */
+    }
+  }, [analysisMode]);
+  // play-lod-ratio-tools-v1 M4 — popped-out LoD/Ratio panel geometry
+  // + popped flag. `popped: false` keeps the panel docked inside
+  // Inspector → LoD/Ratio Analysis (legacy behavior). `popped: true`
+  // collapses the Inspector section to a small "Popped out" pill and
+  // renders the full panel inside a draggable+resizable
+  // <FloatingWindow>. Geometry persists so the user's chosen
+  // position + size survives reloads.
+  const [lodRatioWindow, setLodRatioWindow] = useLocalStorageState(
+    'playback/lodRatioWindow.v1',
+    { x: 80, y: 80, w: 380, h: 600, popped: false }
+  );
   React.useEffect(() => {
     let cancelled = false;
     apiFetch('/api/playback/presets', { method: 'GET' })
@@ -3847,14 +4036,97 @@ export const PlaybackMode = ({
           tbrEntries={tbrEntries}
           setTbrEntries={setTbrEntries}
           setTbrAnalysisOpen={setTbrAnalysisOpen}
+          // play-lod-ratio-tools-v1 M2 — Ratio | Intensity toggle.
+          analysisMode={analysisMode}
+          setAnalysisMode={setAnalysisMode}
+          // play-lod-ratio-tools-v1 M4 — pop-out window state. Inspector
+          // shows a "Popped out" pill in place of the docked panel
+          // when popped=true; the actual panel renders in the
+          // FloatingWindow below.
+          lodRatioWindow={lodRatioWindow}
+          setLodRatioWindow={setLodRatioWindow}
         />
       </div>
+      {/* play-lod-ratio-tools-v1 M4 — popped-out LoD/Ratio panel.
+          Mounts at PlaybackMode level (sibling of AnalysisShell) so
+          the floating window's drag-anywhere geometry isn't clipped
+          by the Inspector strip. When `popped` is false, this branch
+          renders nothing and the panel lives inside the Inspector
+          section as before. */}
+      {lodRatioWindow.popped && (() => {
+        const selView = views.find((v) => v.id === selectedViewId) || null;
+        const selRec = selView
+          ? recordings.find((r) => r.source_id === selView.sourceId)
+          : null;
+        const lf = selView && selRec
+          ? selView.isLocked && selView.lockedFrame != null
+            ? selView.lockedFrame
+            : Math.max(
+                0,
+                Math.min(
+                  (globalFrame ?? 0) - (sourceOffsets?.get(selView.sourceId) ?? 0),
+                  (selRec.frame_count || 1) - 1
+                )
+              )
+          : 0;
+        return (
+          <FloatingWindow
+            title="LoD/Ratio Analysis"
+            icon="grid"
+            x={lodRatioWindow.x}
+            y={lodRatioWindow.y}
+            w={lodRatioWindow.w}
+            h={lodRatioWindow.h}
+            onChange={(g) =>
+              setLodRatioWindow((prev) => ({ ...prev, ...g }))
+            }
+            onClose={() =>
+              setLodRatioWindow((prev) => ({ ...prev, popped: false }))
+            }
+          >
+            <LodRatioPanel
+              view={selView}
+              recording={selRec}
+              localFrame={lf}
+              entries={tbrEntries}
+              analysisMode={analysisMode}
+              onChangeAnalysisMode={setAnalysisMode}
+              onUpdateView={(patch) =>
+                selView ? updateView(selView.id, patch) : null
+              }
+              onAddEntry={(entry) =>
+                setTbrEntries((prev) => [...prev, entry])
+              }
+              onRemoveEntry={(id) =>
+                setTbrEntries((prev) => prev.filter((e) => e.id !== id))
+              }
+              onUpdateEntry={(id, patch) =>
+                setTbrEntries((prev) =>
+                  prev.map((e) => (e.id === id ? { ...e, ...patch } : e))
+                )
+              }
+              onOpenAnalysis={() => setTbrAnalysisOpen(true)}
+              popped={true}
+              onTogglePopped={() =>
+                setLodRatioWindow((prev) => ({ ...prev, popped: false }))
+              }
+            />
+          </FloatingWindow>
+        );
+      })()}
       {tbrAnalysisOpen && (
         <AnalysisShell
           run={{
-            mode: 'tbr',
+            // play-lod-ratio-tools-v1 M2 — analysis-mode id renamed
+            // 'tbr' → 'lod_ratio'. Same modal, two sub-modes (Ratio /
+            // Intensity); the modal branches on the per-entry `kind`
+            // field set during commit.
+            mode: 'lod_ratio',
             response: {
               channels: Array.from(new Set(tbrEntries.map((e) => e.channel))).sort(),
+              // The modal still reads `tbr_entries` for backwards
+              // compatibility with v1 entries; M5 introduces an
+              // `entries` field with the unified Entry shape.
               tbr_entries: tbrEntries,
             },
           }}
@@ -5630,6 +5902,19 @@ const ViewerCard = ({
   // earlier onload-based revoke leaked under fast scrubbing.
   const prevBlobRef = React.useRef(null);
 
+  // Pixel readback state — play-lod-ratio-tools-v1 M1.
+  // `pixelInfo` drives the bottom-left badge: { ix, iy, channel, dn?,
+  // displayedRgb?, error? }. Updated synchronously on mousemove for
+  // (ix, iy) + RGB; the DN value arrives async after a 30 ms debounce.
+  const [pixelInfo, setPixelInfo] = React.useState(null);
+  // Per-request seq counter — drops stale /pixel responses if a newer
+  // dispatch beats them back. Mirrors reqSeqRef in TbrAnalysisPanel.
+  const pixelReqSeqRef = React.useRef(0);
+  // Debounce timer for the /pixel fetch. Cleared on each new mousemove
+  // and on unmount. 30 ms gives a smooth ~33 Hz cadence under fast
+  // drags without flooding the server.
+  const pixelDebounceRef = React.useRef(null);
+
   // Use the parent-computed local frame (handles locked views and global→
   // local mapping for multi-source streams).
   const effectiveFrame = view.isLocked && view.lockedFrame != null ? view.lockedFrame : localFrame;
@@ -5905,6 +6190,151 @@ const ViewerCard = ({
     }
     return [];
   };
+
+  // play-lod-ratio-tools-v1 M1 — pixel readback at the cursor.
+  //
+  // Called from canvas onMouseMove. (1) Computes (ix, iy) via
+  // _clientToImagePx, (2) samples the displayed RGB synchronously,
+  // (3) updates `pixelInfo` immediately so the badge tracks the cursor
+  // with no perceptible lag, (4) debounces a /pixel POST that fills in
+  // the physical-DN value once the mousemove settles. Stale responses
+  // are dropped via pixelReqSeqRef.
+  //
+  // No-ops when:
+  //   - the user disabled the toggle (`view.showPixelReadback === false`)
+  //   - no recording / no URL is bound to this view
+  //   - the cursor is in the letterbox margin (clientToImagePx returns
+  //     null), in which case we clear the badge so it doesn't linger.
+  //
+  // Coord-rect source: prefers `svgRef` (RoiOverlaySvg's bounding box)
+  // because it mirrors the polygon vertex picker's coordinate space
+  // exactly. Falls back to the rendered <img> element when the SVG
+  // isn't mounted (it returns null when no polygon is drawn). Both
+  // letterbox the image content the same way (SVG via
+  // preserveAspectRatio="xMidYMid meet"; IMG via objectFit: contain).
+  const _handlePixelHover = (clientX, clientY) => {
+    if (view?.showPixelReadback === false) return;
+    if (!recording || !url) return;
+    const rectEl = svgRef.current || imgRef.current;
+    if (!rectEl) return;
+    const ih = recording?.shape?.[0] || 1;
+    const iw = recording?.shape?.[1] || 1;
+    const hit = _clientToImagePx({
+      svgEl: rectEl,
+      imageW: iw,
+      imageH: ih,
+      clientX,
+      clientY,
+    });
+    if (!hit) {
+      // Cursor is in the letterbox margin or outside the image content
+      // rect. Clear the badge so the user doesn't see stale numbers.
+      setPixelInfo((prev) => (prev ? null : prev));
+      return;
+    }
+    const { ix, iy } = hit;
+    const channel = _resolveReadbackChannel(view, recording);
+    const displayedRgb = _sampleDisplayedRgb(imgRef.current, ix, iy);
+    // Synchronous fast-path: show (ix, iy, channel, RGB) immediately.
+    // The DN value follows after the debounced fetch.
+    //
+    // M6 frontend-react-engineer P1-1 — bail when the state has not
+    // actually changed. Returning a fresh object on every mousemove
+    // re-runs the entire ViewerCard at ~60 Hz under fast drag.
+    // Compare each scalar + the RGB triplet element-wise; return
+    // `prev` to short-circuit React's commit phase when stable.
+    setPixelInfo((prev) => {
+      const sameRgb =
+        !!prev &&
+        !!prev.displayedRgb &&
+        !!displayedRgb &&
+        prev.displayedRgb[0] === displayedRgb[0] &&
+        prev.displayedRgb[1] === displayedRgb[1] &&
+        prev.displayedRgb[2] === displayedRgb[2];
+      const samePixel =
+        !!prev &&
+        prev.ix === ix &&
+        prev.iy === iy &&
+        prev.channel === channel &&
+        sameRgb &&
+        !prev.error;
+      if (samePixel) return prev;
+      return {
+        ix,
+        iy,
+        channel,
+        displayedRgb,
+        // Carry forward the previous DN if the cursor stayed on the same
+        // pixel of the same channel; otherwise null until the fetch lands.
+        dn:
+          prev && prev.ix === ix && prev.iy === iy && prev.channel === channel
+            ? prev.dn
+            : null,
+        error: null,
+      };
+    });
+    if (!channel) return;
+    if (pixelDebounceRef.current) clearTimeout(pixelDebounceRef.current);
+    pixelDebounceRef.current = setTimeout(async () => {
+      const seq = ++pixelReqSeqRef.current;
+      try {
+        const resp = await apiFetch(
+          `/api/sources/${recording.source_id}/frame/${effectiveFrame}/channel/${encodeURIComponent(channel)}/pixel`,
+          {
+            method: 'POST',
+            body: {
+              x: ix,
+              y: iy,
+              apply_dark: view?.applyDark !== false,
+              black_level: view?.blackLevel ?? 0,
+              view_config: _buildPixelViewConfig(view),
+            },
+          }
+        );
+        if (seq !== pixelReqSeqRef.current) return;
+        setPixelInfo((prev) => {
+          // Drop the response if the cursor has since moved off this
+          // pixel — the user's already looking somewhere else.
+          if (!prev || prev.ix !== ix || prev.iy !== iy || prev.channel !== channel) {
+            return prev;
+          }
+          return { ...prev, dn: resp?.value, error: null };
+        });
+      } catch (err) {
+        if (seq !== pixelReqSeqRef.current) return;
+        setPixelInfo((prev) => {
+          if (!prev || prev.ix !== ix || prev.iy !== iy || prev.channel !== channel) {
+            return prev;
+          }
+          return { ...prev, dn: null, error: err?.detail || err?.message || String(err) };
+        });
+      }
+      // M6 frontend-react-engineer P1-3 — debounce was 30 ms; project
+      // convention for debounced /api/* fetches is 120 ms (USAF
+      // measure, FPN compute, polygon-stat fetch). 30 ms fired ~33
+      // requests/sec under a fast drag; 120 ms is ~8/sec which is
+      // still snappy + matches the rest of the inspector.
+    }, 120);
+  };
+
+  // Cleanup: cancel any pending /pixel debounce on unmount so a stale
+  // setState doesn't fire on an unmounted component. The seq counter
+  // already guards against late responses but unmount is the cleanest
+  // shutdown.
+  React.useEffect(() => {
+    return () => {
+      if (pixelDebounceRef.current) {
+        clearTimeout(pixelDebounceRef.current);
+        pixelDebounceRef.current = null;
+      }
+      // Bump the seq so any in-flight fetch's setState is silently
+      // dropped (pixelReqSeqRef survives the unmount because it's a ref;
+      // the closure capture in the .then/.catch will compare against
+      // the bumped value and bail out).
+      pixelReqSeqRef.current += 1;
+    };
+  }, []);
+
   // Gain selector (HG / LG / HDR) lives outside the channel dropdown for
   // GSense-like recordings. The dropdown then only shows the channel
   // *kind* (Visible / NIR / Chroma / Raw splits) for the active gain.
@@ -6165,6 +6595,12 @@ const ViewerCard = ({
             _applyPolygonUpdate(target, next);
             return;
           }
+          // Pixel readback — fires on every mousemove (other than
+          // during pan / vertex drag, both of which return early
+          // above). The handler itself early-exits when the toggle is
+          // off, so this is a no-op when the user has hidden the
+          // badge. play-lod-ratio-tools-v1 M1.
+          _handlePixelHover(e.clientX, e.clientY);
           // Hover affordance — when hovering near a vertex outside
           // draw mode, switch the cursor to a "move" affordance so
           // the user knows the vertex is grabbable.
@@ -6209,6 +6645,15 @@ const ViewerCard = ({
                 ? 'crosshair'
                 : 'default';
           }
+          // Clear the pixel-readback badge when the cursor leaves the
+          // canvas-area so the last-hovered position doesn't linger
+          // misleadingly. play-lod-ratio-tools-v1 M1.
+          if (pixelDebounceRef.current) {
+            clearTimeout(pixelDebounceRef.current);
+            pixelDebounceRef.current = null;
+          }
+          pixelReqSeqRef.current += 1;
+          setPixelInfo(null);
         }}
         onContextMenu={(e) => {
           // The native context menu on right-click is already owned by
@@ -6404,6 +6849,78 @@ const ViewerCard = ({
             {(view.zoom || 1).toFixed(2)}×
           </div>
         )}
+        {/* Pixel-inspector badge — bottom-left, above the zoom badge.
+            Two lines: (x, y) · channel = DN, RGB displayed.
+            play-lod-ratio-tools-v1 M1.
+
+            Hidden when:
+              - the user has disabled the toggle (view.showPixelReadback === false)
+              - no recording / URL is bound
+              - the cursor isn't over the image (pixelInfo is null) */}
+        {url &&
+          recording &&
+          view?.showPixelReadback !== false &&
+          pixelInfo &&
+          pixelInfo.ix != null &&
+          pixelInfo.iy != null && (
+            <div
+              data-pixel-inspector-badge
+              style={{
+                position: 'absolute',
+                left: 8,
+                // Sit just above the zoom badge when both are visible.
+                bottom: (view.zoom || 1) > 1.001 ? 28 : 8,
+                padding: '3px 7px',
+                fontSize: 10,
+                fontFamily: 'ui-monospace,Menlo,monospace',
+                background: 'rgba(0,0,0,0.62)',
+                color: '#fff',
+                borderRadius: 3,
+                pointerEvents: 'none',
+                lineHeight: 1.45,
+                maxWidth: '60%',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+              title={
+                pixelInfo.error
+                  ? `Pixel-readback failed: ${pixelInfo.error}`
+                  : 'Cursor pixel — pipeline-applied DN value (matches LoD/Ratio panel scale)'
+              }
+            >
+              <div>
+                <span style={{ color: '#9aa3ad' }}>({pixelInfo.ix}, {pixelInfo.iy})</span>
+                {pixelInfo.channel && (
+                  <>
+                    <span style={{ margin: '0 4px', color: '#5d6773' }}>·</span>
+                    <span>{pixelInfo.channel}</span>
+                    <span style={{ margin: '0 4px', color: '#5d6773' }}>=</span>
+                    <span style={{ fontWeight: 600 }}>
+                      {pixelInfo.error
+                        ? '—'
+                        : pixelInfo.dn == null
+                          ? '…'
+                          : Number.isFinite(pixelInfo.dn)
+                            ? Math.round(pixelInfo.dn).toString()
+                            : '—'}
+                    </span>
+                    <span style={{ marginLeft: 3, color: '#9aa3ad' }}>DN</span>
+                  </>
+                )}
+              </div>
+              {pixelInfo.displayedRgb && (
+                <div style={{ color: '#9aa3ad' }}>
+                  RGB
+                  <span style={{ margin: '0 4px', color: '#5d6773' }}>·</span>
+                  <span style={{ color: '#fff' }}>
+                    {pixelInfo.displayedRgb[0]} {pixelInfo.displayedRgb[1]}{' '}
+                    {pixelInfo.displayedRgb[2]}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
         {/* ROI polygon overlay (overlay-mode mask AND TBR Tumor /
             Background drafts). Render delegated to RoiOverlaySvg —
             see ./playback/RoiOverlay.tsx for the JSX.
@@ -9493,6 +10010,16 @@ const Inspector = ({
   tbrEntries = [],
   setTbrEntries,
   setTbrAnalysisOpen,
+  // play-lod-ratio-tools-v1 M2 — Ratio | Intensity mode toggle.
+  // Threaded from PlaybackMode so the choice persists in localStorage
+  // alongside the entries.
+  analysisMode = 'ratio',
+  setAnalysisMode,
+  // play-lod-ratio-tools-v1 M4 — pop-out window geometry + popped
+  // flag. When popped, the docked panel collapses to a small pill;
+  // the full panel mounts in a FloatingWindow at PlaybackMode level.
+  lodRatioWindow = { x: 80, y: 80, w: 380, h: 600, popped: false },
+  setLodRatioWindow,
 }) => {
   const t = useTheme();
   if (collapsed) {
@@ -9986,6 +10513,23 @@ const Inspector = ({
                   </>
                 );
               })()}
+              {/* Pixel inspector — bottom-left canvas badge showing the
+                  pipeline-applied DN value at the cursor position.
+                  Lives at the bottom of the Display section so it sits
+                  next to the other "what shows on the canvas" toggles
+                  (Show clipped pixels / Histogram on frame). Defaults
+                  to ON; the badge is suppressed automatically when no
+                  recording is loaded. play-lod-ratio-tools-v1 M1d. */}
+              <Row label="Pixel inspector">
+                <Checkbox
+                  checked={selectedView.showPixelReadback !== false}
+                  onChange={(v) =>
+                    onUpdateView(selectedView.id, { showPixelReadback: !!v })
+                  }
+                  ariaLabel="Show pixel-value readback at cursor"
+                  data-inspector-pixel-readback
+                />
+              </Row>
             </InspectorSection>
 
             {(sourceModeMeta(selectedView.sourceMode).kind === 'rgb' ||
@@ -10325,34 +10869,77 @@ const Inspector = ({
             </InspectorSection>
 
             <InspectorSection
-              title="TBR Analysis"
+              title="LoD/Ratio Analysis"
               icon="grid"
               viewType={selectedView.sourceMode}
               defaultOpen={false}
             >
-              <TbrAnalysisPanel
-                view={selectedView}
-                recording={selectedRecording}
-                localFrame={
-                  selectedView.isLocked && selectedView.lockedFrame != null
-                    ? selectedView.lockedFrame
-                    : Math.max(
-                        0,
-                        Math.min(
-                          (globalFrame ?? 0) - (sourceOffsets?.get(selectedView.sourceId) ?? 0),
-                          (selectedRecording?.frame_count || 1) - 1
+              {lodRatioWindow.popped ? (
+                // play-lod-ratio-tools-v1 M4 — collapsed "popped out"
+                // pill. The full panel renders inside FloatingWindow
+                // at PlaybackMode level; click here to dock back.
+                <div
+                  data-lod-popped-pill
+                  style={{
+                    fontSize: 11,
+                    color: t.textMuted,
+                    padding: '8px 4px',
+                    lineHeight: 1.5,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                  }}
+                >
+                  <div>
+                    Panel is open in a floating window. Drag it anywhere on screen, or click below
+                    to dock it back here.
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="subtle"
+                    icon="layers"
+                    fullWidth
+                    data-lod-dock
+                    onClick={() =>
+                      setLodRatioWindow?.((prev) => ({ ...prev, popped: false }))
+                    }
+                  >
+                    Dock back
+                  </Button>
+                </div>
+              ) : (
+                <LodRatioPanel
+                  view={selectedView}
+                  recording={selectedRecording}
+                  localFrame={
+                    selectedView.isLocked && selectedView.lockedFrame != null
+                      ? selectedView.lockedFrame
+                      : Math.max(
+                          0,
+                          Math.min(
+                            (globalFrame ?? 0) - (sourceOffsets?.get(selectedView.sourceId) ?? 0),
+                            (selectedRecording?.frame_count || 1) - 1
+                          )
                         )
-                      )
-                }
-                entries={tbrEntries}
-                onUpdateView={(patch) => onUpdateView(selectedView.id, patch)}
-                onAddEntry={(entry) => setTbrEntries((prev) => [...prev, entry])}
-                onRemoveEntry={(id) => setTbrEntries((prev) => prev.filter((e) => e.id !== id))}
-                onUpdateEntry={(id, patch) =>
-                  setTbrEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)))
-                }
-                onOpenAnalysis={() => setTbrAnalysisOpen(true)}
-              />
+                  }
+                  entries={tbrEntries}
+                  analysisMode={analysisMode}
+                  onChangeAnalysisMode={setAnalysisMode}
+                  onUpdateView={(patch) => onUpdateView(selectedView.id, patch)}
+                  onAddEntry={(entry) => setTbrEntries((prev) => [...prev, entry])}
+                  onRemoveEntry={(id) => setTbrEntries((prev) => prev.filter((e) => e.id !== id))}
+                  onUpdateEntry={(id, patch) =>
+                    setTbrEntries((prev) =>
+                      prev.map((e) => (e.id === id ? { ...e, ...patch } : e))
+                    )
+                  }
+                  onOpenAnalysis={() => setTbrAnalysisOpen(true)}
+                  popped={false}
+                  onTogglePopped={() =>
+                    setLodRatioWindow?.((prev) => ({ ...prev, popped: true }))
+                  }
+                />
+              )}
             </InspectorSection>
 
             <InspectorSection
@@ -11845,20 +12432,40 @@ const RegionRoisPanel = ({ view, onUpdateView }) => {
   );
 };
 
-const TbrAnalysisPanel = ({
+// LodRatioPanel — Inspector section. play-lod-ratio-tools-v1 M2.
+// Was `TbrAnalysisPanel`. Hosts both Ratio (TBR) and Intensity (LoD)
+// flows; the user picks via a segmented control at the top of the
+// panel. Ratio mode keeps the legacy two-ROI (Signal + Background)
+// per-entry workflow. Intensity mode adds a "baseline" ROI that's
+// shared across every committed signal entry; the LoD calculation
+// happens in the analysis modal (M5).
+const LodRatioPanel = ({
   view,
   recording,
   localFrame,
   entries,
+  analysisMode,
+  onChangeAnalysisMode,
   onUpdateView,
   onAddEntry,
   onRemoveEntry,
   onUpdateEntry,
   onOpenAnalysis,
+  // play-lod-ratio-tools-v1 M4 — pop-out / dock toggle. When popped,
+  // the panel header hides the "Pop out" button (FloatingWindow's
+  // X button handles docking instead). When docked, the button is
+  // visible at the panel header.
+  popped = false,
+  onTogglePopped,
 }) => {
   const t = useTheme();
   const draft = view?.tbrDraft || {};
   const drawRole = view?.tbrDraftRole || null;
+  const isIntensity = analysisMode === 'intensity';
+  // Find the (single) baseline entry, if any. Intensity mode commits
+  // require exactly one baseline; the table renders a "Set as
+  // baseline" radio that's exclusive across all entries.
+  const baselineEntry = (entries || []).find((e) => e.kind === 'baseline') || null;
   // The TBR is computed on the channel the user is viewing. RGB views
   // fall back to the green channel (strongest tissue signal in vis).
   // Overlay views default to the overlay channel itself (the channel
@@ -12058,8 +12665,19 @@ const TbrAnalysisPanel = ({
     // either stat is missing the field, the entry inherits v1 semantics.
     const tumorPipe = draft.tumorStats?.pipeline_version ?? 1;
     const bgPipe = draft.bgStats?.pipeline_version ?? 1;
+    // play-lod-ratio-tools-v1 M2 — assign next `order` so reorder
+    // arrows (M3) have a stable per-entry sort key independent of
+    // array index.
+    const nextOrder =
+      (entries || []).reduce((m, e) => Math.max(m, e.order ?? 0), -1) + 1;
     const entry = {
       id: `tbr_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+      // play-lod-ratio-tools-v1 M2 — Ratio entries get the unified
+      // `kind` discriminator + analysisMode tag so the analysis modal
+      // and CSV export can branch cleanly.
+      kind: 'ratio',
+      analysisMode: 'ratio',
+      order: nextOrder,
       sourceFile: recording.name,
       sourceId: recording.source_id,
       frameIndex: localFrame,
@@ -12073,14 +12691,22 @@ const TbrAnalysisPanel = ({
       // Recompute action knows the diff against the live view.
       viewConfig: buildViewConfig(view),
       pipelineVersion: Math.min(tumorPipe, bgPipe),
+      // Canonical v2 names (signalPolygon/signalValue/...) + tumor*
+      // aliases retained for backwards compat with v1 entries +
+      // existing analysis-modal code paths.
+      signalPolygon: draft.tumorPolygon,
       tumorPolygon: draft.tumorPolygon,
       bgPolygon: draft.bgPolygon,
+      signalValue: tumorVal,
       tumorValue: tumorVal,
+      signalStd: tumorStd,
       tumorStd: tumorStd,
+      signalMean: draft.tumorStats?.mean,
       tumorMean: draft.tumorStats?.mean,
       tumorMedian: draft.tumorStats?.median,
       tumorMode: draft.tumorStats?.mode,
       tumorPercentileValue: draft.tumorStats?.percentile_value,
+      signalN: draft.tumorStats?.n_pixels,
       tumorN: draft.tumorStats?.n_pixels,
       bgValue: bgVal,
       bgStd: bgStd,
@@ -12094,14 +12720,18 @@ const TbrAnalysisPanel = ({
       createdAt: new Date().toISOString(),
     };
     onAddEntry(entry);
-    // Reset draft so the user can immediately measure another pair.
+    // play-lod-ratio-tools-v1 M2e — auto-clear SIGNAL polygon only;
+    // preserve the background polygon so the user can immediately add
+    // another (Signal, Background) pair without redrawing the
+    // background. Matches user request 3 ("when one entry is added,
+    // auto clear tumor roi only, keep background roi as is unless
+    // user redraws it").
     onUpdateView({
       tbrDraft: {
         ...draft,
         tumorPolygon: [],
-        bgPolygon: [],
         tumorStats: null,
-        bgStats: null,
+        // bgPolygon + bgStats intentionally retained.
       },
       tbrDraftRole: null,
     });
@@ -12322,11 +12952,136 @@ const TbrAnalysisPanel = ({
       </div>
     );
   };
+  // Live Intensity-mode SNR / threshold readout. Uses the in-memory
+  // baseline entry's mean + std as μ_blank + σ_blank. computeSnr is
+  // null when no baseline exists OR the user hasn't drawn a signal
+  // polygon yet. play-lod-ratio-tools-v1 M2.
+  const baselineMean = baselineEntry?.signalValue ?? baselineEntry?.tumorValue ?? null;
+  const baselineStd = baselineEntry?.signalStd ?? baselineEntry?.tumorStd ?? null;
+  const intensitySnr =
+    isIntensity &&
+    tumorVal != null &&
+    baselineMean != null &&
+    baselineStd != null &&
+    baselineStd > 0
+      ? (tumorVal - baselineMean) / baselineStd
+      : null;
+  // Intensity-mode commit: tag kind='intensity' (signal entry) or
+  // 'baseline' (replaces any existing baseline). Ratio-mode commit
+  // stays in `commit` above. Both auto-clear the signal polygon
+  // (M2e) — Ratio mode also preserves the bg polygon for the next
+  // measurement (user request 3).
+  // M6 risk-skeptic P0-B — channel-mismatch detection. The user can
+  // set a baseline on HG-NIR, switch the panel's channel selector to
+  // HG-G, and add Intensity entries — Threshold computed in NIR DN
+  // applied to G DN is meaningless. Refuse the commit at the panel
+  // level + surface a banner so the user sees the problem.
+  const channelMismatch =
+    !!baselineEntry && baselineEntry.channel !== tbrChannel;
+  const commitIntensity = (kind) => {
+    if (!recording || !draft.tumorStats || draft.tumorStats.__error) return;
+    if (kind === 'intensity' && channelMismatch) {
+      // Refuse — UI also disables the button + shows a banner, but
+      // belt + suspenders so a programmatic invocation can't bypass.
+      return;
+    }
+    const tumorPipe = draft.tumorStats?.pipeline_version ?? 1;
+    // Determine the next `order` value (highest existing + 1).
+    const nextOrder =
+      (entries || []).reduce((m, e) => Math.max(m, e.order ?? 0), -1) + 1;
+    const entry = {
+      id: `${kind}_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+      kind,
+      analysisMode: 'intensity',
+      order: nextOrder,
+      sourceFile: recording.name,
+      sourceId: recording.source_id,
+      frameIndex: localFrame,
+      channel: tbrChannel,
+      method: draft.method || 'mean',
+      percentile: draft.percentile ?? 50,
+      applyDark: view?.applyDark !== false,
+      blackLevel: view?.blackLevel ?? 0,
+      viewConfig: buildViewConfig(view),
+      pipelineVersion: tumorPipe,
+      // Canonical v2 names + tumor* aliases for backwards compat.
+      signalPolygon: draft.tumorPolygon,
+      tumorPolygon: draft.tumorPolygon,
+      signalValue: tumorVal,
+      tumorValue: tumorVal,
+      signalStd: tumorStd,
+      tumorStd: tumorStd,
+      signalMean: draft.tumorStats?.mean,
+      signalMedian: draft.tumorStats?.median,
+      signalMode: draft.tumorStats?.mode,
+      signalPercentileValue: draft.tumorStats?.percentile_value,
+      signalN: draft.tumorStats?.n_pixels,
+      tumorN: draft.tumorStats?.n_pixels,
+      createdAt: new Date().toISOString(),
+    };
+    if (kind === 'baseline') {
+      // Replace any existing baseline. Two-step: first remove the old,
+      // then add the new. Caller's setTbrEntries does the array update;
+      // we use onRemoveEntry + onAddEntry to keep semantics consistent.
+      if (baselineEntry) onRemoveEntry?.(baselineEntry.id);
+    }
+    onAddEntry(entry);
+    onUpdateView({
+      tbrDraft: {
+        ...draft,
+        tumorPolygon: [],
+        tumorStats: null,
+      },
+      tbrDraftRole: null,
+    });
+  };
   return (
     <div data-tbr-panel style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* Mode segmented control + pop-out button. Pop-out is hidden
+          when the panel is already in a FloatingWindow (the window's
+          X button handles the dock-back path).
+          play-lod-ratio-tools-v1 M2 + M4. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Segmented
+          value={analysisMode || 'ratio'}
+          onChange={(v) => onChangeAnalysisMode?.(v)}
+          options={[
+            { value: 'ratio', label: 'Ratio (TBR)' },
+            { value: 'intensity', label: 'Intensity (LoD)' },
+          ]}
+          data-lod-mode
+        />
+        <div style={{ flex: 1 }} />
+        {!popped && onTogglePopped && (
+          <button
+            onClick={onTogglePopped}
+            data-lod-pop-out
+            title="Open this panel in a floating, draggable window — frees up the side panel for other Inspector sections."
+            style={{
+              background: 'transparent',
+              border: `1px solid ${t.border}`,
+              borderRadius: 4,
+              padding: '3px 8px',
+              fontSize: 10.5,
+              color: t.textMuted,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            <Icon name="layers" size={11} />
+            Pop out
+          </button>
+        )}
+      </div>
       <div style={{ fontSize: 10.5, color: t.textFaint, lineHeight: 1.45 }}>
-        Stats are computed AFTER the view&rsquo;s Corrections (dark subtract + black level).
-        Channel: <strong>{tbrChannel}</strong>
+        {isIntensity
+          ? 'Each entry is a single signal ROI. One Baseline ROI is shared across the table; LoD is computed in the Analysis modal.'
+          : 'Each entry is a paired (Signal, Background) ratio. Background polygon is preserved between commits.'}{' '}
+        Stats are computed AFTER the view&rsquo;s Corrections. Channel:{' '}
+        <strong>{tbrChannel}</strong>
         {meta?.kind === 'overlay' && overlayChannel && tbrChannel === overlayChannel && (
           <span style={{ color: t.textMuted }}> &middot; matches the overlay channel</span>
         )}
@@ -12362,48 +13117,230 @@ const TbrAnalysisPanel = ({
           />
         </Row>
       )}
-      {roiRow('tumor', TUMOR_COLOR, 'tumorPolygon', 'tumorStats', 'Tumor ROI')}
-      {roiRow('background', BG_COLOR, 'bgPolygon', 'bgStats', 'Background ROI')}
+      {/* Signal ROI — used in both modes. Label flips between
+          "Tumor ROI" (Ratio) and "Signal ROI" (Intensity) so the
+          terminology matches the experiment. */}
+      {roiRow(
+        'tumor',
+        TUMOR_COLOR,
+        'tumorPolygon',
+        'tumorStats',
+        isIntensity ? 'Signal ROI' : 'Tumor ROI'
+      )}
+      {/* Background ROI — Ratio mode only. */}
+      {!isIntensity &&
+        roiRow('background', BG_COLOR, 'bgPolygon', 'bgStats', 'Background ROI')}
+      {/* Intensity-mode baseline status block — shows the current
+          baseline entry's stats inline so the user can see the
+          reference any signal entry will be measured against. Empty
+          when no baseline has been set yet. */}
+      {isIntensity && (
+        <div
+          data-lod-baseline-status
+          style={{
+            fontSize: 11,
+            color: t.text,
+            padding: '6px 8px',
+            background: t.chipBg,
+            border: `1px solid ${baselineEntry ? BG_COLOR : t.border}`,
+            borderRadius: 4,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: '50%',
+                background: BG_COLOR,
+                flexShrink: 0,
+                opacity: baselineEntry ? 1 : 0.45,
+              }}
+            />
+            <span style={{ fontSize: 11.5, fontWeight: 600 }}>Baseline</span>
+            <div style={{ flex: 1 }} />
+            {baselineEntry && (
+              <button
+                onClick={() => onRemoveEntry?.(baselineEntry.id)}
+                title="Clear the baseline — Intensity-mode SNR + LoD become unavailable"
+                data-lod-baseline-clear
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: t.textMuted,
+                  fontSize: 10,
+                  padding: '2px 6px',
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <div
+            style={{
+              fontSize: 10.5,
+              fontFamily: 'ui-monospace,Menlo,monospace',
+              color: baselineEntry ? t.text : t.textFaint,
+            }}
+          >
+            {baselineEntry
+              ? `μ = ${fmtInt(baselineMean)} · σ = ${fmtInt(baselineStd)} · n = ${baselineEntry.signalN ?? baselineEntry.tumorN ?? '—'} · ${baselineEntry.channel} · frame ${baselineEntry.frameIndex}`
+              : 'No baseline set. Draw a Signal ROI then click "Set as baseline".'}
+          </div>
+        </div>
+      )}
+      {/* Live readout — Ratio mode shows TBR; Intensity mode shows
+          SNR (or the raw signal value when no baseline exists). */}
       <div
         style={{
           fontSize: 12,
           color: t.text,
           fontFamily: 'ui-monospace,Menlo,monospace',
           padding: '6px 10px',
-          background: ratio != null ? t.accentSoft : t.chipBg,
-          border: `1px solid ${ratio != null ? t.accent : t.border}`,
+          background:
+            (isIntensity ? intensitySnr != null : ratio != null) ? t.accentSoft : t.chipBg,
+          border: `1px solid ${(isIntensity ? intensitySnr != null : ratio != null) ? t.accent : t.border}`,
           borderRadius: 4,
           textAlign: 'center',
           fontWeight: 600,
           letterSpacing: 0.4,
         }}
       >
-        TBR ={' '}
-        {ratio != null ? (
+        {isIntensity ? (
           <>
-            <span style={{ fontSize: 14 }}>{fmtRatio(ratio)}</span>
-            <span style={{ color: t.textMuted, fontWeight: 400 }}> ± {fmtRatio(ratioStd)}</span>
+            {tumorVal != null ? (
+              <>
+                Signal = <span style={{ fontSize: 14 }}>{fmtInt(tumorVal)}</span>
+                <span style={{ color: t.textMuted, fontWeight: 400 }}>
+                  {' '}± {fmtInt(tumorStd)}
+                </span>
+                {intensitySnr != null && (
+                  <>
+                    <span style={{ color: t.textMuted, fontWeight: 400 }}> · SNR = </span>
+                    <span style={{ fontSize: 14 }}>{fmtRatio(intensitySnr)}</span>
+                  </>
+                )}
+              </>
+            ) : (
+              'Signal = —'
+            )}
           </>
         ) : (
-          '—'
+          <>
+            TBR ={' '}
+            {ratio != null ? (
+              <>
+                <span style={{ fontSize: 14 }}>{fmtRatio(ratio)}</span>
+                <span style={{ color: t.textMuted, fontWeight: 400 }}>
+                  {' '}± {fmtRatio(ratioStd)}
+                </span>
+              </>
+            ) : (
+              '—'
+            )}
+          </>
         )}
       </div>
-      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-        <button
-          disabled={!canAdd}
-          onClick={commit}
-          data-tbr-add
-          title="Append the (tumor, background, ratio) measurement to the TBR table."
+      {/* M6 risk-skeptic P0-B — channel-mismatch banner. Visible only
+          in Intensity mode when the active draft channel differs from
+          the baseline's channel. The Intensity Add button is disabled
+          (Set-as-baseline is allowed — it ESTABLISHES the channel). */}
+      {isIntensity && channelMismatch && (
+        <div
+          data-lod-channel-mismatch
           style={{
-            ...roiBtnBase,
-            background: canAdd ? t.accent : t.chipBg,
-            color: canAdd ? '#fff' : t.textFaint,
-            cursor: canAdd ? 'pointer' : 'not-allowed',
-            flex: 1,
+            padding: '8px 10px',
+            fontSize: 11,
+            color: '#ff8a8a',
+            background: '#4a1f1f',
+            border: '1px solid #ff8a8a',
+            borderRadius: 4,
+            lineHeight: 1.45,
           }}
         >
-          Add to table
-        </button>
+          <strong>Channel mismatch.</strong> Baseline was drawn on{' '}
+          <code>{baselineEntry?.channel}</code> but the panel is on{' '}
+          <code>{tbrChannel}</code>. The threshold (μ + k·σ) would be in different DN units
+          than the signal — refused. Either switch the Channel selector back to{' '}
+          <code>{baselineEntry?.channel}</code>, or click <em>Replace baseline</em> after drawing
+          a fresh ROI on <code>{tbrChannel}</code>.
+        </div>
+      )}
+      {/* Commit row — buttons differ per mode. */}
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+        {isIntensity ? (
+          <>
+            <button
+              disabled={
+                !draft.tumorStats || !!draft.tumorStats?.__error || channelMismatch
+              }
+              onClick={() => commitIntensity('intensity')}
+              data-lod-add-signal
+              title={
+                channelMismatch
+                  ? `Cannot add: baseline is on ${baselineEntry?.channel}, panel is on ${tbrChannel}. Match channels or replace the baseline.`
+                  : 'Append this signal ROI to the table as an Intensity entry.'
+              }
+              style={{
+                ...roiBtnBase,
+                background:
+                  draft.tumorStats && !draft.tumorStats.__error && !channelMismatch
+                    ? t.accent
+                    : t.chipBg,
+                color:
+                  draft.tumorStats && !draft.tumorStats.__error && !channelMismatch
+                    ? '#fff'
+                    : t.textFaint,
+                cursor:
+                  draft.tumorStats && !draft.tumorStats.__error && !channelMismatch
+                    ? 'pointer'
+                    : 'not-allowed',
+                flex: 1,
+              }}
+            >
+              Add to table
+            </button>
+            <button
+              disabled={!draft.tumorStats || !!draft.tumorStats?.__error}
+              onClick={() => commitIntensity('baseline')}
+              data-lod-set-baseline
+              title="Use this ROI as the Baseline (replaces any existing baseline)."
+              style={{
+                ...roiBtnBase,
+                background:
+                  draft.tumorStats && !draft.tumorStats.__error ? BG_COLOR : t.chipBg,
+                color:
+                  draft.tumorStats && !draft.tumorStats.__error ? '#fff' : t.textFaint,
+                cursor:
+                  draft.tumorStats && !draft.tumorStats.__error
+                    ? 'pointer'
+                    : 'not-allowed',
+              }}
+            >
+              {baselineEntry ? 'Replace baseline' : 'Set as baseline'}
+            </button>
+          </>
+        ) : (
+          <button
+            disabled={!canAdd}
+            onClick={commit}
+            data-tbr-add
+            title="Append the (Signal, Background, ratio) measurement to the table. Background polygon is preserved for the next measurement."
+            style={{
+              ...roiBtnBase,
+              background: canAdd ? t.accent : t.chipBg,
+              color: canAdd ? '#fff' : t.textFaint,
+              cursor: canAdd ? 'pointer' : 'not-allowed',
+              flex: 1,
+            }}
+          >
+            Add to table
+          </button>
+        )}
         <button
           disabled={!entries || entries.length === 0}
           onClick={onOpenAnalysis}
@@ -12417,191 +13354,428 @@ const TbrAnalysisPanel = ({
           Open Analysis…
         </button>
       </div>
-      {entries && entries.length > 0 && (
-        <div
-          data-tbr-table
-          style={{
-            marginTop: 4,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 6,
-          }}
-        >
+      {(() => {
+        // play-lod-ratio-tools-v1 M3 — entry-list rewrite.
+        //
+        // Filter out baseline entries (they live in the Baseline status
+        // block above, not the main list); sort the rest by `order`
+        // with array-index fallback for any legacy entry that didn't
+        // get an order assigned. Sample numbers (`#1`, `#2`, ...) are
+        // derived from filtered+sorted POSITION, not the raw `order`
+        // field, so deletes don't leave gaps.
+        const renderable = (entries || [])
+          .map((e, idx) => ({ e, fallbackIdx: idx }))
+          .filter(({ e }) => e.kind !== 'baseline')
+          .sort((a, b) => {
+            const ao = typeof a.e.order === 'number' ? a.e.order : a.fallbackIdx;
+            const bo = typeof b.e.order === 'number' ? b.e.order : b.fallbackIdx;
+            return ao - bo;
+          })
+          .map(({ e }) => e);
+        if (renderable.length === 0) return null;
+        // Reorder helper — swap the `order` field with the prior /
+        // next renderable entry. Uses onUpdateEntry (no-op when not
+        // provided) so the parent's array re-sorts after the next
+        // render. Both halves of the swap are dispatched in parallel;
+        // React batches them within the same tick.
+        //
+        // M6 frontend-react-engineer P1-2 — when both entries share
+        // the same `order` value (possible if a future code path
+        // doesn't assign `max+1`, or if external import injects
+        // duplicates), the prior implementation wrote the same
+        // number to both → no reorder. Fix: when ao === bo, fall
+        // back to the renderable indices, which are guaranteed
+        // unique.
+        const moveEntry = (id, direction) => {
+          if (!onUpdateEntry) return;
+          const idx = renderable.findIndex((x) => x.id === id);
+          if (idx < 0) return;
+          const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+          if (swapIdx < 0 || swapIdx >= renderable.length) return;
+          const a = renderable[idx];
+          const b = renderable[swapIdx];
+          let ao = typeof a.order === 'number' ? a.order : idx;
+          let bo = typeof b.order === 'number' ? b.order : swapIdx;
+          if (ao === bo) {
+            // Duplicate — fall back to indices to guarantee distinct
+            // values + a real swap.
+            ao = idx;
+            bo = swapIdx;
+          }
+          onUpdateEntry(a.id, { order: bo });
+          onUpdateEntry(b.id, { order: ao });
+        };
+        return (
           <div
+            data-tbr-table
             style={{
+              marginTop: 4,
               display: 'flex',
-              alignItems: 'center',
+              flexDirection: 'column',
               gap: 6,
-              fontSize: 10,
-              color: t.textMuted,
-              fontWeight: 600,
-              letterSpacing: 0.4,
-              textTransform: 'uppercase',
-              padding: '0 2px',
             }}
           >
-            <span>Entries</span>
-            <span style={{ color: t.textFaint, fontWeight: 400 }}>({entries.length})</span>
-          </div>
-          {entries.map((e, i) => (
             <div
-              key={e.id}
-              data-tbr-entry={e.id}
               style={{
                 display: 'flex',
-                flexDirection: 'column',
-                gap: 4,
-                padding: '6px 8px',
-                border: `1px solid ${t.border}`,
-                borderRadius: 4,
-                background: t.panel,
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 10,
+                color: t.textMuted,
+                fontWeight: 600,
+                letterSpacing: 0.4,
+                textTransform: 'uppercase',
+                padding: '0 2px',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span
+              <span>Entries</span>
+              <span style={{ color: t.textFaint, fontWeight: 400 }}>({renderable.length})</span>
+            </div>
+            {renderable.map((e, i) => {
+              const isIntensityEntry = e.kind === 'intensity';
+              // Display value depends on entry kind: ratio for Ratio
+              // entries, signal value for Intensity entries. Falls back
+              // to legacy tumor*/ratio fields for v1-migrated entries.
+              const primaryValue = isIntensityEntry
+                ? (e.signalValue ?? e.tumorValue)
+                : e.ratio;
+              const primaryStd = isIntensityEntry
+                ? (e.signalStd ?? e.tumorStd)
+                : e.ratioStd;
+              const primaryFormat = isIntensityEntry ? fmtInt : fmtRatio;
+              return (
+                <div
+                  key={e.id}
+                  data-tbr-entry={e.id}
                   style={{
-                    fontSize: 9.5,
-                    fontFamily: 'ui-monospace,Menlo,monospace',
-                    color: t.textFaint,
-                    minWidth: 18,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4,
+                    padding: '6px 8px',
+                    border: `1px solid ${t.border}`,
+                    borderRadius: 4,
+                    background: t.panel,
                   }}
                 >
-                  #{i + 1}
-                </span>
-                <span
-                  style={{
-                    fontSize: 11.5,
-                    color: t.text,
-                    fontWeight: 500,
-                    flex: 1,
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                  title={`${e.sourceFile}\nframe ${e.frameIndex} · channel ${e.channel} · ${e.method}${e.method === 'percentile' ? `(${e.percentile})` : ''}`}
-                >
-                  {e.sourceFile}
-                </span>
-                <span
-                  style={{
-                    fontSize: 14,
-                    fontWeight: 700,
-                    color: t.accent,
-                    fontFamily: 'ui-monospace,Menlo,monospace',
-                  }}
-                >
-                  {fmtRatio(e.ratio)}
-                </span>
-                <span
-                  style={{
-                    fontSize: 10,
-                    color: t.textFaint,
-                    fontFamily: 'ui-monospace,Menlo,monospace',
-                  }}
-                >
-                  ±{fmtRatio(e.ratioStd)}
-                </span>
-                {(e.pipelineVersion ?? 1) < 2 && (
-                  <span
-                    title="Committed under the legacy pipeline (dark + black_level only). Click Recompute to apply sharpen / FPN / gain / offset from the current view."
-                    data-tbr-stale
-                    style={{
-                      fontSize: 9,
-                      fontWeight: 700,
-                      letterSpacing: '0.04em',
-                      color: '#f0a020',
-                      border: '1px solid #f0a020',
-                      borderRadius: 3,
-                      padding: '0 4px',
-                      lineHeight: '14px',
-                    }}
-                  >
-                    v1
-                  </span>
-                )}
-                {(() => {
-                  // Recompute applies the *current view's* ISP knobs to
-                  // the entry. If the entry was committed against a
-                  // different recording (entry.sourceId !== active
-                  // recording's source_id), the live view's knobs
-                  // wouldn't make sense — silently applying them would
-                  // produce a number the user can't reason about.
-                  // Disable + tooltip-explain instead.
-                  const sourceMismatch =
-                    !!recording && !!e.sourceId && e.sourceId !== recording.source_id;
-                  const busy = recomputingId === e.id;
-                  const disabled = busy || !onUpdateEntry || sourceMismatch;
-                  const title = busy
-                    ? 'Recomputing…'
-                    : sourceMismatch
-                      ? 'Switch the active view to this entry’s recording to recompute. The current view’s ISP knobs only apply to its own source.'
-                      : 'Recompute under the current view (gain / offset / sharpen / FPN). Polygon, frame, and channel stay locked.';
-                  return (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {/* Sample number — derived from filtered+sorted
+                        position, NOT the raw `order` field, so deletes
+                        leave no gaps. play-lod-ratio-tools-v1 M3a. */}
+                    <span
+                      style={{
+                        fontSize: 9.5,
+                        fontFamily: 'ui-monospace,Menlo,monospace',
+                        color: t.textFaint,
+                        minWidth: 18,
+                      }}
+                      data-tbr-sample-number
+                    >
+                      #{i + 1}
+                    </span>
+                    {/* Reorder arrows. play-lod-ratio-tools-v1 M3b. */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 0,
+                        marginRight: 2,
+                      }}
+                    >
+                      <button
+                        onClick={() => moveEntry(e.id, 'up')}
+                        disabled={i === 0}
+                        data-tbr-move-up
+                        title="Move this entry up"
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          padding: 0,
+                          width: 14,
+                          height: 11,
+                          cursor: i === 0 ? 'not-allowed' : 'pointer',
+                          color: i === 0 ? t.textFaint : t.textMuted,
+                          opacity: i === 0 ? 0.4 : 1,
+                          fontSize: 10,
+                          lineHeight: 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        ▲
+                      </button>
+                      <button
+                        onClick={() => moveEntry(e.id, 'down')}
+                        disabled={i === renderable.length - 1}
+                        data-tbr-move-down
+                        title="Move this entry down"
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          padding: 0,
+                          width: 14,
+                          height: 11,
+                          cursor:
+                            i === renderable.length - 1 ? 'not-allowed' : 'pointer',
+                          color:
+                            i === renderable.length - 1 ? t.textFaint : t.textMuted,
+                          opacity: i === renderable.length - 1 ? 0.4 : 1,
+                          fontSize: 10,
+                          lineHeight: 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        ▼
+                      </button>
+                    </div>
+                    {/* Inline-editable label. Defaults to filename when
+                        the user hasn't set a label. Empty string is
+                        valid (the user can clear) but the placeholder
+                        stays so the row is identifiable.
+                        play-lod-ratio-tools-v1 M3c. */}
+                    <input
+                      type="text"
+                      value={e.label ?? ''}
+                      placeholder={e.sourceFile || `entry-${i + 1}`}
+                      onChange={(ev) =>
+                        onUpdateEntry?.(e.id, { label: ev.target.value })
+                      }
+                      data-tbr-label
+                      title={`${e.sourceFile}\nframe ${e.frameIndex} · channel ${e.channel} · ${e.method}${e.method === 'percentile' ? `(${e.percentile})` : ''}`}
+                      style={{
+                        flex: 1,
+                        fontSize: 11.5,
+                        fontWeight: 500,
+                        padding: '2px 4px',
+                        background: 'transparent',
+                        color: t.text,
+                        border: '1px solid transparent',
+                        borderRadius: 3,
+                        fontFamily: 'inherit',
+                        minWidth: 0,
+                      }}
+                      onFocus={(ev) => {
+                        ev.target.style.borderColor = t.border;
+                        ev.target.style.background = t.chipBg;
+                      }}
+                      onBlur={(ev) => {
+                        ev.target.style.borderColor = 'transparent';
+                        ev.target.style.background = 'transparent';
+                      }}
+                    />
+                    <span
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 700,
+                        color: t.accent,
+                        fontFamily: 'ui-monospace,Menlo,monospace',
+                      }}
+                    >
+                      {primaryFormat(primaryValue)}
+                    </span>
+                    {primaryStd != null && (
+                      <span
+                        style={{
+                          fontSize: 10,
+                          color: t.textFaint,
+                          fontFamily: 'ui-monospace,Menlo,monospace',
+                        }}
+                      >
+                        ±{primaryFormat(primaryStd)}
+                      </span>
+                    )}
+                    {(e.pipelineVersion ?? 1) < 2 && (
+                      <span
+                        title="Committed under the legacy pipeline (dark + black_level only). Click Recompute to apply sharpen / FPN / gain / offset from the current view."
+                        data-tbr-stale
+                        style={{
+                          fontSize: 9,
+                          fontWeight: 700,
+                          letterSpacing: '0.04em',
+                          color: '#f0a020',
+                          border: '1px solid #f0a020',
+                          borderRadius: 3,
+                          padding: '0 4px',
+                          lineHeight: '14px',
+                        }}
+                      >
+                        v1
+                      </span>
+                    )}
+                    {(() => {
+                      // Recompute applies the *current view's* ISP knobs to
+                      // the entry. If the entry was committed against a
+                      // different recording (entry.sourceId !== active
+                      // recording's source_id), the live view's knobs
+                      // wouldn't make sense — silently applying them would
+                      // produce a number the user can't reason about.
+                      // Disable + tooltip-explain instead.
+                      const sourceMismatch =
+                        !!recording && !!e.sourceId && e.sourceId !== recording.source_id;
+                      const busy = recomputingId === e.id;
+                      const disabled = busy || !onUpdateEntry || sourceMismatch;
+                      const title = busy
+                        ? 'Recomputing…'
+                        : sourceMismatch
+                          ? 'Switch the active view to this entry’s recording to recompute. The current view’s ISP knobs only apply to its own source.'
+                          : 'Recompute under the current view (gain / offset / sharpen / FPN). Polygon, frame, and channel stay locked.';
+                      return (
+                        <button
+                          onClick={() => !disabled && recomputeEntry(e)}
+                          disabled={disabled}
+                          title={title}
+                          data-tbr-recompute
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            cursor: busy ? 'wait' : disabled ? 'not-allowed' : 'pointer',
+                            color: disabled ? t.textFaint : t.textMuted,
+                            padding: 2,
+                            display: 'flex',
+                            alignItems: 'center',
+                            opacity: disabled ? 0.5 : 1,
+                          }}
+                        >
+                          <Icon name="rotate" size={11} />
+                        </button>
+                      );
+                    })()}
                     <button
-                      onClick={() => !disabled && recomputeEntry(e)}
-                      disabled={disabled}
-                      title={title}
-                      data-tbr-recompute
+                      onClick={() => onRemoveEntry(e.id)}
+                      title="Remove this entry"
+                      data-tbr-remove
                       style={{
                         background: 'transparent',
                         border: 'none',
-                        cursor: busy ? 'wait' : disabled ? 'not-allowed' : 'pointer',
-                        color: disabled ? t.textFaint : t.textMuted,
+                        cursor: 'pointer',
+                        color: t.textFaint,
                         padding: 2,
                         display: 'flex',
                         alignItems: 'center',
-                        opacity: disabled ? 0.5 : 1,
                       }}
                     >
-                      <Icon name="rotate" size={11} />
+                      <Icon name="close" size={11} />
                     </button>
-                  );
-                })()}
-                <button
-                  onClick={() => onRemoveEntry(e.id)}
-                  title="Remove this entry"
-                  data-tbr-remove
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: t.textFaint,
-                    padding: 2,
-                    display: 'flex',
-                    alignItems: 'center',
-                  }}
-                >
-                  <Icon name="close" size={11} />
-                </button>
-              </div>
-              <div
-                style={{
-                  display: 'flex',
-                  gap: 12,
-                  fontSize: 10.5,
-                  fontFamily: 'ui-monospace,Menlo,monospace',
-                  color: t.textMuted,
-                }}
-              >
-                <span>
-                  <span style={{ color: TUMOR_COLOR }}>● </span>T:{' '}
-                  <span style={{ color: t.text }}>
-                    {fmtInt(e.tumorValue)}±{fmtInt(e.tumorStd)}
-                  </span>
-                </span>
-                <span>
-                  <span style={{ color: BG_COLOR }}>● </span>B:{' '}
-                  <span style={{ color: t.text }}>
-                    {fmtInt(e.bgValue)}±{fmtInt(e.bgStd)}
-                  </span>
-                </span>
-                <span>frame {e.frameIndex}</span>
-                <span>{e.channel}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+                  </div>
+                  {/* Numeric-value + unit row — flexible naming.
+                      Per user request 5: "allow user to give each
+                      entries in the table a name or a numerical number
+                      + unit (such as concentration, depth, etc.)".
+                      Empty values are stored as undefined so CSV /
+                      JSON exports omit them cleanly.
+                      play-lod-ratio-tools-v1 M3d. */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      fontSize: 10.5,
+                      color: t.textFaint,
+                    }}
+                  >
+                    <span style={{ minWidth: 32 }}>value</span>
+                    <input
+                      type="number"
+                      value={e.numericValue ?? ''}
+                      placeholder="—"
+                      onChange={(ev) => {
+                        const raw = ev.target.value;
+                        const next =
+                          raw === '' || raw == null
+                            ? undefined
+                            : Number.isFinite(Number(raw))
+                              ? Number(raw)
+                              : e.numericValue;
+                        onUpdateEntry?.(e.id, { numericValue: next });
+                      }}
+                      data-tbr-numeric-value
+                      step="any"
+                      style={{
+                        width: 70,
+                        fontSize: 10.5,
+                        padding: '2px 4px',
+                        background: t.chipBg,
+                        color: t.text,
+                        border: `1px solid ${t.border}`,
+                        borderRadius: 3,
+                        fontFamily: 'ui-monospace,Menlo,monospace',
+                      }}
+                    />
+                    <input
+                      type="text"
+                      value={e.unit ?? ''}
+                      placeholder="unit"
+                      onChange={(ev) =>
+                        onUpdateEntry?.(e.id, {
+                          unit: ev.target.value || undefined,
+                        })
+                      }
+                      data-tbr-unit
+                      title="Unit string (e.g. µM, mm, min). Used as the analysis-modal x-axis when present on every entry."
+                      style={{
+                        width: 50,
+                        fontSize: 10.5,
+                        padding: '2px 4px',
+                        background: t.chipBg,
+                        color: t.text,
+                        border: `1px solid ${t.border}`,
+                        borderRadius: 3,
+                        fontFamily: 'inherit',
+                      }}
+                    />
+                    <div style={{ flex: 1 }} />
+                    {/* Compact metadata strip — kind / channel /
+                        frame. Replaces the prior T:/B: detail line
+                        which is now redundant with the inline values. */}
+                    <span
+                      style={{
+                        fontFamily: 'ui-monospace,Menlo,monospace',
+                        color: t.textMuted,
+                      }}
+                    >
+                      {e.kind === 'intensity' ? 'I' : 'R'}
+                      {' · '}
+                      {e.channel}
+                      {' · f'}
+                      {e.frameIndex}
+                    </span>
+                  </div>
+                  {/* Ratio-mode-only secondary line: signal + bg
+                      values. Hidden for Intensity entries because the
+                      primary slot already shows the signal value. */}
+                  {!isIntensityEntry && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: 12,
+                        fontSize: 10.5,
+                        fontFamily: 'ui-monospace,Menlo,monospace',
+                        color: t.textMuted,
+                      }}
+                    >
+                      <span>
+                        <span style={{ color: TUMOR_COLOR }}>● </span>S:{' '}
+                        <span style={{ color: t.text }}>
+                          {fmtInt(e.signalValue ?? e.tumorValue)}±
+                          {fmtInt(e.signalStd ?? e.tumorStd)}
+                        </span>
+                      </span>
+                      <span>
+                        <span style={{ color: BG_COLOR }}>● </span>B:{' '}
+                        <span style={{ color: t.text }}>
+                          {fmtInt(e.bgValue)}±{fmtInt(e.bgStd)}
+                        </span>
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
     </div>
   );
 };

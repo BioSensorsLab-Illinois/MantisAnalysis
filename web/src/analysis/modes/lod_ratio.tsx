@@ -13,6 +13,7 @@
 import React, { useCallback, useMemo } from 'react';
 import * as _shared from '../../shared.tsx';
 import { FilterLabel } from '../filterbar';
+import { computeLod, type LodK } from '../../playback/lod';
 import type { FilterCommonState, ModeHelpers, ModeSpec, ModeView, RunRecord } from '../types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -21,13 +22,43 @@ const useTheme = _s.useTheme as () => Record<string, string>;
 const exportCSV = _s.exportCSV as (filename: string, rows: ReadonlyArray<unknown>) => void;
 const exportJSON = _s.exportJSON as (filename: string, payload: unknown) => void;
 const Segmented = _s.Segmented as React.ComponentType<{
-  value: string;
-  onChange: (v: string) => void;
-  options: ReadonlyArray<{ value: string; label: string }>;
+  value: string | number;
+  onChange: (v: string | number) => void;
+  options: ReadonlyArray<{ value: string | number; label: string }>;
 }>;
+// play-lod-ratio-tools-v1 M5 — Intensity-mode controls (k segmented +
+// sustained checkbox). Reuses shared primitives so visual style
+// matches the rest of the inspector / modal.
+const Checkbox = _s.Checkbox as React.ComponentType<{
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  ariaLabel?: string;
+}>;
+const useLocalStorageState = _s.useLocalStorageState as <T>(
+  key: string,
+  initial: T
+) => [T, (v: T | ((prev: T) => T)) => void];
 
 interface TbrEntry {
   id: string;
+  // play-lod-ratio-tools-v1 M2 — discriminator across the unified
+  // entry shape. v1-migrated rows + Ratio commits get 'ratio';
+  // Intensity commits get 'intensity'; the single shared baseline
+  // ROI is 'baseline' and lives outside the renderable list.
+  kind?: 'ratio' | 'intensity' | 'baseline';
+  analysisMode?: 'ratio' | 'intensity';
+  // play-lod-ratio-tools-v1 M3 — flexible naming. Optional; the UI
+  // falls back to sourceFile when label is missing.
+  label?: string;
+  numericValue?: number;
+  unit?: string;
+  order?: number;
+  // Canonical v2 names (signalPolygon/signalValue/...) + legacy
+  // tumor* aliases for v1-migrated entries.
+  signalPolygon?: ReadonlyArray<readonly [number, number]>;
+  signalValue?: number;
+  signalStd?: number;
+  signalN?: number;
   sourceFile?: string;
   sourceId?: string;
   frameIndex: number;
@@ -172,14 +203,85 @@ const useTbrModeView = (
   const resp = (run.response || {}) as TbrResponse;
   const allEntries: readonly TbrEntry[] = resp.tbr_entries || [];
 
-  // Apply the shell's channel filter to entries.
-  const entries = useMemo<readonly TbrEntry[]>(
+  // Apply the shell's channel filter to entries. Note: this includes
+  // ratio + intensity + baseline kinds; downstream consumers split
+  // by kind via the derivations below.
+  const visible = useMemo<readonly TbrEntry[]>(
     () =>
       common.visibleChannels.length === 0
         ? allEntries
         : allEntries.filter((e) => common.visibleChannels.includes(e.channel)),
     [allEntries, common.visibleChannels]
   );
+
+  // play-lod-ratio-tools-v1 M5 — split by kind. v1-migrated entries
+  // get kind='ratio' from the migration shim; v2 entries carry their
+  // own discriminator. Default to 'ratio' for any legacy row that
+  // somehow reached here without a kind so the existing Ratio plots
+  // keep working.
+  const ratioEntries = useMemo<readonly TbrEntry[]>(
+    () =>
+      visible.filter(
+        (e) => (e.kind ?? 'ratio') === 'ratio'
+      ),
+    [visible]
+  );
+  const intensityEntries = useMemo<readonly TbrEntry[]>(
+    () => visible.filter((e) => e.kind === 'intensity'),
+    [visible]
+  );
+  // M6 risk-skeptic P1-C — baseline lookup must use the UNFILTERED
+  // entries set, not the channel-filtered `visible`. If the user
+  // applies a channel chip filter that doesn't include the
+  // baseline's channel, we'd otherwise drop the baseline and the
+  // modal would render "Set a baseline ROI" while the panel still
+  // shows it. The threshold + LoD calculation is meaningful only
+  // when baseline + signal share a channel anyway (panel-side
+  // P0-B guard enforces that on commit).
+  const baselineEntry = useMemo<TbrEntry | null>(
+    () => allEntries.find((e) => e.kind === 'baseline') ?? null,
+    [allEntries]
+  );
+
+  // The legacy `entries` symbol (used by every ratio plot below) is
+  // now the ratio-only slice. Kept under the same name so the rest
+  // of the file is unchanged. play-lod-ratio-tools-v1 M5.
+  const entries = ratioEntries;
+
+  // ---- LoD state (Intensity-mode controls) ---------------------
+  // k ∈ {3, 6, 10}. Default 3 = limit of detection (IUPAC). Persisted
+  // so the user's last choice survives reloads.
+  const [kSigma, setKSigma] = useLocalStorageState<LodK>(
+    'mantis/lodRatioModal.k.v1',
+    3
+  );
+  const [sustained, setSustained] = useLocalStorageState<boolean>(
+    'mantis/lodRatioModal.sustained.v1',
+    true
+  );
+
+  const lodResult = useMemo(() => {
+    const baseSrc = baselineEntry;
+    const baseline = baseSrc
+      ? {
+          mean: (baseSrc.signalValue ?? baseSrc.tumorValue) || 0,
+          std: (baseSrc.signalStd ?? baseSrc.tumorStd) || 0,
+          n: baseSrc.signalN ?? baseSrc.tumorN ?? null,
+        }
+      : null;
+    return computeLod({
+      baseline,
+      entries: intensityEntries.map((e) => ({
+        id: e.id,
+        signalValue: (e.signalValue ?? e.tumorValue) || 0,
+        signalStd: e.signalStd ?? e.tumorStd ?? null,
+        numericValue: e.numericValue ?? null,
+        label: e.label ?? null,
+      })),
+      k: kSigma,
+      sustained,
+    });
+  }, [baselineEntry, intensityEntries, kSigma, sustained]);
 
   const ratios = useMemo<readonly number[]>(
     () => entries.map((e) => e.ratio).filter((v) => Number.isFinite(v)),
@@ -738,11 +840,409 @@ const useTbrModeView = (
 
   // ---- per-tab body ----
   const renderTab = useCallback((): React.ReactNode => {
+    // play-lod-ratio-tools-v1 M5 — Intensity-mode tabs. Render before
+    // the legacy ratio empty-state branch so a session that only has
+    // Intensity entries still renders something useful.
+    if (
+      common.tab === 'lod_summary' ||
+      common.tab === 'lod_intensity' ||
+      common.tab === 'lod_snr'
+    ) {
+      if (intensityEntries.length === 0) {
+        return (
+          <div style={{ padding: 24, fontSize: 13, color: t.textMuted }}>
+            No Intensity entries match the current channel filter. Switch the LoD/Ratio panel to
+            Intensity mode and add a baseline + at least one signal ROI.
+          </div>
+        );
+      }
+      if (common.tab === 'lod_summary') {
+        // M6 risk-skeptic P0-A / P1-C / P1-D — surface every diagnostic
+        // as a colored banner so the user cannot miss a degenerate
+        // baseline, missing baseline, or non-monotonic ladder.
+        const diagnosticBanners = lodResult.diagnostics.map((code) => {
+          const [bg, fg, msg] = (() => {
+            switch (code) {
+              case 'no-baseline':
+                return [
+                  '#3a2a2a',
+                  '#f7d96e',
+                  'No baseline ROI set. Switch to Intensity mode in the LoD/Ratio panel and click "Set as baseline" on a signal-free region. The LoD calculation cannot proceed without a baseline.',
+                ];
+              case 'degenerate-baseline':
+                return [
+                  '#4a1f1f',
+                  '#ff8a8a',
+                  'Baseline σ is zero or non-finite (single-pixel polygon, or fully-constant region). Threshold collapses to μ and any positive signal would falsely pass — the LoD is REFUSED. Re-draw the baseline ROI to cover ≥ ~50 representative pixels with non-trivial variance.',
+                ];
+              case 'no-numeric':
+                return [
+                  '#2f2a14',
+                  '#f7d96e',
+                  'No entries carry a numeric value (concentration / depth / time). Click each row in the LoD/Ratio panel and fill in the value + unit fields so the LoD search has an x-axis to compare on.',
+                ];
+              case 'non-monotonic':
+                return [
+                  '#2f2a14',
+                  '#f7a83a',
+                  'Non-monotonic ladder detected: at least one entry below the reported LoD also passes the threshold. This usually indicates sensor saturation, a lens artifact, or a misordered sample. The sustained-LoD is anchored to the highest contiguous pass run — review the SNR tab for outliers.',
+                ];
+              default:
+                return ['#2f2a14', '#f7d96e', `Diagnostic: ${code}`];
+            }
+          })();
+          return (
+            <div
+              key={code}
+              data-lod-diagnostic={code}
+              style={{
+                padding: 10,
+                fontSize: 12,
+                lineHeight: 1.45,
+                color: fg,
+                background: bg,
+                border: `1px solid ${fg}`,
+                borderRadius: 4,
+              }}
+            >
+              <strong style={{ marginRight: 6 }}>{code}:</strong>
+              {msg}
+            </div>
+          );
+        });
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {diagnosticBanners.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {diagnosticBanners}
+              </div>
+            )}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
+                gap: 10,
+              }}
+            >
+              <StatCard
+                label="LoD"
+                value={
+                  lodResult.lod
+                    ? `${fmt2(lodResult.lod.numericValue)}${
+                        // Try to use any entry's unit (assumes one
+                        // unit per dataset; users would mix units
+                        // rarely and at their own risk).
+                        intensityEntries.find((e) => e.unit)?.unit
+                          ? ' ' + intensityEntries.find((e) => e.unit)?.unit
+                          : ''
+                      }`
+                    : lodResult.diagnostics.includes('degenerate-baseline')
+                      ? 'refused — degenerate baseline'
+                      : lodResult.anyPasses
+                        ? '— (no numeric ladder)'
+                        : 'no detection'
+                }
+                hint={`k = ${lodResult.k}${
+                  lodResult.sustained ? ' · sustained' : ' · single-pass'
+                }`}
+                accent
+              />
+              <StatCard
+                label="Threshold (μ + k·σ)"
+                value={
+                  lodResult.threshold != null ? fmtInt(lodResult.threshold) : '—'
+                }
+                hint={
+                  baselineEntry
+                    ? `μ=${fmtInt(
+                        baselineEntry.signalValue ?? baselineEntry.tumorValue
+                      )} σ=${fmtInt(
+                        baselineEntry.signalStd ?? baselineEntry.tumorStd
+                      )}`
+                    : 'no baseline set'
+                }
+              />
+              <StatCard
+                label="entries pass / total"
+                value={`${
+                  lodResult.perEntry.filter((p) => p.passes).length
+                } / ${lodResult.perEntry.length}`}
+              />
+              <StatCard
+                label="baseline n_pixels"
+                value={
+                  baselineEntry
+                    ? String(
+                        baselineEntry.signalN ?? baselineEntry.tumorN ?? '—'
+                      )
+                    : '—'
+                }
+              />
+            </div>
+            {!baselineEntry && (
+              <div
+                style={{
+                  padding: 12,
+                  fontSize: 12,
+                  color: t.textMuted,
+                  border: `1px solid ${t.border}`,
+                  borderRadius: 4,
+                  background: t.chipBg,
+                }}
+                data-lod-no-baseline-msg
+              >
+                Set a Baseline ROI in the LoD/Ratio panel (Intensity mode) to compute LoD.
+                Without a baseline, no SNR or detection threshold can be derived.
+              </div>
+            )}
+          </div>
+        );
+      }
+      if (common.tab === 'lod_intensity') {
+        // Per-entry intensity bar chart with the threshold line.
+        // Reuses the same chart geometry as the ratio bar chart.
+        const intensityVals = intensityEntries.map(
+          (e) => (e.signalValue ?? e.tumorValue) || 0
+        );
+        const yMax =
+          Math.max(
+            0.001,
+            ...intensityVals,
+            lodResult.threshold ?? 0
+          ) * 1.15;
+        const yScale = (v: number) =>
+          PAD.t + innerH - (Math.max(0, v) / yMax) * innerH;
+        const barW = innerW / Math.max(1, intensityEntries.length);
+        return (
+          <PlotCard
+            title="Per-entry signal intensity"
+            subtitle={
+              lodResult.threshold != null
+                ? `Dashed amber line marks the LoD threshold (μ_baseline + ${lodResult.k}·σ_baseline). Bars above pass.`
+                : 'Set a baseline ROI to overlay the LoD threshold.'
+            }
+          >
+            <svg
+              viewBox={`0 0 ${W} ${H}`}
+              data-lod-intensity-chart
+              style={{ width: '100%', height: H }}
+            >
+              {/* y-axis grid */}
+              {[0, 0.25, 0.5, 0.75, 1].map((f) => {
+                const y = PAD.t + innerH * (1 - f);
+                return (
+                  <g key={f}>
+                    <line
+                      x1={PAD.l}
+                      x2={W - PAD.r}
+                      y1={y}
+                      y2={y}
+                      stroke={t.border}
+                      strokeDasharray="3,3"
+                    />
+                    <text
+                      x={PAD.l - 6}
+                      y={y + 3}
+                      textAnchor="end"
+                      fontSize="10"
+                      fill={t.textFaint}
+                    >
+                      {fmtInt(yMax * f)}
+                    </text>
+                  </g>
+                );
+              })}
+              {/* threshold reference line */}
+              {lodResult.threshold != null && (
+                <g>
+                  <line
+                    x1={PAD.l}
+                    x2={W - PAD.r}
+                    y1={yScale(lodResult.threshold)}
+                    y2={yScale(lodResult.threshold)}
+                    stroke="#e5a13a"
+                    strokeDasharray="6,3"
+                    strokeWidth={1.4}
+                  />
+                  <text
+                    x={W - PAD.r - 6}
+                    y={yScale(lodResult.threshold) - 5}
+                    fontSize="10"
+                    fill="#e5a13a"
+                    textAnchor="end"
+                  >
+                    LoD = μ + {lodResult.k}σ
+                  </text>
+                </g>
+              )}
+              {intensityEntries.map((e, i) => {
+                const v = (e.signalValue ?? e.tumorValue) || 0;
+                const y = yScale(v);
+                const h = Math.max(0, PAD.t + innerH - y);
+                const passes =
+                  lodResult.perEntry.find((p) => p.entryId === e.id)?.passes;
+                const isLod = lodResult.lod?.entryId === e.id;
+                return (
+                  <g key={e.id}>
+                    <rect
+                      x={PAD.l + i * barW + barW * 0.15}
+                      y={y}
+                      width={barW * 0.7}
+                      height={h}
+                      fill={isLod ? '#e5a13a' : passes ? '#3ecbe5' : '#5d6773'}
+                      opacity={0.9}
+                    />
+                    <text
+                      x={PAD.l + i * barW + barW * 0.5}
+                      y={H - PAD.b + 14}
+                      textAnchor="middle"
+                      fontSize="9.5"
+                      fill={t.textMuted}
+                    >
+                      {e.label || (e.numericValue != null ? fmt2(e.numericValue) : i + 1)}
+                    </text>
+                  </g>
+                );
+              })}
+              <text
+                x={PAD.l - 42}
+                y={PAD.t + innerH / 2}
+                fontSize="10.5"
+                fill={t.textMuted}
+                transform={`rotate(-90 ${PAD.l - 42} ${PAD.t + innerH / 2})`}
+              >
+                signal (DN)
+              </text>
+            </svg>
+          </PlotCard>
+        );
+      }
+      if (common.tab === 'lod_snr') {
+        // SNR scatter: x=numericValue (or entry index), y=snr; with k-line.
+        const snrVals = lodResult.perEntry
+          .map((p) => p.snr)
+          .filter((v): v is number => Number.isFinite(v ?? NaN));
+        if (snrVals.length === 0) {
+          return (
+            <div style={{ padding: 24, fontSize: 13, color: t.textMuted }}>
+              SNR is undefined when the baseline standard deviation is zero (or no baseline
+              is set). Set a baseline ROI with a non-degenerate polygon to populate this view.
+            </div>
+          );
+        }
+        const yMaxSnr = Math.max(lodResult.k * 1.5, ...snrVals.map((v) => Math.abs(v))) * 1.1;
+        const useNumericX = intensityEntries.every((e) => Number.isFinite(e.numericValue ?? NaN));
+        const xVals = useNumericX
+          ? intensityEntries.map((e) => e.numericValue as number)
+          : intensityEntries.map((_, i) => i);
+        const xMin = Math.min(...xVals);
+        const xMax = Math.max(...xVals, xMin + 1);
+        const xScale = (v: number) =>
+          PAD.l + ((v - xMin) / (xMax - xMin || 1)) * innerW;
+        const ySnrScale = (v: number) =>
+          PAD.t + innerH / 2 - (v / yMaxSnr) * (innerH / 2);
+        const unit = intensityEntries.find((e) => e.unit)?.unit || '';
+        return (
+          <PlotCard
+            title="SNR by entry"
+            subtitle={`SNR = (signal − μ_baseline) / σ_baseline. Dashed line marks SNR = ${lodResult.k}; points above pass.`}
+          >
+            <svg
+              viewBox={`0 0 ${W} ${H}`}
+              data-lod-snr-chart
+              style={{ width: '100%', height: H }}
+            >
+              {/* y=0 axis */}
+              <line
+                x1={PAD.l}
+                x2={W - PAD.r}
+                y1={ySnrScale(0)}
+                y2={ySnrScale(0)}
+                stroke={t.border}
+              />
+              {/* SNR=k threshold */}
+              <line
+                x1={PAD.l}
+                x2={W - PAD.r}
+                y1={ySnrScale(lodResult.k)}
+                y2={ySnrScale(lodResult.k)}
+                stroke="#e5a13a"
+                strokeDasharray="6,3"
+                strokeWidth={1.4}
+              />
+              <text
+                x={W - PAD.r - 6}
+                y={ySnrScale(lodResult.k) - 5}
+                fontSize="10"
+                fill="#e5a13a"
+                textAnchor="end"
+              >
+                SNR = {lodResult.k}
+              </text>
+              {/* points */}
+              {intensityEntries.map((e, i) => {
+                const p = lodResult.perEntry.find((pp) => pp.entryId === e.id);
+                if (!p || p.snr == null) return null;
+                const cx = xScale(xVals[i]);
+                const cy = ySnrScale(p.snr);
+                const isLod = lodResult.lod?.entryId === e.id;
+                return (
+                  <g key={e.id}>
+                    <circle
+                      cx={cx}
+                      cy={cy}
+                      r={isLod ? 6 : 4}
+                      fill={isLod ? '#e5a13a' : p.passes ? '#3ecbe5' : '#5d6773'}
+                      stroke="#fff"
+                      strokeWidth={1}
+                    />
+                    {(isLod || p.passes) && (
+                      <text
+                        x={cx + 6}
+                        y={cy - 6}
+                        fontSize="9"
+                        fill={t.textMuted}
+                      >
+                        {e.label || `#${i + 1}`}
+                      </text>
+                    )}
+                  </g>
+                );
+              })}
+              <text
+                x={PAD.l - 42}
+                y={PAD.t + innerH / 2}
+                fontSize="10.5"
+                fill={t.textMuted}
+                transform={`rotate(-90 ${PAD.l - 42} ${PAD.t + innerH / 2})`}
+              >
+                SNR
+              </text>
+              <text
+                x={W / 2}
+                y={H - 6}
+                fontSize="10.5"
+                fill={t.textMuted}
+                textAnchor="middle"
+              >
+                {useNumericX
+                  ? `numeric value${unit ? ` (${unit})` : ''}`
+                  : 'entry index'}
+              </text>
+            </svg>
+          </PlotCard>
+        );
+      }
+    }
+    // Legacy Ratio-mode branches (entries.length === 0 means no Ratio
+    // entries; the legacy "no entries" empty state still works when
+    // both kinds are absent).
     if (entries.length === 0) {
       return (
         <div style={{ padding: 24, fontSize: 13, color: t.textMuted }}>
-          No TBR entries match the current channel filter. Use Inspector → TBR Analysis to draw a
-          Tumor and a Background ROI on a frame, then click &ldquo;Add to table&rdquo;.
+          No Ratio entries match the current channel filter. Use Inspector → LoD/Ratio Analysis
+          (Ratio mode) to draw a Signal and a Background ROI on a frame, then click
+          &ldquo;Add to table&rdquo;.
         </div>
       );
     }
@@ -998,16 +1498,76 @@ const useTbrModeView = (
       );
     }
     return null;
-  }, [common.tab, entries, summary, byFile, byChannel, t, ratioMax, intensityMax]);
+  }, [
+    common.tab,
+    entries,
+    summary,
+    byFile,
+    byChannel,
+    t,
+    ratioMax,
+    intensityMax,
+    intensityEntries,
+    baselineEntry,
+    lodResult,
+    PAD.t,
+    PAD.l,
+    PAD.r,
+    PAD.b,
+    innerH,
+    innerW,
+  ]);
+
+  // ---- filter extras (k + sustained controls — Intensity-mode only) ----
+  const filterExtras = useMemo<React.ReactNode>(() => {
+    if (intensityEntries.length === 0) return null;
+    return (
+      <div
+        style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}
+        data-lod-filter-extras
+      >
+        <FilterLabel>k</FilterLabel>
+        <Segmented
+          value={kSigma}
+          onChange={(v) => setKSigma(Number(v) as LodK)}
+          options={[
+            { value: 3, label: 'k=3' },
+            { value: 6, label: 'k=6' },
+            { value: 10, label: 'k=10' },
+          ]}
+        />
+        <Checkbox
+          checked={sustained}
+          onChange={(v) => setSustained(!!v)}
+          ariaLabel="Sustained criterion"
+        />
+        <span
+          style={{ fontSize: 11, color: t.textMuted }}
+          title="When ON, LoD is the lowest numeric value where all entries at-or-above also pass. When OFF, LoD is just the lowest passing entry."
+        >
+          sustained
+        </span>
+      </div>
+    );
+  }, [intensityEntries.length, kSigma, sustained, t.textMuted, setKSigma, setSustained]);
 
   // ---- exports ----
   const onExportCSV = useCallback(() => {
-    if (entries.length === 0) {
+    // Export every visible entry (ratio + intensity + baseline) so
+    // CSV consumers see the full dataset. Each row tags itself via
+    // `kind` so downstream tooling can split. play-lod-ratio-tools-v1 M5e.
+    if (visible.length === 0) {
       helpers.onToast('No entries to export', 'warn');
       return;
     }
-    const rows = entries.map((e, i) => ({
+    const rows = visible.map((e, i) => ({
       n: i + 1,
+      kind: e.kind ?? 'ratio',
+      analysis_mode: e.analysisMode ?? 'ratio',
+      label: e.label ?? '',
+      numeric_value: e.numericValue ?? '',
+      unit: e.unit ?? '',
+      order: e.order ?? i,
       file: e.sourceFile,
       frame: e.frameIndex,
       channel: e.channel,
@@ -1015,59 +1575,101 @@ const useTbrModeView = (
       percentile: e.method === 'percentile' ? e.percentile : '',
       apply_dark: e.applyDark ? 1 : 0,
       black_level: e.blackLevel,
-      tumor_value: e.tumorValue,
-      tumor_std: e.tumorStd,
-      tumor_n: e.tumorN,
-      bg_value: e.bgValue,
-      bg_std: e.bgStd,
-      bg_n: e.bgN,
-      ratio: e.ratio,
-      ratio_std: e.ratioStd,
+      signal_value: e.signalValue ?? e.tumorValue,
+      signal_std: e.signalStd ?? e.tumorStd,
+      signal_n: e.signalN ?? e.tumorN,
+      bg_value: e.bgValue ?? '',
+      bg_std: e.bgStd ?? '',
+      bg_n: e.bgN ?? '',
+      ratio: e.ratio ?? '',
+      ratio_std: e.ratioStd ?? '',
       created_at: e.createdAt,
     }));
-    exportCSV(`tbr_analysis_${Date.now()}.csv`, rows);
-  }, [entries, helpers]);
+    exportCSV(`lod_ratio_${Date.now()}.csv`, rows);
+  }, [visible, helpers]);
 
   const onExportJSON = useCallback(() => {
-    if (entries.length === 0) {
+    if (visible.length === 0) {
       helpers.onToast('No entries to export', 'warn');
       return;
     }
-    exportJSON(`tbr_analysis_${Date.now()}.json`, {
-      mode: 'tbr',
+    exportJSON(`lod_ratio_${Date.now()}.json`, {
+      mode: 'lod_ratio',
       generated_at: new Date().toISOString(),
-      summary,
-      by_file: byFile,
-      by_channel: byChannel,
-      entries,
+      ratio_summary: summary,
+      ratio_by_file: byFile,
+      ratio_by_channel: byChannel,
+      lod: lodResult,
+      baseline_entry: baselineEntry,
+      entries: visible,
     });
-  }, [entries, summary, byFile, byChannel, helpers]);
+  }, [visible, summary, byFile, byChannel, lodResult, baselineEntry, helpers]);
+
+  // play-lod-ratio-tools-v1 M5 — countsText now reports both kinds
+  // so the user sees at a glance how the table splits. Subtitle
+  // shows the LoD when an Intensity dataset is present, falling back
+  // to the legacy Ratio summary otherwise.
+  const countsText = (() => {
+    const parts: string[] = [];
+    if (entries.length > 0) parts.push(`${entries.length} ratio`);
+    if (intensityEntries.length > 0) parts.push(`${intensityEntries.length} intensity`);
+    if (baselineEntry) parts.push('1 baseline');
+    if (parts.length === 0) parts.push('0 entries');
+    return `LoD/Ratio · ${parts.join(' · ')} (of ${allEntries.length} total)`;
+  })();
+  const subtitleText = (() => {
+    if (intensityEntries.length > 0 && lodResult.threshold != null) {
+      const lodTxt = lodResult.lod
+        ? `LoD = ${fmt2(lodResult.lod.numericValue)}${
+            intensityEntries.find((e) => e.unit)?.unit
+              ? ' ' + intensityEntries.find((e) => e.unit)?.unit
+              : ''
+          }`
+        : 'no LoD found';
+      return `${lodTxt} · k=${lodResult.k}${
+        lodResult.sustained ? ' · sustained' : ''
+      } · ${lodResult.perEntry.filter((p) => p.passes).length}/${
+        lodResult.perEntry.length
+      } pass`;
+    }
+    return summary
+      ? `mean ${fmt2(summary.mean)} · median ${fmt2(summary.median)} · n=${summary.n}`
+      : 'no entries';
+  })();
 
   return {
-    filterExtras: null,
-    countsText: `TBR Analysis · ${entries.length}/${allEntries.length} entr${entries.length === 1 ? 'y' : 'ies'}`,
-    subtitleText: summary
-      ? `mean ${fmt2(summary.mean)} · median ${fmt2(summary.median)} · n=${summary.n}`
-      : 'no entries',
+    filterExtras,
+    countsText,
+    subtitleText,
     renderTab,
     onExportCSV,
     onExportJSON,
   };
 };
 
-export const tbrSpec: ModeSpec = {
-  id: 'tbr',
-  defaultTab: 'overview',
+// play-lod-ratio-tools-v1 M2 — was `tbrSpec`. Renamed to
+// `lodRatioSpec` along with the analysis-mode id `'tbr'` →
+// `'lod_ratio'`. M5 added three Intensity-mode tabs at the front:
+// LoD Summary (KPI cards), Intensity (per-entry bar with threshold
+// reference line), SNR (scatter with k-line). The legacy Ratio
+// tabs follow; both groups render an empty-state when no entries
+// of their kind are present.
+export const lodRatioSpec: ModeSpec = {
+  id: 'lod_ratio',
+  defaultTab: 'lod_summary',
   tabs: [
-    { key: 'overview', label: 'Overview' },
-    { key: 'tumorvbg', label: 'Tumor vs Background' },
+    { key: 'lod_summary', label: 'LoD Summary' },
+    { key: 'lod_intensity', label: 'Intensity' },
+    { key: 'lod_snr', label: 'SNR' },
+    { key: 'overview', label: 'Ratio Overview' },
+    { key: 'tumorvbg', label: 'Signal vs Background' },
     { key: 'scatter', label: 'Scatter' },
     { key: 'distribution', label: 'Distribution' },
     { key: 'grouping', label: 'By file / channel' },
     { key: 'table', label: 'Table' },
   ],
-  pngFilename: (tab) => `tbr_${tab || 'overview'}_${Date.now()}.png`,
+  pngFilename: (tab) => `lod_ratio_${tab || 'overview'}_${Date.now()}.png`,
   useModeView: useTbrModeView,
 };
 
-export default tbrSpec;
+export default lodRatioSpec;

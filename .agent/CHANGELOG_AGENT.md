@@ -4,6 +4,99 @@ Append-only log of agent sessions. One bullet per session, newest at top.
 
 ---
 
+**2026-05-07 — play-lod-ratio-tools-v1 INITIATIVE CLOSED — 6 Play-mode data-inspection features (pixel readback, LoD/Ratio dual-mode, flexible labels, FloatingWindow pop-out)**
+
+User-requested overhaul of Play-mode TBR tooling. Six features
+delivered across 7 milestones (M0 scaffold → M6 reviewer + close):
+
+(1) **Live cursor pixel-readback** — bottom-left canvas badge shows
+    `(x, y) · CHANNEL = N DN` and the displayed RGB triplet.
+    Debounced 120 ms POST to new
+    `/api/sources/{sid}/frame/{fi}/channel/{ch}/pixel` route. Pipeline
+    matches `frame_channel_roi_stats` byte-for-byte (proven by a
+    sub-pixel-polygon parity test asserting equality within 1e-9 +
+    an HDR-fusion parity test).
+
+(2) **TBR auto-clear-signal-only** — Ratio commit preserves the
+    background polygon for the next paired measurement (was clearing
+    both). Tooltip documents the preservation.
+
+(3) **Mode rename `'tbr'` → `'lod_ratio'`** end-to-end with one-way
+    v1 → v2 localStorage migration. v1 entries gain `kind: 'ratio'`,
+    `analysisMode: 'ratio'`, `order: idx`, and `signal*` aliases
+    mirrored from `tumor*`. v1 key removed on success. File rename
+    `web/src/analysis/modes/tbr.tsx → lod_ratio.tsx` (git mv);
+    `AnalysisMode` union + registry updated.
+
+(4) **Ratio | Intensity dual-mode panel** — Segmented control at the
+    top of `LodRatioPanel` (was `TbrAnalysisPanel`). Intensity mode
+    adds a baseline-entry workflow (Set as baseline / Replace
+    baseline) with a status block showing μ ± σ + n + channel + frame.
+    Live SNR readout when both signal + baseline exist. Cross-channel
+    guard refuses Intensity commits when `tbrChannel !== baselineEntry.channel`
+    (with a panel-level red banner).
+
+(5) **Flexible per-row labels + numericValue + unit** — inline
+    editable inputs per entry. Up/down arrow reorder (handles
+    duplicate `order` via index fallback). Sample-number `#N` column
+    derived from filtered+sorted position so deletes leave no gaps.
+
+(6) **Pop-out via FloatingWindow** — entire panel detaches into a
+    drag/resize floating window with persisted geometry +
+    viewport clamp on mount. Inspector section collapses to a "Popped
+    out · Dock back" pill when popped.
+
+**Analysis modal Intensity branch (M5)** — new `web/src/playback/lod.ts`
+(~190 LOC pure helper) implementing IUPAC k·σ rule + sustained
+criterion + diagnostics (`degenerate-baseline`, `non-monotonic`,
+`no-baseline`, `no-numeric`). Three new tabs (`LoD Summary`,
+`Intensity`, `SNR`) with KPI cards, threshold-line bar chart, SNR
+scatter with k-line. Filter-bar adds `k` segmented control
+({3, 6, 10}, default 3) + sustained checkbox; both persist via
+localStorage. CSV/JSON exports gained `kind`, `analysis_mode`,
+`label`, `numeric_value`, `unit`, `order`, `signal_*` fields; JSON
+adds top-level `lod` block + `baseline_entry`.
+
+**M6 reviewer pass** — 3 reviewers in parallel
+(fastapi-backend-reviewer, frontend-react-engineer, risk-skeptic).
+**risk-skeptic flagged 2 P0s** that produce confidently-wrong
+scientific numbers: (P0-A) σ_baseline ≤ 0 (single-pixel polygon)
+collapses threshold to μ exactly so any positive signal "passes" —
+fixed by refusing to compute LoD + emitting a `degenerate-baseline`
+diagnostic that renders as a red modal banner; (P0-B) cross-channel
+baseline + signal silently produces a meaningless number — fixed
+by panel-level commit guard + channel-mismatch banner. All P1s
+resolved (pixel re-render storm via state-bail in setPixelInfo;
+debounce 30 ms → 120 ms; moveEntry duplicate-`order` fallback to
+indices; baselineEntry uses unfiltered `allEntries`; non-monotonic
+detection; FloatingWindow viewport clamp; backend parity test
+tightened to single-pixel polygon byte-for-byte; HDR-fusion parity
+test added). Reviews persisted to
+`.agent/runs/play-lod-ratio-tools-v1/reviews/`.
+
+**Verification at close**: Tier 0/1/2/3 ✓ · 321/321 pytest ✓
+(was 320; +1 HDR-fusion parity test) · Tier 4 web_smoke 4/4 ✓ ·
+manual browser verification of M1 (pixel badge), M2 (mode toggle +
+migration), M3 (reorder + label + numericValue + unit), M4
+(FloatingWindow drag + persistence), M5 (LoD math at k=3/6/10).
+
+**Tree delta cumulative**: +2,200 / −280 lines across 6 files;
+1 NEW file (`web/src/playback/lod.ts`), 1 NEW test file
+(`tests/unit/test_pixel_endpoint.py`, 12 tests), 1 file renamed
+(`tbr.tsx → lod_ratio.tsx`), 1 NEW initiative folder
+(`.agent/runs/play-lod-ratio-tools-v1/`). D-0019 + D-0020 logged.
+B-0043..B-0047 opened for deferred polish.
+
+**Followups in backlog**: B-0043 Vitest infrastructure + standalone
+`lod.ts` unit tests; B-0044 inline-edit localStorage debounce;
+B-0045 reorder-arrow accessibility (aria-label + Checkbox
+ariaLabel forwarding); B-0046 calibration-curve LoD fit
+(3.3·σ/slope) + SNR-style criterion as parallel framework; B-0047
+LoD math edge-case followups (replicate ties, real-zero conflation
+with `?? null`).
+
+---
+
 **2026-04-28 (Night) — play-export-and-roi-fixes-v1 INITIATIVE CLOSED — 7 Play-mode bugs fixed, multi-source job-based export, ROI vertex edit**
 
 User reported seven defects in Play mode: (1) ROI vertices were
