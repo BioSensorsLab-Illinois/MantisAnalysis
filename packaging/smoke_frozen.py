@@ -5,6 +5,7 @@ Spawns the frozen binary, waits for the HTTP port to open, hits
 release CI job uses a non-zero exit to block publication of a broken
 build.
 """
+
 from __future__ import annotations
 
 import json
@@ -18,7 +19,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 DIST = REPO / "dist"
-PORT = 8789           # distinct from the default to avoid collisions
+PORT = 8789  # distinct from the default to avoid collisions
 
 
 def _find_binary() -> Path:

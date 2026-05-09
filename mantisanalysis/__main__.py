@@ -1,4 +1,5 @@
 """`python -m mantisanalysis` — launches the web GUI."""
+
 from __future__ import annotations
 
 import sys

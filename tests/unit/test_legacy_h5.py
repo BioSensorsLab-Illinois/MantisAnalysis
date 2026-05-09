@@ -6,10 +6,10 @@ no ``/camera`` group — then exercises detection, channel extraction, and
 ``SessionStore.load_from_path`` end-to-end. We never commit a real legacy
 H5 (binary policy) so the fixture is generated in tmp.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Tuple
 
 import h5py
 import numpy as np
@@ -17,7 +17,6 @@ import pytest
 
 from mantisanalysis.legacy_h5 import (
     LEGACY_FRAME_HW,
-    LEGACY_PIXELS_PER_FRAME,
     LEGACY_TO_UINT16_SHIFT,
     LegacyFrameReader,
     extract_legacy_channels,
@@ -28,10 +27,9 @@ from mantisanalysis.legacy_h5 import (
 from mantisanalysis.session import SessionStore
 
 
-def _build_synthetic_legacy(path: Path,
-                            *,
-                            n_frames: int = 3,
-                            shape: Tuple[int, int] = LEGACY_FRAME_HW) -> None:
+def _build_synthetic_legacy(
+    path: Path, *, n_frames: int = 3, shape: tuple[int, int] = LEGACY_FRAME_HW
+) -> None:
     """Write a minimal legacy-format H5 with deterministic per-frame content."""
     H, W = shape
     rng = np.random.default_rng(0xBEEF)
@@ -53,9 +51,7 @@ def _build_synthetic_legacy(path: Path,
         # math (channel_to_png_bytes vmin/vmax) still gets >0 dynamic range.
         img = img + rng.integers(0, 8, size=img.shape, dtype=np.uint16)
         frames[:, i] = img.flatten(order="C")
-    exposure_us = np.tile(
-        np.array([[1000.0], [44831.36]], dtype=np.float32), (1, n_frames)
-    )
+    exposure_us = np.tile(np.array([[1000.0], [44831.36]], dtype=np.float32), (1, n_frames))
     with h5py.File(path, "w") as f:
         f.create_dataset("dset", data=frames)
         f.create_dataset("exposure_us", data=exposure_us)
@@ -142,12 +138,8 @@ def test_legacy_read_frame_applies_12bit_shift(tmp_path: Path) -> None:
     p = tmp_path / "gsbsi_const.h5"
     with h5py.File(p, "w") as f:
         f.create_dataset("dset", data=raw.flatten(order="C").reshape(-1, 1))
-        f.create_dataset(
-            "exposure_us", data=np.array([[1000.0], [44831.36]], dtype=np.float32)
-        )
-        f.create_dataset(
-            "exposure", data=np.zeros((16, 2), dtype=np.int32)
-        )
+        f.create_dataset("exposure_us", data=np.array([[1000.0], [44831.36]], dtype=np.float32))
+        f.create_dataset("exposure", data=np.zeros((16, 2), dtype=np.int32))
         f.create_dataset("frameNumbers", data=np.zeros((2, 1), dtype=np.int32))
     with h5py.File(p, "r") as f:
         frame = legacy_read_frame(f["dset"], 0)
@@ -174,8 +166,7 @@ def test_extract_legacy_channels_keys_and_shapes(tmp_path: Path) -> None:
     with h5py.File(p, "r") as f:
         frame = legacy_read_frame(f["dset"], 0)
     chs = extract_legacy_channels(frame)
-    expected = {"HG-R", "HG-G", "HG-B", "HG-NIR", "HG-Y",
-                "LG-R", "LG-G", "LG-B", "LG-NIR", "LG-Y"}
+    expected = {"HG-R", "HG-G", "HG-B", "HG-NIR", "HG-Y", "LG-R", "LG-G", "LG-B", "LG-NIR", "LG-Y"}
     assert set(chs.keys()) == expected
     H, W = LEGACY_FRAME_HW
     target_shape = (H // 4, W // 2)
@@ -252,9 +243,23 @@ def test_session_store_dispatches_legacy(tmp_path: Path) -> None:
         assert src.attrs["format"] == "legacy_gsbsi"
         # Channel set should match the modern Play schema (so the frontend
         # source-mode dropdown enumerates the same options).
-        for k in ("HG-R", "HG-G", "HG-B", "HG-NIR", "HG-Y",
-                  "LG-R", "LG-G", "LG-B", "LG-NIR", "LG-Y",
-                  "HDR-R", "HDR-G", "HDR-B", "HDR-NIR", "HDR-Y"):
+        for k in (
+            "HG-R",
+            "HG-G",
+            "HG-B",
+            "HG-NIR",
+            "HG-Y",
+            "LG-R",
+            "LG-G",
+            "LG-B",
+            "LG-NIR",
+            "LG-Y",
+            "HDR-R",
+            "HDR-G",
+            "HDR-B",
+            "HDR-NIR",
+            "HDR-Y",
+        ):
             assert k in src.channels, k
         # Loader must surface W-META-TS (no real timestamps in legacy) and
         # W-LEGACY-12BIT (loader left-shifts 12-bit raw to fill uint16).

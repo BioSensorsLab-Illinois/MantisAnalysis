@@ -4,6 +4,7 @@ play-tab-recording-inspection-rescue-v1 M28. Atomic file writes,
 GET/PUT/DELETE round-trip, mode 0600 on the persisted file, malformed
 file is treated as fresh-start.
 """
+
 from __future__ import annotations
 
 import json
@@ -30,6 +31,7 @@ def presets_client(tmp_path: Path, monkeypatch):
 # GET
 # ---------------------------------------------------------------------------
 
+
 def test_presets_get_empty_when_file_missing(presets_client):
     client, _ = presets_client
     r = client.get("/api/playback/presets")
@@ -40,14 +42,21 @@ def test_presets_get_empty_when_file_missing(presets_client):
 def test_presets_get_returns_persisted_list(presets_client):
     client, presets_path = presets_client
     presets_path.parent.mkdir(parents=True, exist_ok=True)
-    presets_path.write_text(json.dumps({
-        "presets": [
-            {"id": "p1", "name": "high-contrast NIR",
-             "view_type": "nir_hg",
-             "fields": {"vmin": 200, "vmax": 12000, "colormap": "inferno"},
-             "created_at": 1234567890.0},
-        ]
-    }))
+    presets_path.write_text(
+        json.dumps(
+            {
+                "presets": [
+                    {
+                        "id": "p1",
+                        "name": "high-contrast NIR",
+                        "view_type": "nir_hg",
+                        "fields": {"vmin": 200, "vmax": 12000, "colormap": "inferno"},
+                        "created_at": 1234567890.0,
+                    },
+                ]
+            }
+        )
+    )
     r = client.get("/api/playback/presets")
     assert r.status_code == 200
     body = r.json()
@@ -63,12 +72,16 @@ def test_presets_get_skips_malformed_rows(presets_client):
     """One bad entry doesn't kill the whole list — it's quietly dropped."""
     client, presets_path = presets_client
     presets_path.parent.mkdir(parents=True, exist_ok=True)
-    presets_path.write_text(json.dumps({
-        "presets": [
-            {"id": "good", "name": "ok", "view_type": "rgb_hg", "fields": {}},
-            {"missing-required": "yes"},
-        ]
-    }))
+    presets_path.write_text(
+        json.dumps(
+            {
+                "presets": [
+                    {"id": "good", "name": "ok", "view_type": "rgb_hg", "fields": {}},
+                    {"missing-required": "yes"},
+                ]
+            }
+        )
+    )
     r = client.get("/api/playback/presets")
     assert r.status_code == 200
     ids = [p["id"] for p in r.json()["presets"]]
@@ -89,12 +102,20 @@ def test_presets_get_corrupt_file_returns_empty(presets_client):
 # PUT
 # ---------------------------------------------------------------------------
 
+
 def test_presets_put_creates_file(presets_client):
     client, presets_path = presets_client
-    payload = {"presets": [
-        {"id": "p1", "name": "p1 name", "view_type": "rgb_hg",
-         "fields": {"colormap": "viridis"}, "created_at": 1.0},
-    ]}
+    payload = {
+        "presets": [
+            {
+                "id": "p1",
+                "name": "p1 name",
+                "view_type": "rgb_hg",
+                "fields": {"colormap": "viridis"},
+                "created_at": 1.0,
+            },
+        ]
+    }
     r = client.put("/api/playback/presets", json=payload)
     assert r.status_code == 200
     assert r.json() == {"ok": True, "count": 1}
@@ -103,12 +124,24 @@ def test_presets_put_creates_file(presets_client):
 
 def test_presets_put_then_get_roundtrips(presets_client):
     client, _ = presets_client
-    payload = {"presets": [
-        {"id": "a", "name": "alpha", "view_type": "rgb_hg",
-         "fields": {"vmin": 100, "vmax": 5000}, "created_at": 1.0},
-        {"id": "b", "name": "beta",  "view_type": "nir_hg",
-         "fields": {"colormap": "inferno"}, "created_at": 2.0},
-    ]}
+    payload = {
+        "presets": [
+            {
+                "id": "a",
+                "name": "alpha",
+                "view_type": "rgb_hg",
+                "fields": {"vmin": 100, "vmax": 5000},
+                "created_at": 1.0,
+            },
+            {
+                "id": "b",
+                "name": "beta",
+                "view_type": "nir_hg",
+                "fields": {"colormap": "inferno"},
+                "created_at": 2.0,
+            },
+        ]
+    }
     client.put("/api/playback/presets", json=payload)
     r = client.get("/api/playback/presets")
     body = r.json()
@@ -119,14 +152,34 @@ def test_presets_put_then_get_roundtrips(presets_client):
 def test_presets_put_replaces_existing(presets_client):
     """PUT semantics: full replace, not merge."""
     client, _ = presets_client
-    client.put("/api/playback/presets", json={"presets": [
-        {"id": "old", "name": "to-be-removed", "view_type": "rgb_hg",
-         "fields": {}, "created_at": 1.0},
-    ]})
-    client.put("/api/playback/presets", json={"presets": [
-        {"id": "new", "name": "fresh", "view_type": "nir_hg",
-         "fields": {}, "created_at": 2.0},
-    ]})
+    client.put(
+        "/api/playback/presets",
+        json={
+            "presets": [
+                {
+                    "id": "old",
+                    "name": "to-be-removed",
+                    "view_type": "rgb_hg",
+                    "fields": {},
+                    "created_at": 1.0,
+                },
+            ]
+        },
+    )
+    client.put(
+        "/api/playback/presets",
+        json={
+            "presets": [
+                {
+                    "id": "new",
+                    "name": "fresh",
+                    "view_type": "nir_hg",
+                    "fields": {},
+                    "created_at": 2.0,
+                },
+            ]
+        },
+    )
     body = client.get("/api/playback/presets").json()
     assert [p["id"] for p in body["presets"]] == ["new"]
 
@@ -137,10 +190,14 @@ def test_presets_put_persists_mode_0600(presets_client):
     client, presets_path = presets_client
     if os.name != "posix":
         pytest.skip("POSIX mode bits required")
-    client.put("/api/playback/presets", json={"presets": [
-        {"id": "x", "name": "x", "view_type": "rgb_hg",
-         "fields": {}, "created_at": 0.0},
-    ]})
+    client.put(
+        "/api/playback/presets",
+        json={
+            "presets": [
+                {"id": "x", "name": "x", "view_type": "rgb_hg", "fields": {}, "created_at": 0.0},
+            ]
+        },
+    )
     mode = stat.S_IMODE(presets_path.stat().st_mode)
     assert mode == 0o600, f"expected mode 0600, got {oct(mode)}"
 
@@ -149,10 +206,20 @@ def test_presets_put_writes_pretty_json(presets_client):
     """Sanity: file is human-readable JSON, not a one-liner. Lets the
     user diff their preset file by hand if they ever care."""
     client, presets_path = presets_client
-    client.put("/api/playback/presets", json={"presets": [
-        {"id": "p", "name": "n", "view_type": "rgb_hg",
-         "fields": {"a": 1}, "created_at": 0.0},
-    ]})
+    client.put(
+        "/api/playback/presets",
+        json={
+            "presets": [
+                {
+                    "id": "p",
+                    "name": "n",
+                    "view_type": "rgb_hg",
+                    "fields": {"a": 1},
+                    "created_at": 0.0,
+                },
+            ]
+        },
+    )
     raw = presets_path.read_text()
     assert "\n" in raw  # not a single line
     assert "  " in raw  # indented
@@ -162,14 +229,18 @@ def test_presets_put_writes_pretty_json(presets_client):
 # DELETE
 # ---------------------------------------------------------------------------
 
+
 def test_presets_delete_removes_one_by_id(presets_client):
     client, _ = presets_client
-    client.put("/api/playback/presets", json={"presets": [
-        {"id": "a", "name": "a", "view_type": "rgb_hg",
-         "fields": {}, "created_at": 1.0},
-        {"id": "b", "name": "b", "view_type": "rgb_hg",
-         "fields": {}, "created_at": 2.0},
-    ]})
+    client.put(
+        "/api/playback/presets",
+        json={
+            "presets": [
+                {"id": "a", "name": "a", "view_type": "rgb_hg", "fields": {}, "created_at": 1.0},
+                {"id": "b", "name": "b", "view_type": "rgb_hg", "fields": {}, "created_at": 2.0},
+            ]
+        },
+    )
     r = client.delete("/api/playback/presets/a")
     assert r.status_code == 200
     assert r.json() == {"ok": True, "count": 1}
@@ -179,10 +250,20 @@ def test_presets_delete_removes_one_by_id(presets_client):
 
 def test_presets_delete_unknown_id_is_idempotent(presets_client):
     client, _ = presets_client
-    client.put("/api/playback/presets", json={"presets": [
-        {"id": "only", "name": "only", "view_type": "rgb_hg",
-         "fields": {}, "created_at": 1.0},
-    ]})
+    client.put(
+        "/api/playback/presets",
+        json={
+            "presets": [
+                {
+                    "id": "only",
+                    "name": "only",
+                    "view_type": "rgb_hg",
+                    "fields": {},
+                    "created_at": 1.0,
+                },
+            ]
+        },
+    )
     r = client.delete("/api/playback/presets/never-existed")
     assert r.status_code == 200
     body = client.get("/api/playback/presets").json()
@@ -201,11 +282,17 @@ def test_presets_delete_on_empty_store(presets_client):
 # Validation
 # ---------------------------------------------------------------------------
 
+
 def test_presets_put_rejects_missing_required_field(presets_client):
     client, _ = presets_client
-    r = client.put("/api/playback/presets", json={"presets": [
-        {"id": "p"},
-    ]})
+    r = client.put(
+        "/api/playback/presets",
+        json={
+            "presets": [
+                {"id": "p"},
+            ]
+        },
+    )
     assert r.status_code == 422
 
 
@@ -213,16 +300,29 @@ def test_presets_put_accepts_arbitrary_fields_json(presets_client):
     """`fields` is opaque to the backend — any JSON-serialisable dict is fine."""
     client, _ = presets_client
     fields = {
-        "colormap": "magma", "vmin": 100, "vmax": 5000, "invert": True,
+        "colormap": "magma",
+        "vmin": 100,
+        "vmax": 5000,
+        "invert": True,
         "isp": {"sharpen_method": "Unsharp mask", "sharpen_amount": 2.0},
         "grading": {"gain_r": 1.1, "wb_kelvin": 5500},
         "labels": {"timestamp": True, "frame": True},
         "nested": {"deeply": {"nested": [1, 2, 3]}},
     }
-    r = client.put("/api/playback/presets", json={"presets": [
-        {"id": "kitchen-sink", "name": "Everything",
-         "view_type": "rgb_hg", "fields": fields, "created_at": 0.0},
-    ]})
+    r = client.put(
+        "/api/playback/presets",
+        json={
+            "presets": [
+                {
+                    "id": "kitchen-sink",
+                    "name": "Everything",
+                    "view_type": "rgb_hg",
+                    "fields": fields,
+                    "created_at": 0.0,
+                },
+            ]
+        },
+    )
     assert r.status_code == 200
     body = client.get("/api/playback/presets").json()
     out = body["presets"][0]["fields"]

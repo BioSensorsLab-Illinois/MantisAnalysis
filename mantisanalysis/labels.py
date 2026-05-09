@@ -31,10 +31,11 @@ Public surface:
 Returns the same `image_rgb` shape, dtype uint8, with the labels burned
 in. No-op when every text-emitting field is False / empty.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -48,7 +49,7 @@ _FONT_PATH = Path(__file__).resolve().parent / "static" / "fonts" / "JetBrainsMo
 # Cache loaded ImageFont instances by size — Pillow re-parses the .ttf
 # on every load otherwise, and a per-frame export at 30 FPS would do
 # that ~1800 times/min.
-_FONT_CACHE: Dict[int, ImageFont.FreeTypeFont] = {}
+_FONT_CACHE: dict[int, ImageFont.FreeTypeFont] = {}
 
 
 def _load_font(size: int) -> ImageFont.FreeTypeFont:
@@ -69,7 +70,8 @@ def _load_font(size: int) -> ImageFont.FreeTypeFont:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _format_timestamp(ts: Optional[float]) -> str:
+
+def _format_timestamp(ts: float | None) -> str:
     if ts is None:
         return "ts —"
     # Always include 2 decimals so the live label width stays stable
@@ -77,7 +79,7 @@ def _format_timestamp(ts: Optional[float]) -> str:
     return f"ts {float(ts):.2f} s"
 
 
-def _build_lines(cfg: Dict[str, Any]) -> list[str]:
+def _build_lines(cfg: dict[str, Any]) -> list[str]:
     lines: list[str] = []
     if cfg.get("frame") and cfg.get("frame_index") is not None:
         lines.append(f"frame {int(cfg['frame_index'])}")
@@ -98,8 +100,9 @@ def _build_lines(cfg: Dict[str, Any]) -> list[str]:
     return lines
 
 
-def _anchor_xy(position: str, w: int, h: int, block_w: int, block_h: int,
-               margin: int = 8) -> tuple[int, int]:
+def _anchor_xy(
+    position: str, w: int, h: int, block_w: int, block_h: int, margin: int = 8
+) -> tuple[int, int]:
     pos = (position or "bottom-left").lower()
     if pos == "top-left":
         return (margin, margin)
@@ -115,10 +118,19 @@ def _anchor_xy(position: str, w: int, h: int, block_w: int, block_h: int,
 # Scale bar
 # ---------------------------------------------------------------------------
 
-def _draw_scale_bar(draw: ImageDraw.ImageDraw, w: int, h: int, position: str,
-                    *, margin: int = 12, length_px: int = 100,
-                    thickness: int = 3, font: Optional[ImageFont.FreeTypeFont] = None,
-                    label: Optional[str] = None) -> None:
+
+def _draw_scale_bar(
+    draw: ImageDraw.ImageDraw,
+    w: int,
+    h: int,
+    position: str,
+    *,
+    margin: int = 12,
+    length_px: int = 100,
+    thickness: int = 3,
+    font: ImageFont.FreeTypeFont | None = None,
+    label: str | None = None,
+) -> None:
     """Draw a horizontal scale bar with an optional label.
 
     `length_px` is the bar length in screen pixels (after any backend
@@ -162,8 +174,8 @@ def _draw_scale_bar(draw: ImageDraw.ImageDraw, w: int, h: int, position: str,
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def render_labels(image_rgb: np.ndarray,
-                  labels_config: Optional[Dict[str, Any]]) -> np.ndarray:
+
+def render_labels(image_rgb: np.ndarray, labels_config: dict[str, Any] | None) -> np.ndarray:
     """Burn the configured labels onto ``image_rgb`` (returns a new array).
 
     No-op (returns input unchanged) when ``labels_config`` is None / empty
@@ -211,8 +223,7 @@ def render_labels(image_rgb: np.ndarray,
         block_w += 8  # padding on the right
         block_w = min(block_w, max(0, w - 4))
 
-        x, y = _anchor_xy(cfg.get("position", "bottom-left"),
-                          w, h, block_w + 8, block_h + 4)
+        x, y = _anchor_xy(cfg.get("position", "bottom-left"), w, h, block_w + 8, block_h + 4)
 
         # Translucent dark backdrop so text reads against any frame.
         bg = Image.new("RGBA", (block_w + 8, block_h + 4), (0, 0, 0, 178))
@@ -226,9 +237,15 @@ def render_labels(image_rgb: np.ndarray,
 
     if want_scale:
         scale_label = cfg.get("scale_bar_label")
-        _draw_scale_bar(draw, w, h, cfg.get("position", "bottom-left"),
-                        font=font, label=scale_label,
-                        length_px=int(cfg.get("scale_bar_length_px") or 100))
+        _draw_scale_bar(
+            draw,
+            w,
+            h,
+            cfg.get("position", "bottom-left"),
+            font=font,
+            label=scale_label,
+            length_px=int(cfg.get("scale_bar_length_px") or 100),
+        )
 
     out = np.asarray(im, dtype=np.uint8)
     if has_alpha:

@@ -26,6 +26,7 @@ Checks (each prints OK / WARN / FAIL with a fix line):
   8. `.agent/` directory exists + symlink `.claude → .agent` intact.
   9. Tier 0 gate passes (scripts/smoke_test.py --tier 0).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -33,7 +34,6 @@ import importlib
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Tuple
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -44,7 +44,7 @@ def _status(label: str, state: str, detail: str = "") -> None:
     print(f"  {colour}{state:<4}{reset}  {label}" + (f"  — {detail}" if detail else ""))
 
 
-def check_python() -> Tuple[bool, bool]:
+def check_python() -> tuple[bool, bool]:
     """Returns (ok, is_warning_only). Python ≥ 3.10 required."""
     v = sys.version_info
     if v >= (3, 10):
@@ -58,7 +58,7 @@ def check_python() -> Tuple[bool, bool]:
     return False, False
 
 
-def check_repo_root() -> Tuple[bool, bool]:
+def check_repo_root() -> tuple[bool, bool]:
     if (ROOT / "pyproject.toml").is_file() and (ROOT / "mantisanalysis").is_dir():
         _status(f"repo root at {ROOT.name}/", "OK")
         return True, False
@@ -71,9 +71,9 @@ def check_repo_root() -> Tuple[bool, bool]:
     return False, False
 
 
-def _try_import(pkgs: List[str], kind: str, fail_state: str = "FAIL") -> bool:
+def _try_import(pkgs: list[str], kind: str, fail_state: str = "FAIL") -> bool:
     """Common helper for dep checks. Returns True if all imported."""
-    missing: List[str] = []
+    missing: list[str] = []
     for p in pkgs:
         try:
             importlib.import_module(p)
@@ -90,21 +90,30 @@ def _try_import(pkgs: List[str], kind: str, fail_state: str = "FAIL") -> bool:
     return True
 
 
-def check_runtime_deps() -> Tuple[bool, bool]:
+def check_runtime_deps() -> tuple[bool, bool]:
     ok = _try_import(
-        ["numpy", "scipy", "h5py", "matplotlib", "fastapi", "uvicorn",
-         "pydantic", "PIL", "tifffile"],
+        [
+            "numpy",
+            "scipy",
+            "h5py",
+            "matplotlib",
+            "fastapi",
+            "uvicorn",
+            "pydantic",
+            "PIL",
+            "tifffile",
+        ],
         "runtime",
     )
     return ok, False
 
 
-def check_dev_deps() -> Tuple[bool, bool]:
+def check_dev_deps() -> tuple[bool, bool]:
     ok = _try_import(["pytest", "ruff", "mypy", "httpx"], "dev")
     return ok, False
 
 
-def check_web_smoke() -> Tuple[bool, bool]:
+def check_web_smoke() -> tuple[bool, bool]:
     """WARN-only: playwright is opt-in."""
     try:
         importlib.import_module("playwright")
@@ -120,33 +129,34 @@ def check_web_smoke() -> Tuple[bool, bool]:
         return True, True  # WARN counts as OK unless --strict
 
 
-def check_editable_install() -> Tuple[bool, bool]:
+def check_editable_install() -> tuple[bool, bool]:
     try:
         mod = importlib.import_module("mantisanalysis")
         mod_path = Path(mod.__file__).parent
         expected = ROOT / "mantisanalysis"
         if mod_path.resolve() == expected.resolve():
-            _status("mantisanalysis (editable install)", "OK",
-                    f"{getattr(mod, '__version__', 'unknown')}")
+            _status(
+                "mantisanalysis (editable install)",
+                "OK",
+                f"{getattr(mod, '__version__', 'unknown')}",
+            )
             return True, False
         _status(
             "mantisanalysis editable install",
             "WARN",
-            f"imports from {mod_path}, not {expected}. "
-            "Fix: pip install -e . (from repo root)",
+            f"imports from {mod_path}, not {expected}. Fix: pip install -e . (from repo root)",
         )
         return True, True
     except Exception as exc:
         _status(
             "mantisanalysis editable install",
             "FAIL",
-            f"import failed: {type(exc).__name__}: {exc}. "
-            "Fix: pip install -e .[dev]",
+            f"import failed: {type(exc).__name__}: {exc}. Fix: pip install -e .[dev]",
         )
         return False, False
 
 
-def check_scripts() -> Tuple[bool, bool]:
+def check_scripts() -> tuple[bool, bool]:
     required = [
         "smoke_test.py",
         "check_agent_docs.py",
@@ -159,15 +169,14 @@ def check_scripts() -> Tuple[bool, bool]:
         _status(
             "scripts/",
             "FAIL",
-            f"missing: {', '.join(missing)}. "
-            "Did you clone a partial tree?",
+            f"missing: {', '.join(missing)}. Did you clone a partial tree?",
         )
         return False, False
     _status(f"scripts/ ({len(required)} harness scripts)", "OK")
     return True, False
 
 
-def check_agent_layer() -> Tuple[bool, bool]:
+def check_agent_layer() -> tuple[bool, bool]:
     agent_dir = ROOT / ".agent"
     claude_link = ROOT / ".claude"
     if not agent_dir.is_dir():
@@ -202,13 +211,14 @@ def check_agent_layer() -> Tuple[bool, bool]:
     return True, False
 
 
-def _which(cmd: str) -> "str | None":
+def _which(cmd: str) -> str | None:
     """Minimal shutil.which wrapper that's typed for None on miss."""
     import shutil
+
     return shutil.which(cmd)
 
 
-def check_node_npm() -> Tuple[bool, bool]:
+def check_node_npm() -> tuple[bool, bool]:
     """bundler-migration-v1 Phase 3: Node ≥ 20 + npm.
 
     The frontend is now ES-module-bundled by Vite and served from
@@ -226,7 +236,10 @@ def check_node_npm() -> Tuple[bool, bool]:
         return False, False
     try:
         version_raw = subprocess.run(
-            [node, "--version"], capture_output=True, text=True, timeout=5,
+            [node, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
         ).stdout.strip()
     except (subprocess.TimeoutExpired, OSError):
         _status("Node", "FAIL", f"{node} didn't respond to --version")
@@ -240,8 +253,7 @@ def check_node_npm() -> Tuple[bool, bool]:
         _status(
             "Node + npm",
             "FAIL",
-            f"{version_raw} is below the floor of Node 20. "
-            "package.json engines pins >= 20.",
+            f"{version_raw} is below the floor of Node 20. package.json engines pins >= 20.",
         )
         return False, False
     if npm is None:
@@ -251,7 +263,7 @@ def check_node_npm() -> Tuple[bool, bool]:
     return True, False
 
 
-def check_frontend_lint_config() -> Tuple[bool, bool]:
+def check_frontend_lint_config() -> tuple[bool, bool]:
     """bundler-migration-v1 Phase 4 + 5: ESLint + Prettier + TypeScript
     must be wired up.
 
@@ -290,9 +302,13 @@ def check_frontend_lint_config() -> Tuple[bool, bool]:
             data = {}
         dev = data.get("devDependencies", {})
         need = {
-            "eslint", "prettier", "typescript",
-            "eslint-plugin-react", "eslint-plugin-react-hooks",
-            "typescript-eslint", "@types/react",
+            "eslint",
+            "prettier",
+            "typescript",
+            "eslint-plugin-react",
+            "eslint-plugin-react-hooks",
+            "typescript-eslint",
+            "@types/react",
         }
         absent = [p for p in need if p not in dev]
         if absent:
@@ -311,16 +327,18 @@ def check_frontend_lint_config() -> Tuple[bool, bool]:
     return True, False
 
 
-def check_tier0() -> Tuple[bool, bool]:
+def check_tier0() -> tuple[bool, bool]:
     script = ROOT / "scripts" / "smoke_test.py"
     if not script.is_file():
-        _status("Tier 0 gate", "FAIL",
-                "scripts/smoke_test.py missing")
+        _status("Tier 0 gate", "FAIL", "scripts/smoke_test.py missing")
         return False, False
     try:
         proc = subprocess.run(
             [sys.executable, str(script), "--tier", "0"],
-            cwd=str(ROOT), capture_output=True, text=True, timeout=30,
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
     except subprocess.TimeoutExpired:
         _status("Tier 0 gate", "FAIL", "timed out after 30 s")
@@ -352,10 +370,12 @@ CHECKS = [
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--strict", action="store_true",
-                    help="Exit non-zero if any check is WARN (not just FAIL).")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "--strict", action="store_true", help="Exit non-zero if any check is WARN (not just FAIL)."
+    )
     args = ap.parse_args()
 
     print(f"MantisAnalysis doctor — {ROOT}")

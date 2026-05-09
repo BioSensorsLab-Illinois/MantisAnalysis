@@ -23,13 +23,13 @@ Usage
     python scripts/check_skill_frontmatter.py            # scan every skill
     python scripts/check_skill_frontmatter.py <path>     # scan one SKILL.md
 """
+
 from __future__ import annotations
 
 import argparse
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 ROOT = Path(__file__).resolve().parent.parent
 SKILLS = ROOT / ".agent" / "skills"
@@ -39,7 +39,7 @@ AGENTS = ROOT / ".agent" / "agents"
 MAX_DESCRIPTION_LEN = 300
 
 
-def _parse_frontmatter(text: str) -> Optional[Dict[str, object]]:
+def _parse_frontmatter(text: str) -> dict[str, object] | None:
     """Minimal YAML-ish frontmatter parser sufficient for our schema.
 
     Handles scalar `key: value` and list `key:` followed by `- item`
@@ -53,8 +53,8 @@ def _parse_frontmatter(text: str) -> Optional[Dict[str, object]]:
     if end < 0:
         return None
     block = text[3:end].strip()
-    out: Dict[str, object] = {}
-    current_list_key: Optional[str] = None
+    out: dict[str, object] = {}
+    current_list_key: str | None = None
     for raw in block.splitlines():
         line = raw.rstrip()
         if not line or line.lstrip().startswith("#"):
@@ -82,13 +82,15 @@ def _known_agent_names() -> set[str]:
     return {p.stem for p in AGENTS.glob("*.md") if p.stem != "README"}
 
 
-def check_skill(path: Path, known_agents: set[str]) -> List[str]:
+def check_skill(path: Path, known_agents: set[str]) -> list[str]:
     """Return a list of findings for one SKILL.md file."""
-    findings: List[str] = []
+    findings: list[str] = []
     text = path.read_text(encoding="utf-8")
     fm = _parse_frontmatter(text)
     if fm is None:
-        return [f"{path.relative_to(ROOT)}: missing or malformed frontmatter (expected '---' delimited block at top)"]
+        return [
+            f"{path.relative_to(ROOT)}: missing or malformed frontmatter (expected '---' delimited block at top)"
+        ]
 
     for required in ("name", "description", "when_to_use"):
         if required not in fm:
@@ -131,15 +133,19 @@ def check_skill(path: Path, known_agents: set[str]) -> List[str]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument("target", nargs="?",
-                    help="Optional: path to a single SKILL.md. If omitted, scans all skills.")
+    ap.add_argument(
+        "target",
+        nargs="?",
+        help="Optional: path to a single SKILL.md. If omitted, scans all skills.",
+    )
     args = ap.parse_args()
 
     known = _known_agent_names()
 
-    paths: List[Path]
+    paths: list[Path]
     if args.target:
         p = Path(args.target)
         if not p.is_absolute():
@@ -152,7 +158,7 @@ def main() -> int:
         print("no SKILL.md files found")
         return 0
 
-    findings: List[str] = []
+    findings: list[str] = []
     for p in paths:
         findings.extend(check_skill(p, known))
 

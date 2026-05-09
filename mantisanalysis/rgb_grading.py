@@ -36,12 +36,12 @@ Pure NumPy — no FastAPI / React / Qt imports. Suggested entry points::
       "wb_kelvin":  float | None = None,   # None or 6500 = no shift
     }
 """
+
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 import numpy as np
-
 
 # Reference daylight (D65) — when wb_kelvin is None or ≈ 6500 the WB
 # multipliers are (1, 1, 1).
@@ -86,7 +86,7 @@ def kelvin_to_rgb_multipliers(kelvin: float) -> tuple[float, float, float]:
 
 
 # Cache the D65 reference so we don't recompute it 60 times/sec.
-_D65_CACHE: Optional[tuple[float, float, float]] = None
+_D65_CACHE: tuple[float, float, float] | None = None
 
 
 def _kelvin_at_d65() -> tuple[float, float, float]:
@@ -121,7 +121,7 @@ def _kelvin_at_d65() -> tuple[float, float, float]:
     return _D65_CACHE
 
 
-def _is_no_op(params: Optional[Dict[str, Any]]) -> bool:
+def _is_no_op(params: dict[str, Any] | None) -> bool:
     if not params:
         return True
     eps = 1e-6
@@ -151,8 +151,7 @@ def _is_no_op(params: Optional[Dict[str, Any]]) -> bool:
     return True
 
 
-def apply_grading(rgb_arr: np.ndarray,
-                  params: Optional[Dict[str, Any]]) -> np.ndarray:
+def apply_grading(rgb_arr: np.ndarray, params: dict[str, Any] | None) -> np.ndarray:
     """Apply the grading pipeline to a float32 (H, W, 3) array in [0, 1].
 
     Returns a new array (input is not mutated). No-op when ``params``
@@ -214,11 +213,7 @@ def apply_grading(rgb_arr: np.ndarray,
 
     # 7. Saturation (luminance-preserving). Uses Rec. 601 luma.
     if abs(saturation - 1.0) > 1e-6:
-        luma = (
-            0.299 * a[..., 0]
-            + 0.587 * a[..., 1]
-            + 0.114 * a[..., 2]
-        )
+        luma = 0.299 * a[..., 0] + 0.587 * a[..., 1] + 0.114 * a[..., 2]
         for i in range(3):
             a[..., i] = luma + (a[..., i] - luma) * saturation
         np.clip(a, 0.0, 1.0, out=a)
@@ -231,8 +226,7 @@ def apply_grading(rgb_arr: np.ndarray,
     return a
 
 
-def auto_white_balance(rgb_arr: np.ndarray,
-                       *, method: str = "gray-world") -> Dict[str, float]:
+def auto_white_balance(rgb_arr: np.ndarray, *, method: str = "gray-world") -> dict[str, float]:
     """Suggest per-channel gain factors that bring the image's average
     (or max) to gray. Returns a dict ``{gain_r, gain_g, gain_b}`` with
     G pinned at 1.0; the caller can multiply existing gains by these

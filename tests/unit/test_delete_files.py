@@ -13,6 +13,7 @@ Hardened contract (post B-0010 polish sweep):
   * The body's ``paths`` list is capped at 50 entries; oversized
     bodies fail Pydantic validation (422).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -59,12 +60,22 @@ def test_delete_files_partial_failure_other_paths_still_processed(client, tmp_pa
     # tracked-path gate; the route should still refuse the directory and
     # report the missing path as 'missing'.
     STORE._items["dir_sid"] = LoadedSource(
-        source_id="dir_sid", name="dir.h5", source_kind="h5",
-        channels={}, attrs={}, shape_hw=(1, 1), path=str(direc),
+        source_id="dir_sid",
+        name="dir.h5",
+        source_kind="h5",
+        channels={},
+        attrs={},
+        shape_hw=(1, 1),
+        path=str(direc),
     )
     STORE._items["miss_sid"] = LoadedSource(
-        source_id="miss_sid", name="miss.h5", source_kind="h5",
-        channels={}, attrs={}, shape_hw=(1, 1), path=str(missing),
+        source_id="miss_sid",
+        name="miss.h5",
+        source_kind="h5",
+        channels={},
+        attrs={},
+        shape_hw=(1, 1),
+        path=str(missing),
     )
     r = client.post(
         "/api/sources/delete-files",
@@ -74,10 +85,7 @@ def test_delete_files_partial_failure_other_paths_still_processed(client, tmp_pa
     rows = r.json()["results"]
     assert any(row["status"] == "deleted" for row in rows)
     assert any(row["status"] == "missing" for row in rows)
-    assert any(
-        row["status"] == "error" and "directory" in row.get("detail", "")
-        for row in rows
-    )
+    assert any(row["status"] == "error" and "directory" in row.get("detail", "") for row in rows)
     assert not good.exists()
     assert direc.exists()
 
@@ -109,9 +117,7 @@ def test_delete_files_path_resolve_failure_is_per_row(client, tmp_path):
     because it's a tracked .h5; the bad path fails resolve."""
     good, _ = _load_h5(client, tmp_path)
     bad = "/tmp/with\x00nul.h5"
-    r = client.post(
-        "/api/sources/delete-files", json={"paths": [str(good), bad]}
-    )
+    r = client.post("/api/sources/delete-files", json={"paths": [str(good), bad]})
     assert r.status_code == 200
     statuses = [row["status"] for row in r.json()["results"]]
     assert "deleted" in statuses
@@ -158,6 +164,7 @@ def test_delete_files_rejects_oversized_batch(client):
 # ---------------------------------------------------------------------------
 # B-0042 — send2trash undo path (default for use_trash=True)
 # ---------------------------------------------------------------------------
+
 
 def test_delete_files_default_uses_send2trash(client, tmp_path):
     """Default path (``use_trash=True``) routes the destructive step

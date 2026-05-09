@@ -11,6 +11,7 @@ has `AGENT_RULES.md` rule 3 and the stopping criteria to back it up.
 The hook's job is to catch the specific slip of editing UI code +
 running Tier 1/2 + calling it done without ever booting a browser.
 """
+
 from __future__ import annotations
 
 import re
@@ -33,9 +34,11 @@ def _active_initiative() -> Path | None:
                 return p
     if not RUNS.is_dir():
         return None
-    candidates = [p for p in RUNS.iterdir()
-                  if p.is_dir() and p.name not in ("_archive",)
-                  and not p.name.startswith(".")]
+    candidates = [
+        p
+        for p in RUNS.iterdir()
+        if p.is_dir() and p.name not in ("_archive",) and not p.name.startswith(".")
+    ]
     if not candidates:
         return None
     return max(candidates, key=lambda p: p.stat().st_mtime)

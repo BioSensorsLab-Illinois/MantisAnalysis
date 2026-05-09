@@ -8,8 +8,8 @@ matplotlib ``Figure`` per gain (HG / LG) and is what the FastAPI server
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -23,12 +23,13 @@ from .usaf_groups import (
     measure_line,
 )
 
-
 # ---- Plot style ---------------------------------------------------------
 
 DIR_MARKERS = {"H": "o", "V": "s"}
-DIR_NAMES = {"H": "horizontal slice (probes vertical bars)",
-             "V": "vertical slice (probes horizontal bars)"}
+DIR_NAMES = {
+    "H": "horizontal slice (probes vertical bars)",
+    "V": "vertical slice (probes horizontal bars)",
+}
 
 JOURNAL_RC = {
     "font.family": "DejaVu Sans",
@@ -49,8 +50,7 @@ JOURNAL_RC = {
 }
 
 
-def _apply_transform(img: np.ndarray, *, rotation: int,
-                     flip_h: bool, flip_v: bool) -> np.ndarray:
+def _apply_transform(img: np.ndarray, *, rotation: int, flip_h: bool, flip_v: bool) -> np.ndarray:
     out = img
     if rotation:
         out = np.rot90(out, k=(rotation // 90) % 4)
@@ -61,8 +61,7 @@ def _apply_transform(img: np.ndarray, *, rotation: int,
     return np.ascontiguousarray(out)
 
 
-def _stretch(img: np.ndarray, lo: float = 1.0, hi: float = 99.5
-             ) -> Tuple[float, float]:
+def _stretch(img: np.ndarray, lo: float = 1.0, hi: float = 99.5) -> tuple[float, float]:
     a = img.astype(np.float32)
     vmin, vmax = np.percentile(a, [lo, hi])
     if vmax <= vmin:
@@ -70,13 +69,14 @@ def _stretch(img: np.ndarray, lo: float = 1.0, hi: float = 99.5
     return float(vmin), float(vmax)
 
 
-def _bbox_from_lines(lines: Sequence[LineSpec], shape: Tuple[int, int],
-                     pad: int = 24) -> Tuple[int, int, int, int]:
+def _bbox_from_lines(
+    lines: Sequence[LineSpec], shape: tuple[int, int], pad: int = 24
+) -> tuple[int, int, int, int]:
     """Bounding box around the picked lines (with padding), clamped to image."""
     if not lines:
         return (0, 0, shape[0], shape[1])
-    xs: List[float] = []
-    ys: List[float] = []
+    xs: list[float] = []
+    ys: list[float] = []
     for ln in lines:
         xs.extend([ln.p0[0], ln.p1[0]])
         ys.extend([ln.p0[1], ln.p1[1]])
@@ -90,12 +90,14 @@ def _bbox_from_lines(lines: Sequence[LineSpec], shape: Tuple[int, int],
 # ---- Channel selection by mode -----------------------------------------
 
 SINGLE_CHANNEL_MODES = {
-    "r_only": "R", "g_only": "G", "b_only": "B", "n_only": "NIR",
+    "r_only": "R",
+    "g_only": "G",
+    "b_only": "B",
+    "n_only": "NIR",
 }
 
 
-def _resolve_target_channels(channel_keys: Iterable[str], mode: str
-                             ) -> List[str]:
+def _resolve_target_channels(channel_keys: Iterable[str], mode: str) -> list[str]:
     """Pick which channels to analyze based on the mode and available keys.
 
     Modes:
@@ -154,24 +156,28 @@ def _gain_of(name: str) -> str:
 
 # ---- Per-channel analysis result ---------------------------------------
 
+
 @dataclass
 class ChannelAnalysis:
     name: str
     transformed_image: np.ndarray
-    measurements: List[LineMeasurement]
-    detection_limit: Dict[float, Optional[float]]   # threshold -> lp/mm
+    measurements: list[LineMeasurement]
+    detection_limit: dict[float, float | None]  # threshold -> lp/mm
 
     @property
     def short_name(self) -> str:
         return self.name
 
 
-def analyze_channel_lines(name: str, image: np.ndarray,
-                          lines: Sequence[LineSpec],
-                          *, transform: Dict,
-                          thresholds: Sequence[float] = (0.5, 0.2, 0.1),
-                          sharpen: Dict | None = None,
-                          ) -> ChannelAnalysis:
+def analyze_channel_lines(
+    name: str,
+    image: np.ndarray,
+    lines: Sequence[LineSpec],
+    *,
+    transform: dict,
+    thresholds: Sequence[float] = (0.5, 0.2, 0.1),
+    sharpen: dict | None = None,
+) -> ChannelAnalysis:
     img_t = _apply_transform(
         image,
         rotation=int(transform.get("rotation", 0)),
@@ -180,49 +186,59 @@ def analyze_channel_lines(name: str, image: np.ndarray,
     )
     if sharpen is not None and sharpen.get("method") not in (None, "", "None"):
         from .image_processing import apply_sharpen
-        img_t = apply_sharpen(img_t, sharpen["method"],
-                              amount=float(sharpen.get("amount", 1.0)),
-                              radius=float(sharpen.get("radius", 2.0)))
+
+        img_t = apply_sharpen(
+            img_t,
+            sharpen["method"],
+            amount=float(sharpen.get("amount", 1.0)),
+            radius=float(sharpen.get("radius", 2.0)),
+        )
     measurements = [measure_line(img_t, ln) for ln in lines]
-    dlim: Dict[float, Optional[float]] = {}
+    dlim: dict[float, float | None] = {}
     for thr in thresholds:
         f, _ = detection_limit_lp_mm(measurements, thr)
         dlim[thr] = f
-    return ChannelAnalysis(name=name, transformed_image=img_t,
-                           measurements=measurements, detection_limit=dlim)
+    return ChannelAnalysis(
+        name=name, transformed_image=img_t, measurements=measurements, detection_limit=dlim
+    )
 
 
 # ---- Plotting ----------------------------------------------------------
 
-def _draw_chart_panel(ax, an: ChannelAnalysis,
-                      *, lines: Sequence[LineSpec]) -> None:
+
+def _draw_chart_panel(ax, an: ChannelAnalysis, *, lines: Sequence[LineSpec]) -> None:
     img = an.transformed_image
     bbox = _bbox_from_lines(lines, img.shape)
     y0, x0, y1, x1 = bbox
     crop = img[y0:y1, x0:x1]
     vmin, vmax = _stretch(crop)
-    ax.imshow(crop, cmap="gray", vmin=vmin, vmax=vmax,
-              interpolation="nearest")
-    ax.set_xticks([]); ax.set_yticks([])
+    ax.imshow(crop, cmap="gray", vmin=vmin, vmax=vmax, interpolation="nearest")
+    ax.set_xticks([])
+    ax.set_yticks([])
     # Draw the lines (in cropped coords)
-    for ln, m in zip(lines, an.measurements):
+    for ln, _m in zip(lines, an.measurements, strict=False):
         color = _channel_color(an.name)
-        x_p0 = ln.p0[0] - x0; y_p0 = ln.p0[1] - y0
-        x_p1 = ln.p1[0] - x0; y_p1 = ln.p1[1] - y0
-        ax.plot([x_p0, x_p1], [y_p0, y_p1], color=color, linewidth=1.4,
-                alpha=0.95)
+        x_p0 = ln.p0[0] - x0
+        y_p0 = ln.p0[1] - y0
+        x_p1 = ln.p1[0] - x0
+        y_p1 = ln.p1[1] - y0
+        ax.plot([x_p0, x_p1], [y_p0, y_p1], color=color, linewidth=1.4, alpha=0.95)
         ax.plot(x_p0, y_p0, marker="o", color=color, markersize=2.5)
         ax.plot(x_p1, y_p1, marker="o", color=color, markersize=2.5)
     ax.set_title(f"{an.name}", color=_channel_color(an.name), fontsize=11)
 
 
-def _draw_mtf_panel(ax, an: ChannelAnalysis, *,
-                    threshold: float = 0.2,
-                    show_thresholds: Sequence[float] = (0.5, 0.2, 0.1),
-                    show_legend: bool = True) -> None:
+def _draw_mtf_panel(
+    ax,
+    an: ChannelAnalysis,
+    *,
+    threshold: float = 0.2,
+    show_thresholds: Sequence[float] = (0.5, 0.2, 0.1),
+    show_legend: bool = True,
+) -> None:
     color = _channel_color(an.name)
     # Group measurements by direction
-    by_dir: Dict[str, List[LineMeasurement]] = {"H": [], "V": []}
+    by_dir: dict[str, list[LineMeasurement]] = {"H": [], "V": []}
     for m in an.measurements:
         by_dir.setdefault(m.spec.direction, []).append(m)
     for dr, ms in by_dir.items():
@@ -231,11 +247,18 @@ def _draw_mtf_panel(ax, an: ChannelAnalysis, *,
         ms_sorted = sorted(ms, key=lambda m: m.lp_mm)
         x = [m.lp_mm for m in ms_sorted]
         y = [m.modulation for m in ms_sorted]
-        ax.plot(x, y, color=color, linewidth=1.0, alpha=0.55,
-                linestyle="-" if dr == "H" else "--")
-        ax.scatter(x, y, color=color, marker=DIR_MARKERS.get(dr, "o"),
-                   s=42, edgecolor="white", linewidth=0.8, zorder=4,
-                   label=f"{dr} slice")
+        ax.plot(x, y, color=color, linewidth=1.0, alpha=0.55, linestyle="-" if dr == "H" else "--")
+        ax.scatter(
+            x,
+            y,
+            color=color,
+            marker=DIR_MARKERS.get(dr, "o"),
+            s=42,
+            edgecolor="white",
+            linewidth=0.8,
+            zorder=4,
+            label=f"{dr} slice",
+        )
 
     # Threshold gridlines
     for thr in show_thresholds:
@@ -246,8 +269,7 @@ def _draw_mtf_panel(ax, an: ChannelAnalysis, *,
     annot = f"{int(threshold * 100)}% limit:  "
     if f_lim is not None:
         annot += f"{f_lim:.2f} lp/mm"
-        ax.axvline(f_lim, color=color, linestyle="-", linewidth=0.9,
-                   alpha=0.6)
+        ax.axvline(f_lim, color=color, linestyle="-", linewidth=0.9, alpha=0.6)
     else:
         annot += "—"
 
@@ -268,13 +290,15 @@ def _draw_mtf_panel(ax, an: ChannelAnalysis, *,
         ax.legend(loc="upper right", fontsize=8)
 
 
-def build_analysis_figures(channel_images: Dict[str, np.ndarray],
-                           lines: Sequence[LineSpec],
-                           *, mode: str = "rgb",
-                           transform: Dict | None = None,
-                           threshold: float = 0.2,
-                           sharpen: Dict | None = None,
-                           ) -> List[Figure]:
+def build_analysis_figures(
+    channel_images: dict[str, np.ndarray],
+    lines: Sequence[LineSpec],
+    *,
+    mode: str = "rgb",
+    transform: dict | None = None,
+    threshold: float = 0.2,
+    sharpen: dict | None = None,
+) -> list[Figure]:
     """One figure per gain (HG / LG), or a single figure for image inputs.
 
     Each figure is a 2-row grid: row 1 = chart panels with picked lines,
@@ -286,43 +310,49 @@ def build_analysis_figures(channel_images: Dict[str, np.ndarray],
 
     targets = _resolve_target_channels(channel_images.keys(), mode)
     if not targets:
-        raise ValueError(f"no channels matched mode {mode!r} in "
-                         f"available keys {list(channel_images)}")
+        raise ValueError(
+            f"no channels matched mode {mode!r} in available keys {list(channel_images)}"
+        )
 
     # Group target channels by gain prefix (or "" for image inputs)
-    groups: Dict[str, List[str]] = {}
+    groups: dict[str, list[str]] = {}
     for name in targets:
         g = _gain_of(name)
         groups.setdefault(g, []).append(name)
 
-    figures: List[Figure] = []
+    figures: list[Figure] = []
     for gain, names in groups.items():
         analyses = [
-            analyze_channel_lines(name, channel_images[name], lines,
-                                  transform=transform, sharpen=sharpen)
+            analyze_channel_lines(
+                name, channel_images[name], lines, transform=transform, sharpen=sharpen
+            )
             for name in names
         ]
         n = len(analyses)
         fig = Figure(figsize=(4.0 * n, 7.5), facecolor="white")
-        gs = fig.add_gridspec(2, n, height_ratios=[1.05, 0.95],
-                              hspace=0.35, wspace=0.30)
+        gs = fig.add_gridspec(2, n, height_ratios=[1.05, 0.95], hspace=0.35, wspace=0.30)
         for i, an in enumerate(analyses):
             ax_top = fig.add_subplot(gs[0, i])
             _draw_chart_panel(ax_top, an, lines=lines)
             ax_bot = fig.add_subplot(gs[1, i])
-            _draw_mtf_panel(ax_bot, an, threshold=threshold,
-                            show_legend=(i == n - 1))
+            _draw_mtf_panel(ax_bot, an, threshold=threshold, show_legend=(i == n - 1))
         title = f"USAF resolution — {gain or 'channels'}  "
         title += f"(detection limit at {int(threshold * 100)}% Michelson)"
         fig.suptitle(title, fontsize=12.5, y=0.995)
-        fig.text(0.5, -0.005,
-                 "Lines: user-picked profiles through the 3 bars of each "
-                 "USAF element. lp/mm at chart from 2^(group + (element-1)/6). "
-                 "Solid line + circles = horizontal slice (probes vertical bars); "
-                 "dashed + squares = vertical slice (probes horizontal bars). "
-                 "Detection limit = first lp/mm at which Michelson dips "
-                 "below the threshold (scanning coarse → fine).",
-                 ha="center", va="top", fontsize=8.5, color="0.30", wrap=True)
+        fig.text(
+            0.5,
+            -0.005,
+            "Lines: user-picked profiles through the 3 bars of each "
+            "USAF element. lp/mm at chart from 2^(group + (element-1)/6). "
+            "Solid line + circles = horizontal slice (probes vertical bars); "
+            "dashed + squares = vertical slice (probes horizontal bars). "
+            "Detection limit = first lp/mm at which Michelson dips "
+            "below the threshold (scanning coarse → fine).",
+            ha="center",
+            va="top",
+            fontsize=8.5,
+            color="0.30",
+            wrap=True,
+        )
         figures.append(fig)
     return figures
-

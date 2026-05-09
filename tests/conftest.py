@@ -1,7 +1,7 @@
 """Shared fixtures for the MantisAnalysis test suite."""
+
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -12,6 +12,7 @@ import pytest
 def _matplotlib_agg():
     """Force Agg backend before any pyplot import in headless tests."""
     import matplotlib
+
     matplotlib.use("Agg")
     yield
 

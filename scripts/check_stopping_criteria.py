@@ -24,13 +24,13 @@ marker `N/A — <reason>` on the checklist line. Example::
 
 Without the `N/A` marker, an unchecked line is a hard fail.
 """
+
 from __future__ import annotations
 
 import argparse
 import re
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 ROOT = Path(__file__).resolve().parent.parent
 RUNS = ROOT / ".agent" / "runs"
@@ -65,10 +65,10 @@ def _find_status(arg: str) -> Path:
     raise SystemExit(f"no Status.md found for {arg!r}")
 
 
-def _progress_block(text: str) -> List[Tuple[bool, str]]:
+def _progress_block(text: str) -> list[tuple[bool, str]]:
     """Return (ticked?, line_content) for every checkbox under the first
     "Progress" section."""
-    items: List[Tuple[bool, str]] = []
+    items: list[tuple[bool, str]] = []
     in_block = False
     for line in text.splitlines():
         if re.match(r"^#{1,4}\s+Progress\s*$", line, re.IGNORECASE):
@@ -84,10 +84,10 @@ def _progress_block(text: str) -> List[Tuple[bool, str]]:
     return items
 
 
-def _final_block(text: str) -> Optional[List[Tuple[bool, str]]]:
+def _final_block(text: str) -> list[tuple[bool, str]] | None:
     """Return (ticked?, content) for every checkbox under the 'Final
     verification' section, or None if that section isn't present."""
-    items: List[Tuple[bool, str]] = []
+    items: list[tuple[bool, str]] = []
     in_block = False
     for line in text.splitlines():
         if FINAL_HEADER_RE.match(line):
@@ -108,7 +108,7 @@ def is_deferral(line: str) -> bool:
     return bool(NA_RE.search(line))
 
 
-def check(status_path: Path) -> Tuple[bool, List[str]]:
+def check(status_path: Path) -> tuple[bool, list[str]]:
     """Return (ok, messages) for a single Status.md file."""
     text = status_path.read_text(encoding="utf-8")
     progress = _progress_block(text)
@@ -140,22 +140,26 @@ def check(status_path: Path) -> Tuple[bool, List[str]]:
         if len(missing) > 12:
             messages.append(f"  ... and {len(missing) - 12} more")
         return False, messages
-    return True, [f"{status_path.relative_to(ROOT)}: OK ({len(final)} checks; "
-                  f"{sum(1 for (ok, _) in final if ok)} ticked, "
-                  f"{sum(1 for (_, n) in final if is_deferral(n))} deferred)"]
+    return True, [
+        f"{status_path.relative_to(ROOT)}: OK ({len(final)} checks; "
+        f"{sum(1 for (ok, _) in final if ok)} ticked, "
+        f"{sum(1 for (_, n) in final if is_deferral(n))} deferred)"
+    ]
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("target", nargs="?", help="Initiative slug or path")
-    g.add_argument("--all", action="store_true",
-                   help="Scan every initiative folder under .agent/runs/")
+    g.add_argument(
+        "--all", action="store_true", help="Scan every initiative folder under .agent/runs/"
+    )
     args = ap.parse_args()
 
-    paths: List[Path]
+    paths: list[Path]
     if args.all:
         paths = sorted(RUNS.glob("*/Status.md"))
         paths = [p for p in paths if p.parent.name != "_archive"]

@@ -11,6 +11,7 @@ Covers:
   * auto_white_balance produces gray after applying its suggestion.
   * Helper kelvin_to_rgb_multipliers ≈ (1, 1, 1) at D65.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -22,10 +23,10 @@ from mantisanalysis.rgb_grading import (
     kelvin_to_rgb_multipliers,
 )
 
-
 # ---------------------------------------------------------------------------
 # No-op + shape preservation
 # ---------------------------------------------------------------------------
+
 
 def test_no_op_when_params_none():
     a = np.full((8, 8, 3), 0.5, dtype=np.float32)
@@ -35,12 +36,22 @@ def test_no_op_when_params_none():
 
 def test_no_op_when_all_defaults():
     a = np.full((8, 8, 3), 0.5, dtype=np.float32)
-    out = apply_grading(a, {
-        "gain_r": 1.0, "gain_g": 1.0, "gain_b": 1.0,
-        "offset_r": 0.0, "offset_g": 0.0, "offset_b": 0.0,
-        "gamma": 1.0, "brightness": 0.0, "contrast": 1.0,
-        "saturation": 1.0, "wb_kelvin": None,
-    })
+    out = apply_grading(
+        a,
+        {
+            "gain_r": 1.0,
+            "gain_g": 1.0,
+            "gain_b": 1.0,
+            "offset_r": 0.0,
+            "offset_g": 0.0,
+            "offset_b": 0.0,
+            "gamma": 1.0,
+            "brightness": 0.0,
+            "contrast": 1.0,
+            "saturation": 1.0,
+            "wb_kelvin": None,
+        },
+    )
     assert np.array_equal(out, a)
 
 
@@ -62,6 +73,7 @@ def test_handles_rgba_input():
 # ---------------------------------------------------------------------------
 # Per-channel operations
 # ---------------------------------------------------------------------------
+
 
 def test_gain_r_only_lifts_red():
     a = np.full((4, 4, 3), 0.3, dtype=np.float32)
@@ -132,6 +144,7 @@ def test_contrast_pivots_around_half():
 # WB Kelvin
 # ---------------------------------------------------------------------------
 
+
 def test_kelvin_at_d65_is_no_op():
     rm, gm, bm = kelvin_to_rgb_multipliers(6500)
     assert abs(rm - 1.0) < 1e-3
@@ -170,6 +183,7 @@ def test_apply_grading_respects_wb_kelvin():
 # ---------------------------------------------------------------------------
 # Auto white balance
 # ---------------------------------------------------------------------------
+
 
 def test_gray_world_returns_unit_when_already_gray():
     a = np.full((8, 8, 3), 0.5, dtype=np.float32)
