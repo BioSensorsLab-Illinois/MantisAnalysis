@@ -265,6 +265,24 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }: ISPSettingsWindowProps) 
     return false;
   }, [source, stagedModeId, stagedOrigin, stagedSubStep, stagedOuter, stagedNames, stagedLocs]);
 
+  const publishSourceUpdate = useCallbackI(
+    (updated: SourceLite) => {
+      onApplied?.(updated);
+      window.dispatchEvent(
+        new CustomEvent('mantis:source-reconfigured', {
+          detail: {
+            source_id: source?.source_id,
+            isp_mode_id: updated?.isp_mode_id,
+            isp_config: updated?.isp_config,
+            channels: updated?.channels,
+            shape: updated?.shape,
+          },
+        })
+      );
+    },
+    [onApplied, source?.source_id]
+  );
+
   const apply = useCallbackI(async () => {
     if (!source) return;
     setApplying(true);
@@ -281,23 +299,7 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }: ISPSettingsWindowProps) 
           channel_loc_overrides: stagedLocs,
         },
       })) as SourceLite;
-      onApplied?.(updated);
-      // Notify any mode that owns its own per-source state (Play, today)
-      // so it can refresh the recording's metadata + purge the per-URL
-      // blob cache. Without this, Play's `recordings[i].isp_config` stays
-      // stale and the blob cache returns the pre-reconfigure image even
-      // though the server is now serving fresh bytes.
-      window.dispatchEvent(
-        new CustomEvent('mantis:source-reconfigured', {
-          detail: {
-            source_id: source.source_id,
-            isp_mode_id: updated?.isp_mode_id,
-            isp_config: updated?.isp_config,
-            channels: updated?.channels,
-            shape: updated?.shape,
-          },
-        })
-      );
+      publishSourceUpdate(updated);
       say?.(`Filter & Channel → ${activeMode?.display_name || stagedModeId}`, 'success');
       onClose?.();
     } catch (err) {
@@ -316,7 +318,7 @@ const ISPSettingsWindow = ({ onClose, onApplied, say }: ISPSettingsWindowProps) 
     stagedNames,
     stagedLocs,
     activeMode,
-    onApplied,
+    publishSourceUpdate,
     onClose,
     say,
   ]);

@@ -31,11 +31,13 @@ const useTheme = _s.useTheme as () => {
 };
 const exportCSV = _s.exportCSV as (filename: string, rows: ReadonlyArray<unknown>) => void;
 const exportJSON = _s.exportJSON as (filename: string, payload: unknown) => void;
-const apiFetch = _s.apiFetch as (
-  path: string,
-  opts?: { method?: string; body?: unknown }
-) => Promise<DoFResponse>;
-
+const Checkbox = _s.Checkbox as React.ComponentType<{
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+  disabled?: boolean;
+  hint?: string;
+}>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const _a = _analysis as any;
 const _DoFTabBody = _a._DoFTabBody as React.ComponentType<Record<string, unknown>>;
@@ -43,6 +45,13 @@ const DOF_UNIT_OPTS = _a._DOF_UNIT_OPTS as ReadonlyArray<{ value: string; label:
 const dofIsCalibrated = _a._dofIsCalibrated as (ln: unknown) => boolean;
 
 interface DoFResponse {
+  channels?: readonly string[];
+  results?: Record<string, DoFChannelResult | undefined>;
+  metric_results?: Record<string, DoFMetricSnapshot | undefined>;
+  settings?: DoFSettings;
+}
+
+interface DoFMetricSnapshot {
   channels?: readonly string[];
   results?: Record<string, DoFChannelResult | undefined>;
   settings?: DoFSettings;
@@ -64,6 +73,7 @@ interface DoFSettings {
   metric?: string;
   half_window?: number;
   threshold?: number;
+  profile_threshold?: number;
   bootstrap?: boolean;
   compute_all_metrics?: boolean;
   fit_tilt_plane?: boolean;
@@ -71,20 +81,30 @@ interface DoFSettings {
   n_boot?: number;
 }
 
+const FOCUS_METRIC_OPTIONS = [
+  { value: 'laplacian', label: 'Laplacian' },
+  { value: 'brenner', label: 'Brenner' },
+  { value: 'tenengrad', label: 'Tenengrad' },
+  { value: 'fft_hf', label: 'FFT-HF' },
+] as const;
+
 const useDofModeView = (
   run: RunRecord,
   common: FilterCommonState,
   { onToast }: ModeHelpers
 ): ModeView => {
   const t = useTheme();
-  // DoF re-runs analysis when Metric flips — response is local state.
-  const [response, setResponse] = useState<DoFResponse>((run.response || {}) as DoFResponse);
-  const [_reRunning, setReRunning] = useState<boolean>(false);
-  const results = useMemo<NonNullable<DoFResponse['results']>>(
-    () => response.results || {},
-    [response.results]
+  const response = useMemo<DoFResponse>(() => (run.response || {}) as DoFResponse, [run.response]);
+  const isImportedSnapshot = !!run.imported_analysis;
+  const baseSettings = useMemo<DoFSettings>(() => response.settings || {}, [response.settings]);
+  const metricSnapshots = useMemo<NonNullable<DoFResponse['metric_results']>>(
+    () => response.metric_results || {},
+    [response.metric_results]
   );
-  const settings = useMemo<DoFSettings>(() => response.settings || {}, [response.settings]);
+  const cachedMetricOptions = useMemo(
+    () => FOCUS_METRIC_OPTIONS.filter((opt) => !!metricSnapshots[opt.value]?.results),
+    [metricSnapshots]
+  );
 
   const allLines = useMemo(() => run.lines || [], [run.lines]);
   const allPoints = useMemo(() => run.points || [], [run.points]);
@@ -99,9 +119,44 @@ const useDofModeView = (
 
   const [lineIdxFilter, setLineIdxFilter] = useState<string>('all');
   const [metricFilter, setMetricFilter] = useState<string>(
-    settings.metric || run.metric || 'laplacian'
+    baseSettings.metric || run.metric || 'laplacian'
   );
-  const [unitPref, setUnitPref] = useState<string>('auto');
+  const activeSnapshot = useMemo<DoFMetricSnapshot | DoFResponse>(() => {
+    const cached = metricSnapshots[metricFilter];
+    if (cached?.results) {
+      return {
+        channels: cached.channels || response.channels,
+        results: cached.results,
+        settings: {
+          ...baseSettings,
+          ...(cached.settings || {}),
+          metric: metricFilter,
+        },
+      };
+    }
+    return response;
+  }, [baseSettings, metricFilter, metricSnapshots, response]);
+  const results = useMemo<NonNullable<DoFResponse['results']>>(
+    () => activeSnapshot.results || {},
+    [activeSnapshot]
+  );
+  const settings = useMemo<DoFSettings>(
+    () => activeSnapshot.settings || baseSettings || {},
+    [activeSnapshot, baseSettings]
+  );
+  const selectedMetric =
+    settings.metric || metricFilter || run.metric || baseSettings.metric || 'laplacian';
+  const [unitPref, setUnitPref] = useState<string>(run.displayUnit || 'auto');
+  const [showMetricBand, setShowMetricBand] = useState<boolean>(run.show_metric_band !== false);
+  const [showProfileBand, setShowProfileBand] = useState<boolean>(run.show_profile_band !== false);
+  const [showMetricPeak, setShowMetricPeak] = useState<boolean>(run.show_metric_peak !== false);
+  const [showProfilePeak, setShowProfilePeak] = useState<boolean>(!!run.show_profile_peak);
+  useEffect(() => {
+    setShowMetricBand(run.show_metric_band !== false);
+    setShowProfileBand(run.show_profile_band !== false);
+    setShowMetricPeak(run.show_metric_peak !== false);
+    setShowProfilePeak(!!run.show_profile_peak);
+  }, [run.show_metric_band, run.show_profile_band, run.show_metric_peak, run.show_profile_peak]);
   const [tiltAngleDeg, setTiltAngleDeg] = useState<number>(Number(run.tilt_angle_deg) || 0);
   const tiltFactor = useMemo<number>(() => {
     const d = Math.min(89, Math.max(0, Number(tiltAngleDeg) || 0));
@@ -112,61 +167,6 @@ const useDofModeView = (
     () => Object.values(results).some((r) => (r?.lines || []).some(dofIsCalibrated)),
     [results]
   );
-
-  // Re-run analysis on the server when Metric flips. Same body shape as
-  // the original DoFAnalysisModal effect (analysis.tsx 4645).
-  useEffect(() => {
-    const current = response?.settings?.metric;
-    if (!current || current === metricFilter) return;
-    if (!run?.source?.source_id || !run?.channels?.length) return;
-    let alive = true;
-    setReRunning(true);
-    onToast(`Re-running analysis with ${metricFilter}…`);
-    const body = {
-      source_id: run.source.source_id,
-      channels: run.channels,
-      points: (run.points || []).map((p) => ({
-        x: p.x,
-        y: p.y,
-        label: p.label || '',
-      })),
-      lines: (run.lines || []).map((l) => ({ p0: l.p0, p1: l.p1 })),
-      metric: metricFilter,
-      half_window: settings.half_window,
-      threshold: settings.threshold,
-      calibration: settings.calibration || run.calibration || null,
-      isp: run.isp || null,
-      compute_all_metrics: !!settings.compute_all_metrics,
-      bootstrap: !!settings.bootstrap,
-      n_boot: settings.n_boot || 100,
-      fit_tilt_plane: !!settings.fit_tilt_plane,
-      include_pngs: false,
-    };
-    apiFetch('/api/dof/analyze', { method: 'POST', body })
-      .then((res) => {
-        if (alive) {
-          setResponse(res);
-          onToast(`Switched to ${metricFilter}`, 'success');
-        }
-      })
-      .catch((err: unknown) => {
-        if (alive) {
-          const msg =
-            (err as { detail?: string; message?: string })?.detail ||
-            (err as Error)?.message ||
-            String(err);
-          onToast(`Re-run failed: ${msg}`, 'danger');
-        }
-      })
-      .finally(() => {
-        if (alive) setReRunning(false);
-      });
-    return () => {
-      alive = false;
-    };
-    // Match original deps — only metricFilter triggers the re-run.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [metricFilter]);
 
   const visibleLineIdx = useMemo<readonly number[]>(() => {
     const n = allLines.length;
@@ -197,6 +197,13 @@ const useDofModeView = (
           dof_low_px: lnAny.dof_low_px,
           dof_high_px: lnAny.dof_high_px,
           dof_width_px: num(lnAny.dof_width_px)?.toFixed(4),
+          profile_threshold: lnAny.profile_threshold ?? settings.profile_threshold,
+          profile_peak_position_px: num(lnAny.profile_peak_position_px)?.toFixed(4),
+          profile_dof_low_px: lnAny.profile_dof_low_px,
+          profile_dof_high_px: lnAny.profile_dof_high_px,
+          profile_dof_width_px: num(lnAny.profile_dof_width_px)?.toFixed(4),
+          profile_dof_left_bounded: lnAny.profile_dof_left_bounded,
+          profile_dof_right_bounded: lnAny.profile_dof_right_bounded,
           gauss_converged: g.converged ? 1 : 0,
           gauss_mu_px: num(g.mu)?.toFixed(4),
           gauss_sigma_px: num(g.sigma)?.toFixed(4),
@@ -237,6 +244,7 @@ const useDofModeView = (
     visibleLineIdx,
     results,
     onToast,
+    settings,
     tiltAngleDeg,
     tiltFactor,
     lineLabel,
@@ -244,11 +252,27 @@ const useDofModeView = (
   ]);
 
   const onExportJSON = useCallback(() => {
+    const exportChannels = (response.channels || run.channels || common.allChannels).filter(
+      (ch) => !!results[ch] || Object.values(metricSnapshots).some((snap) => !!snap?.results?.[ch])
+    );
+    const metricResultEntries = Object.entries(metricSnapshots)
+      .filter(([, snap]) => !!snap?.results)
+      .map(([metricName, snap]) => [
+        metricName,
+        {
+          channels: exportChannels.filter((ch) => !!snap?.results?.[ch]),
+          results: Object.fromEntries(
+            exportChannels.map((ch) => [ch, snap?.results?.[ch] ?? null])
+          ),
+          settings: snap?.settings || { ...settings, metric: metricName },
+        },
+      ]);
     exportJSON(`mantis-dof-${Date.now()}.json`, {
       kind: 'mantis-dof-analysis',
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
-      channels: common.visibleChannels,
+      source: run.source || null,
+      channels: exportChannels,
       lines: allLines,
       points: allPoints,
       settings,
@@ -256,20 +280,34 @@ const useDofModeView = (
         unit_pref: unitPref,
         tilt_angle_deg: tiltAngleDeg,
         tilt_factor: tiltFactor,
+        show_metric_band: showMetricBand,
+        show_profile_band: showProfileBand,
+        show_metric_peak: showMetricPeak,
+        show_profile_peak: showProfilePeak,
       },
-      results: Object.fromEntries(common.visibleChannels.map((ch) => [ch, results[ch] ?? null])),
+      results: Object.fromEntries(exportChannels.map((ch) => [ch, results[ch] ?? null])),
+      ...(metricResultEntries.length
+        ? { metric_results: Object.fromEntries(metricResultEntries) }
+        : {}),
     });
     onToast('Exported analysis JSON', 'success');
   }, [
-    common.visibleChannels,
+    response.channels,
+    run.channels,
+    common.allChannels,
     allLines,
     allPoints,
     settings,
     results,
+    metricSnapshots,
     onToast,
     unitPref,
     tiltAngleDeg,
     tiltFactor,
+    showMetricBand,
+    showProfileBand,
+    showMetricPeak,
+    showProfilePeak,
   ]);
 
   const filterExtras = (
@@ -283,19 +321,33 @@ const useDofModeView = (
           ...allLines.map((_, i) => ({ value: String(i), label: lineLabel(i) })),
         ]}
       />
-      {settings.compute_all_metrics && (
+      {cachedMetricOptions.length > 1 && (
         <>
           <FilterLabel marginLeft={6}>Metric</FilterLabel>
           <Segmented
             value={metricFilter}
             onChange={setMetricFilter}
-            options={[
-              { value: 'laplacian', label: 'Laplacian' },
-              { value: 'brenner', label: 'Brenner' },
-              { value: 'tenengrad', label: 'Tenengrad' },
-              { value: 'fft_hf', label: 'FFT-HF' },
-            ]}
+            options={cachedMetricOptions}
           />
+        </>
+      )}
+      {cachedMetricOptions.length <= 1 && (settings.compute_all_metrics || isImportedSnapshot) && (
+        <>
+          <FilterLabel marginLeft={6}>Metric</FilterLabel>
+          <span
+            title={
+              isImportedSnapshot
+                ? 'Imported analysis JSON is a frozen snapshot. This file contains only this full metric result.'
+                : 'This run contains only this full metric result. Enable All 4 metrics before Run Analysis to switch without recomputing.'
+            }
+            style={{
+              fontSize: 10,
+              color: t.textFaint,
+              fontFamily: 'ui-monospace,Menlo,monospace',
+            }}
+          >
+            {settings.metric || metricFilter} only
+          </span>
         </>
       )}
       <FilterLabel marginLeft={6}>Unit</FilterLabel>
@@ -355,6 +407,11 @@ const useDofModeView = (
       >
         °
       </span>
+      <FilterLabel marginLeft={6}>Overlays</FilterLabel>
+      <Checkbox checked={showMetricBand} onChange={setShowMetricBand} label="Metric band" />
+      <Checkbox checked={showProfileBand} onChange={setShowProfileBand} label="Profile band" />
+      <Checkbox checked={showMetricPeak} onChange={setShowMetricPeak} label="Metric peak" />
+      <Checkbox checked={showProfilePeak} onChange={setShowProfilePeak} label="Profile peak" />
     </>
   );
 
@@ -383,7 +440,9 @@ const useDofModeView = (
   const subtitleText = (
     <>
       metric={settings.metric} · half-win={settings.half_window}px · threshold=
-      {((settings.threshold ?? 0) * 100).toFixed(0)}%{settings.bootstrap ? ' · bootstrap' : ''}
+      {((settings.threshold ?? 0) * 100).toFixed(0)}% · profile-thr=
+      {((settings.profile_threshold ?? 0.5) * 100).toFixed(0)}%
+      {settings.bootstrap ? ' · bootstrap' : ''}
       {settings.compute_all_metrics ? ' · 4-metric sweep' : ''}
       {settings.fit_tilt_plane ? ' · tilt plane' : ''}
       {settings.calibration ? ` · cal px/${settings.calibration.unit}` : ' · uncalibrated'}
@@ -399,8 +458,13 @@ const useDofModeView = (
         visibleLineIdx={visibleLineIdx}
         lineLabel={lineLabel}
         pointLabel={pointLabel}
+        metric={selectedMetric}
         unitPref={unitPref}
         tiltFactor={tiltFactor}
+        showMetricBand={showMetricBand}
+        showProfileBand={showProfileBand}
+        showMetricPeak={showMetricPeak}
+        showProfilePeak={showProfilePeak}
       />
     ),
     [
@@ -410,8 +474,13 @@ const useDofModeView = (
       visibleLineIdx,
       lineLabel,
       pointLabel,
+      selectedMetric,
       unitPref,
       tiltFactor,
+      showMetricBand,
+      showProfileBand,
+      showMetricPeak,
+      showProfilePeak,
     ]
   );
 
@@ -431,6 +500,7 @@ export const dofSpec: ModeSpec = {
   tabs: [
     { key: 'summary', label: 'Summary' },
     { key: 'lines', label: 'Line scans' },
+    { key: 'raw', label: 'Raw profiles' },
     { key: 'gaussian', label: 'Gaussian fits' },
     { key: 'metric', label: 'Metric compare' },
     { key: 'chromatic', label: 'Chromatic shift' },

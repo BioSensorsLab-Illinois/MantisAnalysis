@@ -19,6 +19,9 @@ export type ToastFn = (msg: string, level?: ToastLevel) => void;
 export interface RunRecord {
   mode: AnalysisMode;
   response?: AnalysisResponse;
+  imported_analysis?: boolean;
+  exportedAt?: string | null;
+  _analysis_id?: string;
   rois?: ReadonlyArray<{ readonly label?: string }>;
   lines?: ReadonlyArray<{
     readonly p0?: readonly [number, number];
@@ -29,6 +32,12 @@ export interface RunRecord {
   source?: { readonly source_id?: string };
   channels?: readonly string[];
   metric?: string;
+  profile_threshold?: number;
+  show_metric_band?: boolean;
+  show_profile_band?: boolean;
+  show_metric_peak?: boolean;
+  show_profile_peak?: boolean;
+  displayUnit?: string;
   isp?: unknown;
   calibration?: unknown;
   tilt_angle_deg?: number;

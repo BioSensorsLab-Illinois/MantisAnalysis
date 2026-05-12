@@ -167,6 +167,200 @@ def measure_focus_all(image: np.ndarray, cx: float, cy: float, *,
     }
 
 
+def sample_line_profile(image: np.ndarray,
+                        p0: Tuple[float, float],
+                        p1: Tuple[float, float],
+                        *,
+                        step_px: float = 1.0,
+                        max_samples: int = 4096,
+                        ) -> Tuple[np.ndarray, np.ndarray]:
+    """Sample raw image intensity along a line using bilinear interpolation.
+
+    Focus metrics intentionally use a sliding window; this profile is the
+    separate center-line grayscale trace users expect to see as
+    value-vs-position. Typical DoF/H5 channel widths are below the cap, so
+    fine 1-2 px bars are preserved at one-sample-per-pixel spacing.
+    """
+    a = np.asarray(image, dtype=np.float64)
+    if a.ndim != 2:
+        raise ValueError(f"expected 2-D image, got shape {a.shape}")
+    x0, y0 = p0
+    x1, y1 = p1
+    length = float(np.hypot(x1 - x0, y1 - y0))
+    if length <= 0:
+        xs = np.asarray([x0], dtype=np.float64)
+        ys = np.asarray([y0], dtype=np.float64)
+        positions = np.asarray([0.0], dtype=np.float64)
+    else:
+        step = max(0.25, float(step_px))
+        n = int(np.floor(length / step)) + 1
+        n = max(2, min(int(max_samples), n))
+        ts = np.linspace(0.0, 1.0, n, dtype=np.float64)
+        xs = x0 + ts * (x1 - x0)
+        ys = y0 + ts * (y1 - y0)
+        positions = ts * length
+
+    h, w = a.shape[:2]
+    xs = np.clip(xs, 0.0, max(0.0, w - 1.0))
+    ys = np.clip(ys, 0.0, max(0.0, h - 1.0))
+    x_floor = np.floor(xs).astype(np.int64)
+    y_floor = np.floor(ys).astype(np.int64)
+    x_ceil = np.minimum(x_floor + 1, w - 1)
+    y_ceil = np.minimum(y_floor + 1, h - 1)
+    wx = xs - x_floor
+    wy = ys - y_floor
+
+    v00 = a[y_floor, x_floor]
+    v10 = a[y_floor, x_ceil]
+    v01 = a[y_ceil, x_floor]
+    v11 = a[y_ceil, x_ceil]
+    vals = ((1.0 - wx) * (1.0 - wy) * v00
+            + wx * (1.0 - wy) * v10
+            + (1.0 - wx) * wy * v01
+            + wx * wy * v11)
+    return positions, vals.astype(np.float64, copy=False)
+
+
+def compute_profile_contrast_band(positions: np.ndarray,
+                                  intensity: np.ndarray,
+                                  *,
+                                  threshold: float = 0.5,
+                                  ) -> Dict[str, Any]:
+    """Estimate a supplemental DoF band from the raw line profile.
+
+    The raw DN trace often rides on a strong illumination gradient,
+    especially for endoscope imagery. This helper removes a slow
+    background, measures local stripe amplitude with a sliding
+    percentile high-low span, smooths that envelope, then thresholds the
+    normalized envelope around its peak. It is intentionally a
+    supplemental visual band, separate from the focus-metric DoF result.
+    """
+    s = np.asarray(positions, dtype=np.float64)
+    y = np.asarray(intensity, dtype=np.float64)
+    n = int(min(s.size, y.size))
+    if n <= 0:
+        return {
+            "profile_contrast_norm": np.asarray([], dtype=np.float64),
+            "profile_peak_idx": None,
+            "profile_peak_position_px": None,
+            "profile_dof_low_px": None,
+            "profile_dof_high_px": None,
+            "profile_dof_width_px": None,
+            "profile_dof_left_bounded": False,
+            "profile_dof_right_bounded": False,
+        }
+    s = s[:n]
+    y = y[:n]
+    finite = np.isfinite(s) & np.isfinite(y)
+    if not np.any(finite):
+        norm = np.zeros(n, dtype=np.float64)
+        return {
+            "profile_contrast_norm": norm,
+            "profile_peak_idx": 0,
+            "profile_peak_position_px": float(s[0]) if s.size else None,
+            "profile_dof_low_px": None,
+            "profile_dof_high_px": None,
+            "profile_dof_width_px": None,
+            "profile_dof_left_bounded": False,
+            "profile_dof_right_bounded": False,
+        }
+
+    if not np.all(finite):
+        replacement = float(np.median(y[finite]))
+        y = y.copy()
+        y[~finite] = replacement
+        s = s.copy()
+        s[~finite] = np.interp(np.flatnonzero(~finite),
+                               np.flatnonzero(finite), s[finite])
+
+    if n < 4 or float(np.ptp(y)) <= 0:
+        norm = np.zeros(n, dtype=np.float64)
+        return {
+            "profile_contrast_norm": norm,
+            "profile_peak_idx": 0,
+            "profile_peak_position_px": float(s[0]),
+            "profile_dof_low_px": None,
+            "profile_dof_high_px": None,
+            "profile_dof_width_px": None,
+            "profile_dof_left_bounded": False,
+            "profile_dof_right_bounded": False,
+        }
+
+    bg_sigma = max(3.0, min(64.0, n / 18.0))
+    background = gaussian_filter(y, sigma=bg_sigma, mode="reflect")
+    detail = y - background
+
+    half = max(3, min(32, int(round(n / 24.0))))
+    amplitude = np.zeros(n, dtype=np.float64)
+    for i in range(n):
+        lo = max(0, i - half)
+        hi = min(n, i + half + 1)
+        local = detail[lo:hi]
+        amplitude[i] = float(np.percentile(local, 95) - np.percentile(local, 5))
+
+    if float(np.max(amplitude)) <= 0:
+        amplitude = np.abs(detail)
+    if float(np.max(amplitude)) <= 0:
+        norm = np.zeros(n, dtype=np.float64)
+        return {
+            "profile_contrast_norm": norm,
+            "profile_peak_idx": 0,
+            "profile_peak_position_px": float(s[0]),
+            "profile_dof_low_px": None,
+            "profile_dof_high_px": None,
+            "profile_dof_width_px": None,
+            "profile_dof_left_bounded": False,
+            "profile_dof_right_bounded": False,
+        }
+
+    smooth_sigma = max(1.0, half / 3.0)
+    envelope = gaussian_filter(amplitude, sigma=smooth_sigma, mode="reflect")
+    peak_amp = float(np.max(envelope))
+    norm = envelope / peak_amp if peak_amp > 0 else envelope * 0.0
+    norm = np.clip(norm, 0.0, 1.0)
+    peak_idx = int(np.argmax(norm))
+    thr = float(np.clip(threshold, 0.0, 1.0))
+
+    def _interp_cross(i0: int, i1: int) -> float:
+        x0 = float(s[i0])
+        x1 = float(s[i1])
+        y0 = float(norm[i0])
+        y1 = float(norm[i1])
+        if y1 == y0:
+            return x0
+        f = (thr - y0) / (y1 - y0)
+        f = float(np.clip(f, 0.0, 1.0))
+        return x0 + f * (x1 - x0)
+
+    low = float(s[0])
+    left_bounded = False
+    for j in range(peak_idx - 1, -1, -1):
+        if norm[j] < thr:
+            low = _interp_cross(j, min(j + 1, n - 1))
+            left_bounded = True
+            break
+
+    high = float(s[-1])
+    right_bounded = False
+    for j in range(peak_idx + 1, n):
+        if norm[j] < thr:
+            high = _interp_cross(max(j - 1, 0), j)
+            right_bounded = True
+            break
+
+    width = max(0.0, high - low)
+    return {
+        "profile_contrast_norm": norm,
+        "profile_peak_idx": peak_idx,
+        "profile_peak_position_px": float(s[peak_idx]),
+        "profile_dof_low_px": low,
+        "profile_dof_high_px": high,
+        "profile_dof_width_px": width,
+        "profile_dof_left_bounded": left_bounded,
+        "profile_dof_right_bounded": right_bounded,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Data classes
 
@@ -250,6 +444,21 @@ class DoFLineResult:
     # of every metric without a second request.
     metric_sweep: Optional[Dict[str, Dict[str, Any]]] = None
 
+    # Raw center-line grayscale profile sampled independently from the
+    # sliding-window focus metric. Used to show visible line-pair contrast
+    # fading outside the DoF band.
+    profile_positions_px: Optional[np.ndarray] = None
+    intensity_profile: Optional[np.ndarray] = None
+    profile_contrast_norm: Optional[np.ndarray] = None
+    profile_threshold: Optional[float] = None
+    profile_peak_idx: Optional[int] = None
+    profile_peak_position_px: Optional[float] = None
+    profile_dof_low_px: Optional[float] = None
+    profile_dof_high_px: Optional[float] = None
+    profile_dof_width_px: Optional[float] = None
+    profile_dof_left_bounded: bool = False
+    profile_dof_right_bounded: bool = False
+
 
 @dataclass
 class DoFChannelResult:
@@ -261,6 +470,7 @@ class DoFChannelResult:
 
     points: List[DoFPointResult]
     lines: List[DoFLineResult]
+    profile_threshold: float = 0.5     # raw-profile contrast threshold
 
     # Optional overall focus heatmap (downsampled grid, for the heatmap tab)
     heatmap: Optional[np.ndarray] = None
@@ -409,6 +619,7 @@ def analyze_dof(image: np.ndarray, *,
                 metric: str = "laplacian",
                 half_window: int = 32,
                 threshold: float = 0.5,
+                profile_threshold: float = 0.5,
                 line_step_px: float = 4.0,
                 build_heatmap: bool = True,
                 heatmap_step: int = 48,
@@ -460,6 +671,23 @@ def analyze_dof(image: np.ndarray, *,
                         half_window=half_window,
                         metric=metric, threshold=threshold,
                         calibration=calibration)
+        lr.profile_positions_px, lr.intensity_profile = sample_line_profile(
+            image, p0, p1,
+        )
+        profile_band = compute_profile_contrast_band(
+            lr.profile_positions_px,
+            lr.intensity_profile,
+            threshold=float(profile_threshold),
+        )
+        lr.profile_contrast_norm = profile_band["profile_contrast_norm"]
+        lr.profile_threshold = float(profile_threshold)
+        lr.profile_peak_idx = profile_band["profile_peak_idx"]
+        lr.profile_peak_position_px = profile_band["profile_peak_position_px"]
+        lr.profile_dof_low_px = profile_band["profile_dof_low_px"]
+        lr.profile_dof_high_px = profile_band["profile_dof_high_px"]
+        lr.profile_dof_width_px = profile_band["profile_dof_width_px"]
+        lr.profile_dof_left_bounded = bool(profile_band["profile_dof_left_bounded"])
+        lr.profile_dof_right_bounded = bool(profile_band["profile_dof_right_bounded"])
         # Gaussian fit on primary metric
         lr.gaussian = fit_gaussian(lr.positions, lr.focus)
         # Bootstrap CI
@@ -512,6 +740,7 @@ def analyze_dof(image: np.ndarray, *,
     return DoFChannelResult(
         name=name, image=image, metric=metric,
         half_window=half_window, threshold=threshold,
+        profile_threshold=float(profile_threshold),
         points=pt_results, lines=line_results,
         heatmap=heatmap, heatmap_step=heatmap_step,
         unit_name=cal.get("unit"),
@@ -528,6 +757,7 @@ def analyze_dof_multi(channel_images: Dict[str, np.ndarray], *,
                       metric: str = "laplacian",
                       half_window: int = 32,
                       threshold: float = 0.5,
+                      profile_threshold: float = 0.5,
                       line_step_px: float = 4.0,
                       build_heatmap: bool = True,
                       heatmap_step: int = 48,
@@ -548,7 +778,8 @@ def analyze_dof_multi(channel_images: Dict[str, np.ndarray], *,
             image, name=name,
             points=points, lines=lines,
             metric=metric, half_window=half_window,
-            threshold=threshold, line_step_px=line_step_px,
+            threshold=threshold, profile_threshold=profile_threshold,
+            line_step_px=line_step_px,
             build_heatmap=build_heatmap, heatmap_step=heatmap_step,
             calibration=calibration,
             compute_all_metrics=compute_all_metrics,

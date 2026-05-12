@@ -145,6 +145,7 @@ const useFpnModeView = (
       kind: 'mantis-fpn-analysis',
       version: 1,
       exportedAt: new Date().toISOString(),
+      source: run.source || null,
       channels: common.visibleChannels,
       rois: allRois,
       settings,

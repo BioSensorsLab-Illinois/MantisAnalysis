@@ -95,6 +95,83 @@ const FILE_FILTERS = {
   jpeg: { label: 'JPEG only (*.jpg, *.jpeg)', accept: '.jpg,.jpeg,image/jpeg' },
 };
 
+const analysisJsonToRun = (payload, fallbackSource = null) => {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Analysis JSON is empty or invalid');
+  }
+  const source = payload.source || fallbackSource || undefined;
+  const stamp = payload.exportedAt || new Date().toISOString();
+  const base = {
+    source,
+    imported_analysis: true,
+    exportedAt: payload.exportedAt || null,
+    _analysis_id: `import:${payload.kind || 'analysis'}:${stamp}:${Math.random().toString(36).slice(2)}`,
+  };
+  if (payload.kind === 'mantis-dof-analysis') {
+    const settings = payload.settings || {};
+    const display = payload.display || {};
+    const channels = payload.channels || Object.keys(payload.results || {});
+    return {
+      ...base,
+      mode: 'dof',
+      channels,
+      lines: payload.lines || [],
+      points: payload.points || [],
+      metric: settings.metric,
+      half_window: settings.half_window,
+      threshold: settings.threshold,
+      profile_threshold: settings.profile_threshold,
+      show_metric_band: display.show_metric_band !== false,
+      show_profile_band: display.show_profile_band !== false,
+      show_metric_peak: display.show_metric_peak !== false,
+      show_profile_peak: !!display.show_profile_peak,
+      displayUnit: display.unit_pref || 'auto',
+      calibration: settings.calibration || null,
+      tilt_angle_deg: Number(display.tilt_angle_deg) || 0,
+      response: {
+        channels,
+        results: payload.results || {},
+        metric_results: payload.metric_results || {},
+        settings,
+      },
+    };
+  }
+  if (payload.kind === 'mantis-usaf-analysis') {
+    const channels = payload.channels || Object.keys(payload.measurements || {});
+    return {
+      ...base,
+      mode: 'usaf',
+      channels,
+      threshold: payload.threshold,
+      response: {
+        channels,
+        specs: payload.specs || [],
+        measurements: payload.measurements || {},
+        per_channel_detection_limit: payload.per_channel_detection_limit || {},
+        threshold: payload.threshold,
+      },
+    };
+  }
+  if (payload.kind === 'mantis-fpn-analysis') {
+    const channels = payload.channels || Object.keys(payload.measurements || {});
+    return {
+      ...base,
+      mode: 'fpn',
+      channels,
+      rois: payload.rois || [],
+      settings: payload.settings || {},
+      response: {
+        channels,
+        measurements: payload.measurements || {},
+        settings: payload.settings || {},
+      },
+    };
+  }
+  throw new Error(
+    `Unsupported analysis JSON kind: ${payload.kind || 'missing kind'}. Use the mode-specific Load cfg button for picker configs.`
+  );
+};
+
 const App = () => {
   const [themeName, setThemeName] = useLocalStorageState('theme', 'light');
   const [accent, setAccent] = useLocalStorageState('accent', 'blue');
@@ -119,6 +196,7 @@ const App = () => {
   const [serverOk, setServerOk] = useStateApp(null);
   const [fileFilter, setFileFilter] = useLocalStorageState('fileFilter', 'all');
   const fileInputRef = useRefApp(null);
+  const analysisInputRef = useRefApp(null);
 
   const t = useMemoApp(
     () => applyAccent(THEMES[themeName], accent, themeName),
@@ -289,6 +367,21 @@ const App = () => {
     }
   };
 
+  const onAnalysisFileChosen = async (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    try {
+      const payload = JSON.parse(await f.text());
+      const run = analysisJsonToRun(payload, source);
+      setAnalysis(run);
+      if (run.mode) setMode(run.mode);
+      say(`Loaded ${run.mode?.toUpperCase?.() || 'analysis'} result from ${f.name}`, 'success');
+    } catch (err) {
+      say(`Load analysis failed: ${err.message || err}`, 'danger');
+    }
+  };
+
   const loadSample = async () => {
     try {
       const s = await apiFetch('/api/sources/load-sample', { method: 'POST' });
@@ -351,6 +444,12 @@ const App = () => {
         icon: 'open',
         run: () => fileInputRef.current?.click(),
       },
+      {
+        id: 'analysis.load',
+        label: 'Load analysis JSON…',
+        icon: 'open',
+        run: () => analysisInputRef.current?.click(),
+      },
       { id: 'file.sample', label: 'Load synthetic sample', icon: 'image', run: loadSample },
       {
         id: 'help.shortcuts',
@@ -399,6 +498,13 @@ const App = () => {
               style={{ display: 'none' }}
               onChange={onFileChosen}
             />
+            <input
+              ref={analysisInputRef}
+              type="file"
+              accept=".json,application/json"
+              style={{ display: 'none' }}
+              onChange={onAnalysisFileChosen}
+            />
             <TopBar
               mode={mode}
               themeName={themeName}
@@ -410,6 +516,7 @@ const App = () => {
               onPalette={() => setShowPalette(true)}
               onISP={() => setShowISP(true)}
               onOpen={() => fileInputRef.current?.click()}
+              onLoadAnalysis={() => analysisInputRef.current?.click()}
               onSample={loadSample}
               fileFilter={fileFilter}
               setFileFilter={setFileFilter}
@@ -479,7 +586,7 @@ const App = () => {
               // throw "Rendered more/fewer hooks". Keying on mode forces a
               // fresh remount per mode and makes the contract explicit.
               <AnalysisShell
-                key={analysis.mode}
+                key={`${analysis.mode}:${analysis._analysis_id || ''}`}
                 run={analysis}
                 onClose={() => setAnalysis(null)}
                 onToast={say}
@@ -718,6 +825,7 @@ const TopBar = ({
   onPalette,
   onISP,
   onOpen,
+  onLoadAnalysis,
   onSample,
   fileFilter,
   setFileFilter,
@@ -861,6 +969,14 @@ const TopBar = ({
       )}
       <Button icon="image" size="sm" onClick={onSample} title="Load a synthetic sample">
         Sample
+      </Button>
+      <Button
+        icon="open"
+        size="sm"
+        onClick={onLoadAnalysis}
+        title="Load a previously exported analysis JSON result"
+      >
+        Load analysis
       </Button>
       {/* File-type filter for Open. Uses a native <select> for OS-consistency;
           the native file dialog only respects one "accept" at a time, so we

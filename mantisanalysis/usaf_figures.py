@@ -43,6 +43,13 @@ CHANNEL_COLORS = {
     "NIR": "#b06bff",
     "Y":   "#d0d4da",
     "L":   "#d0d4da",
+    "I0":  "#f04b4b",
+    "I45": "#e5a13a",
+    "I90": "#3aba5e",
+    "I135": "#6b8df0",
+    "S0": "#d0d4da",
+    "DoLP": "#14b8a6",
+    "AoP": "#c084fc",
 }
 
 DIR_STYLES = {

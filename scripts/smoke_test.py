@@ -476,6 +476,7 @@ def tier3() -> Tuple[bool, str]:
                    {"x": 160, "y": 80, "label": "c"}],
         "lines": [{"p0": [40, 120], "p1": [300, 120]}],
         "metric": "laplacian", "half_window": 24, "threshold": 0.5,
+        "compute_all_metrics": True,
         "include_pngs": True,
     })
     if r.status_code != 200:
@@ -485,6 +486,13 @@ def tier3() -> Tuple[bool, str]:
         return False, f"dof analyze missing result for {ch}"
     if ch not in (ana.get("figures") or {}):
         return False, f"dof analyze missing figures for {ch}"
+    metric_results = ana.get("metric_results") or {}
+    for metric in ("laplacian", "brenner", "tenengrad", "fft_hf"):
+        if metric not in metric_results:
+            return False, f"dof analyze missing cached {metric} metric result"
+        line = metric_results[metric]["results"][ch]["lines"][0]
+        if "gaussian" not in line or "metric_sweep" not in line:
+            return False, f"dof cached {metric} line missing gaussian/metric_sweep"
 
     # Play tab — confirm the per-frame channel render route is wired
     # end-to-end (post-rebuild Tier-4 alone left this surface untested

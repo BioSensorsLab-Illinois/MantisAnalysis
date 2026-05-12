@@ -14,7 +14,7 @@ UI. Four modes:
 |---|---|
 | **USAF Resolution** | Pick profile lines across USAF-1951 chart bar groups; per-line Michelson contrast (percentile / FFT / min-max) and per-channel detection limit are computed server-side. Six-tab analysis window. |
 | **FPN Analysis** | Drag a rectangular ROI on any channel; live DSNU / PRNU / row-σ / col-σ / residual-σ updates from the server on every ROI / ISP / channel change. Four figure types per channel. |
-| **Depth of Field** | Drop focus probe points or draw scan lines; four focus metrics (variance of Laplacian, Brenner, Tenengrad, FFT-HF). Optional H/V reference-length calibration converts all readouts to μm / mm / cm. |
+| **Depth of Field** | Drop focus probe points or draw scan lines; live raw line-intensity profiles plus four focus metrics (variance of Laplacian, Brenner, Tenengrad, FFT-HF). Raw-profile overlays independently toggle metric/profile DoF bands and metric/profile peak markers; the supplemental profile band/peak come from local stripe-amplitude thresholding. Optional H/V reference-length calibration converts all readouts to μm / mm / cm. |
 | **Playback (Recording Inspection)** | Inspect MantisCam HDF5 recordings frame-by-frame: multi-file streams, dark-frame averaging by exposure, per-view rendering (5 ISP modes), 9-section Inspector with CCM editor + presets + frame-LRU controls, image (PNG/TIFF/JPEG) + video (MP4/APNG/GIF/PNG-seq) export, send-to-mode handoff into USAF/FPN/DoF, drag-and-drop loading, right-click context menu, responsive narrow-window collapse. **Visible by default** in the rail. Hide via `localStorage.setItem('mantis/playback/enabled','0')` then reload. Shipped 2026-04-25 in `recording-inspection-implementation-v1` + `playback-ux-polish-v1`. |
 
 Designed by **Zhongmin Zhu** (`j@polarxphotonics.com`) — **BioSensors Lab @ UIUC**.
@@ -90,6 +90,27 @@ python -m mantisanalysis --port 9001            # custom port
 
 The server binds `http://127.0.0.1:8765` by default and serves the `web/` tree at the root. `python -m mantisanalysis` waits for the port, then opens your default browser.
 
+Analysis result JSON files exported from the results window can be
+restored with the top-bar **Load analysis** button. These files are
+post-analysis result snapshots (`mantis-*-analysis`); each mode's
+left-side **Load cfg** button still loads the pre-analysis picker
+configuration files (`mantis-*-config`). Imported analysis snapshots are
+read-only result views: changing display filters, background color, or
+the DoF metric selector in the results window does not re-run the server
+analysis. For DoF, enable **Research extras → All 4 metrics** before
+Run Analysis to compute and save full `laplacian`, `brenner`,
+`tenengrad`, and `fft_hf` result trees in the JSON; later metric
+switching just reads that saved cache.
+Each result-chart card that has a **PNG** export also shows a **CSV**
+export when plotted data are available; that CSV contains only the data
+behind that specific chart card, such as profile samples, focus curves,
+heatmap cells, or overlay point/line coordinates.
+
+In the picker pages, **Display channel** controls only the live canvas and
+single-channel preview. **Run analysis** uses the checked **Analysis
+channels** only; stale channels from an older source are ignored rather
+than silently falling back to the display channel.
+
 ### Or use any HTTP client / Swagger
 
 Interactive API docs: `http://127.0.0.1:8765/api/docs` (FastAPI auto-generated).
@@ -118,6 +139,13 @@ mosaic. The Bayer extraction follows the lab's MantisCam ISP exactly:
 | NIR | (1, 1) | (0, 0) | `[2::4, 2::4]` |
 
 After extraction every per-channel image is `(H/4, W/4)` — for the 2048×2048 half-frame, 512×512 per channel. Per-channel Nyquist is **0.5 cy/channel-pixel = 0.125 cy/sensor-pixel**.
+
+Polarization ISP modes use a 2×2 analyzer mosaic: `I0`, `I45`, `I90`,
+and `I135`. They also expose virtual `S0`, `DoLP`, and `AoP` channels
+(`HG-*` / `LG-*` for the dual-gain polarization mode). Optional
+`.polcal.h5` calibration is loaded from the left-side Polcal panel below
+the existing dark-frame controls, and is applied only after a matching dark
+frame and calibration profile are loaded.
 
 ## USAF lp/mm reference (groups 0–5)
 
@@ -151,7 +179,7 @@ Browser (web/)                    FastAPI server (mantisanalysis/server.py)
                               │ · image_io.py (H5 + PNG/TIFF/JPG)    │
                               │ · usaf_groups.py (Michelson, FFT)    │
                               │ · fpn_analysis.py (DSNU, PRNU, …)    │
-                              │ · dof_analysis.py (4 focus metrics)  │
+                              │ · dof_analysis.py (DoF metrics + raw profiles) │
                               │ · figures.py → matplotlib PNGs       │
                               └──────────────────────────────────────┘
 ```
@@ -177,7 +205,7 @@ MantisAnalysis/
 │   ├── image_io.py          ← load_any: H5 + PNG/TIFF/JPG
 │   ├── usaf_groups.py       ← lp/mm, LineSpec, Michelson (3 flavors)
 │   ├── fpn_analysis.py      ← ISP + FPN stats + percentile mask
-│   ├── dof_analysis.py      ← 4 focus metrics + heatmap + calibration
+│   ├── dof_analysis.py      ← 4 focus metrics + raw line profiles + calibration
 │   ├── image_processing.py  ← sharpen / tone / percentile clip
 │   ├── {usaf,fpn,dof}_render.py  ← matplotlib figure builders
 │   ├── figures.py           ← PNG byte serializer over render modules

@@ -113,6 +113,17 @@ const fmtLen = (px, unit, pxPerMicron, digits = 2) => {
 const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFile }) => {
   const t = useTheme();
   const source = useSource();
+  const sourceImageRevision = [
+    source?.source_id,
+    source?.has_dark,
+    source?.dark_name,
+    source?.has_polarization_calibration,
+    source?.polarization_calibration_name,
+    source?.polarization_calibration_profile_id,
+    source?.polarization_calibration_use_avg,
+    source?.polarization_calibration_enabled,
+    source?.polarization_calibration_ready,
+  ].join('|');
   const available = source?.channels || [];
   const defaultCh = available.includes('HG-G')
     ? 'HG-G'
@@ -129,6 +140,10 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
   const [analysisChannels, setAnalysisChannels] = useLocalStorageState(
     'dof/analysisChannels',
     defaultAnalysisChannels(available)
+  );
+  const validAnalysisChannels = useMemoD(
+    () => analysisChannels.filter((c) => available.includes(c)),
+    [analysisChannels, available]
   );
   // RGB composite is now an explicit "RGB" entry inside the Display channel
   // picker (see `rgbDisplayOptions` below), not a global override. Picking a
@@ -162,6 +177,11 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
   const [metric, setMetric] = useLocalStorageState('dof/metric', 'laplacian');
   const [halfWin, setHalfWin] = useLocalStorageState('dof/halfWin', 32);
   const [threshold, setThreshold] = useLocalStorageState('dof/threshold', 0.5);
+  const [profileThreshold, setProfileThreshold] = useLocalStorageState('dof/profileThreshold', 0.5);
+  const [showMetricBand, setShowMetricBand] = useLocalStorageState('dof/showMetricBand', true);
+  const [showProfileBand, setShowProfileBand] = useLocalStorageState('dof/showProfileBand', true);
+  const [showMetricPeak, setShowMetricPeak] = useLocalStorageState('dof/showMetricPeak', true);
+  const [showProfilePeak, setShowProfilePeak] = useLocalStorageState('dof/showProfilePeak', false);
   const [bootstrap, setBootstrap] = useLocalStorageState('dof/bootstrap', false);
   const [allMetrics, setAllMetrics] = useLocalStorageState('dof/allMetrics', false);
   const [tiltPlane, setTiltPlane] = useLocalStorageState('dof/tiltPlane', false);
@@ -244,10 +264,12 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
       isRgbChannel ? 'gray' : colormap,
       null,
       null,
-      isRgbChannel
+      isRgbChannel,
+      sourceImageRevision
     );
   }, [
     source,
+    sourceImageRevision,
     activeChannel,
     isRgbChannel,
     rgbChannelArg,
@@ -314,13 +336,12 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
   // gets its own effective scale via sqrt((dx/ph)² + (dy/pv)²).
   const calibrationPayload = () => {
     if (!calibrated) return null;
-    const toDisplay = (pxPerMicron) => pxPerMicron * DOF_TO_MICRONS[displayUnit];
     const ph = pxPerMicronH ?? pxPerMicronMean;
     const pv = pxPerMicronV ?? pxPerMicronMean;
     return {
-      unit: displayUnit,
-      px_per_unit_h: toDisplay(ph),
-      px_per_unit_v: toDisplay(pv),
+      unit: 'μm',
+      px_per_unit_h: ph,
+      px_per_unit_v: pv,
     };
   };
 
@@ -328,7 +349,7 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
   const dPoints = useDebounced(points, 220);
   const dLines = useDebounced(lines, 220);
   const dParams = useDebounced(
-    { metric, halfWin, threshold, allMetrics, bootstrap, tiltPlane },
+    { metric, halfWin, threshold, profileThreshold, allMetrics, bootstrap, tiltPlane },
     200
   );
   const dIspKey = useDebounced(JSON.stringify(buildIspPayload() || null), 200);
@@ -356,6 +377,7 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
         metric: dParams.metric,
         half_window: dParams.halfWin,
         threshold: dParams.threshold,
+        profile_threshold: dParams.profileThreshold,
         calibration: calibrationPayload(),
         isp: buildIspPayload(),
         compute_all_metrics: dParams.allMetrics,
@@ -389,7 +411,6 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
     calibrated,
     pxPerMicronH,
     pxPerMicronV,
-    displayUnit,
     dIspKey,
   ]);
 
@@ -729,6 +750,11 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
         metric,
         halfWin,
         threshold,
+        profileThreshold,
+        showMetricBand,
+        showProfileBand,
+        showMetricPeak,
+        showProfilePeak,
         allMetrics,
         bootstrap,
         tiltPlane,
@@ -797,6 +823,11 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
       if (p.metric) setMetric(p.metric);
       if (p.halfWin != null) setHalfWin(p.halfWin);
       if (p.threshold != null) setThreshold(p.threshold);
+      if (p.profileThreshold != null) setProfileThreshold(p.profileThreshold);
+      if (typeof p.showMetricBand === 'boolean') setShowMetricBand(p.showMetricBand);
+      if (typeof p.showProfileBand === 'boolean') setShowProfileBand(p.showProfileBand);
+      if (typeof p.showMetricPeak === 'boolean') setShowMetricPeak(p.showMetricPeak);
+      if (typeof p.showProfilePeak === 'boolean') setShowProfilePeak(p.showProfilePeak);
       if (typeof p.allMetrics === 'boolean') setAllMetrics(p.allMetrics);
       if (typeof p.bootstrap === 'boolean') setBootstrap(p.bootstrap);
       if (typeof p.tiltPlane === 'boolean') setTiltPlane(p.tiltPlane);
@@ -896,31 +927,25 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
   const runAnalysis = async () => {
     if (!source) return;
     if (!points.length && !lines.length) return;
-    const chs = analysisChannels.filter((c) => available.includes(c));
-    const chsOrActive = chs.length
-      ? chs
-      : activeChannel && available.includes(activeChannel)
-        ? [activeChannel]
-        : [];
-    if (!chsOrActive.length) {
+    const chs = validAnalysisChannels;
+    if (!chs.length) {
       say?.('No valid analysis channels', 'warn');
       return;
     }
     try {
-      say?.(
-        `Running DoF analysis on ${chsOrActive.length} channel${chsOrActive.length > 1 ? 's' : ''}…`
-      );
+      say?.(`Running DoF analysis on ${chs.length} channel${chs.length > 1 ? 's' : ''}…`);
       const body = {
         source_id: source.source_id,
-        channels: chsOrActive,
+        channels: chs,
         points: points.map((p) => ({ x: p.x, y: p.y, label: p.label || '' })),
         lines: lines.map((l) => ({ p0: l.p0, p1: l.p1 })),
         metric,
         half_window: halfWin,
         threshold,
+        profile_threshold: profileThreshold,
         calibration: calibrationPayload(),
         isp: buildIspPayload(),
-        compute_all_metrics: true,
+        compute_all_metrics: !!allMetrics,
         bootstrap: true,
         n_boot: 200,
         fit_tilt_plane: points.length >= 3,
@@ -930,12 +955,17 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
       onRunAnalysis({
         mode: 'dof',
         source,
-        channels: chsOrActive,
+        channels: chs,
         points: points.map((p) => ({ id: p.id, x: p.x, y: p.y, label: p.label || '' })),
         lines: lines.map((l) => ({ id: l.id, p0: l.p0, p1: l.p1, label: l.label || '' })),
         metric,
         half_window: halfWin,
         threshold,
+        profile_threshold: profileThreshold,
+        show_metric_band: showMetricBand,
+        show_profile_band: showProfileBand,
+        show_metric_peak: showMetricPeak,
+        show_profile_peak: showProfilePeak,
         calibration: calibrationPayload(),
         isp: buildIspPayload(),
         displayUnit,
@@ -1068,7 +1098,7 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
           </div>
         </Card>
 
-        <Card title={`Analysis channels · ${analysisChannels.length}`} icon="grid">
+        <Card title={`Analysis channels · ${validAnalysisChannels.length}`} icon="grid">
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
             {available.map((c) => (
               <Tip key={c} title={`Include ${c} in Run analysis`}>
@@ -1152,6 +1182,49 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
           </div>
         </Card>
 
+        <Card title="Profile threshold" icon="eye" pinned>
+          <Slider
+            label="Profile threshold"
+            min={0.1}
+            max={0.9}
+            step={0.01}
+            value={profileThreshold}
+            onChange={setProfileThreshold}
+            format={(v) => `${(v * 100).toFixed(0)}%`}
+          />
+          <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+            <Checkbox
+              checked={showMetricBand}
+              onChange={setShowMetricBand}
+              label="Show metric band"
+              hint="Overlay the existing focus-metric DoF band on the raw profile."
+            />
+            <Checkbox
+              checked={showProfileBand}
+              onChange={setShowProfileBand}
+              label="Show profile band"
+              hint="Overlay the supplemental band from local stripe-amplitude thresholding."
+            />
+            <Checkbox
+              checked={showMetricPeak}
+              onChange={setShowMetricPeak}
+              label="Show metric peak"
+              hint="Overlay the existing focus-metric / Gaussian best-focus peak on the raw profile."
+            />
+            <Checkbox
+              checked={showProfilePeak}
+              onChange={setShowProfilePeak}
+              label="Show profile peak"
+              hint="Overlay the peak position from the same local stripe-amplitude envelope used for the profile band."
+            />
+          </div>
+          <div style={{ fontSize: 10, color: t.textFaint, marginTop: 6, lineHeight: 1.4 }}>
+            Removes slow brightness background, then thresholds local stripe amplitude in the raw
+            line profile. Metric overlays come from the selected focus metric; profile overlays come
+            from the raw-profile stripe-amplitude envelope.
+          </div>
+        </Card>
+
         <Card title="Research extras" icon="sparkles" pinned>
           <Checkbox
             checked={allMetrics}
@@ -1211,7 +1284,7 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
             icon="run"
             size="lg"
             fullWidth
-            disabled={(!points.length && !lines.length) || !analysisChannels.length}
+            disabled={(!points.length && !lines.length) || !validAnalysisChannels.length}
             onClick={runAnalysis}
           >
             Run DoF analysis
@@ -1219,9 +1292,9 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
           <div style={{ fontSize: 10.5, color: t.textFaint, marginTop: 6, textAlign: 'center' }}>
             {!points.length && !lines.length
               ? 'Pick a point or draw a line.'
-              : !analysisChannels.length
+              : !validAnalysisChannels.length
                 ? 'Select ≥1 analysis channel.'
-                : `${points.length} pts · ${lines.length} lines · ${analysisChannels.length} ch · ${metric}`}
+                : `${points.length} pts · ${lines.length} lines · ${validAnalysisChannels.length} ch · ${allMetrics ? 'all 4 metrics' : metric}`}
           </div>
         </Card>
       </div>
@@ -1402,7 +1475,16 @@ const DoFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
           onCSV={exportCSVTable}
         />
 
-        <DoFLinePreview line={firstSelectedLine} focus={focus} fmt={fmt} calibrated={calibrated} />
+        <DoFLinePreview
+          line={firstSelectedLine}
+          focus={focus}
+          fmt={fmt}
+          calibrated={calibrated}
+          showMetricBand={showMetricBand}
+          showProfileBand={showProfileBand}
+          showMetricPeak={showMetricPeak}
+          showProfilePeak={showProfilePeak}
+        />
 
         <DoFStabilityCard
           enabled={stabEnabled}
@@ -2888,9 +2970,18 @@ const LinesTable = ({
 };
 
 // ===========================================================================
-// DoFLinePreview — normalized focus curve + Gaussian fit overlay
+// DoFLinePreview — raw intensity profile + normalized focus curve
 // ===========================================================================
-const DoFLinePreview = ({ line, focus, fmt, _calibrated }) => {
+const DoFLinePreview = ({
+  line,
+  focus,
+  fmt,
+  _calibrated,
+  showMetricBand,
+  showProfileBand,
+  showMetricPeak,
+  showProfilePeak,
+}) => {
   const t = useTheme();
   if (!line) return null;
   const _idx = focus?.lines?.findIndex((_, _i) => {
@@ -2909,13 +3000,22 @@ const DoFLinePreview = ({ line, focus, fmt, _calibrated }) => {
       lr.p1[1] === line.p1[1]
   );
   return (
-    <Card title={`${line.label || 'Line'} · focus profile`} icon="eye" pinned>
+    <Card title={`${line.label || 'Line'} · line preview`} icon="eye" pinned>
       {!lineResult ? (
         <div style={{ fontSize: 11, color: t.textFaint, padding: '14px 4px', textAlign: 'center' }}>
           computing…
         </div>
       ) : (
         <>
+          <IntensityProfileChart
+            lr={lineResult}
+            fmt={fmt}
+            showMetricBand={showMetricBand}
+            showProfileBand={showProfileBand}
+            showMetricPeak={showMetricPeak}
+            showProfilePeak={showProfilePeak}
+          />
+          <div style={{ height: 8 }} />
           <LineProfileChart lr={lineResult} fmt={fmt} />
           <div
             style={{
@@ -2926,12 +3026,29 @@ const DoFLinePreview = ({ line, focus, fmt, _calibrated }) => {
               lineHeight: 1.5,
             }}
           >
-            peak:{' '}
-            {fmt(
-              lineResult.gaussian?.converged ? lineResult.gaussian.mu : lineResult.peak_position_px,
-              2
+            {showMetricPeak && (
+              <>
+                Metric peak:{' '}
+                {fmt(
+                  lineResult.gaussian?.converged
+                    ? lineResult.gaussian.mu
+                    : lineResult.peak_position_px,
+                  2
+                )}
+              </>
             )}
-            <br />
+            {showProfilePeak && (
+              <>
+                {showMetricPeak && <br />}
+                <span style={{ color: '#d946ef' }}>
+                  Profile peak:{' '}
+                  {lineResult.profile_peak_position_px != null
+                    ? fmt(lineResult.profile_peak_position_px, 2)
+                    : '—'}
+                </span>
+              </>
+            )}
+            {(showMetricPeak || showProfilePeak) && <br />}
             DoF: {lineResult.dof_width_px != null ? fmt(lineResult.dof_width_px, 2) : '—'}
             {lineResult.dof_width_ci95_px && (
               <span style={{ color: t.textFaint }}>
@@ -2940,6 +3057,13 @@ const DoFLinePreview = ({ line, focus, fmt, _calibrated }) => {
                 {']'}
               </span>
             )}
+            <br />
+            <span style={{ color: '#0ea5e9' }}>
+              Profile DoF:{' '}
+              {lineResult.profile_dof_width_px != null
+                ? `${lineResult.profile_dof_left_bounded === false || lineResult.profile_dof_right_bounded === false ? '≥' : ''}${fmt(lineResult.profile_dof_width_px, 2)}`
+                : '—'}
+            </span>
             <br />
             {lineResult.gaussian?.converged && (
               <>
@@ -2951,6 +3075,166 @@ const DoFLinePreview = ({ line, focus, fmt, _calibrated }) => {
         </>
       )}
     </Card>
+  );
+};
+
+const IntensityProfileChart = ({
+  lr,
+  fmt,
+  showMetricBand = true,
+  showProfileBand = true,
+  showMetricPeak = true,
+  showProfilePeak = false,
+}) => {
+  const t = useTheme();
+  const W = 280,
+    H = 104,
+    PAD_L = 42,
+    PAD_R = 8,
+    PAD_T = 8,
+    PAD_B = 22;
+  const xs = lr.profile_positions_px || [];
+  const ys = lr.intensity_profile || [];
+  const pairs = xs
+    .map((x, i) => ({ x, y: ys[i] }))
+    .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+  if (!pairs.length) {
+    return (
+      <div
+        style={{
+          minHeight: H,
+          border: `1px solid ${t.border}`,
+          borderRadius: 4,
+          color: t.textFaint,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 10.5,
+        }}
+      >
+        raw profile unavailable
+      </div>
+    );
+  }
+  const xMin = pairs[0].x,
+    xMax = pairs[pairs.length - 1].x;
+  let yMin = Math.min(...pairs.map((p) => p.y));
+  let yMax = Math.max(...pairs.map((p) => p.y));
+  const pad = (yMax - yMin) * 0.08 || 1;
+  yMin -= pad;
+  yMax += pad;
+  const xOf = (x) => PAD_L + ((x - xMin) / (xMax - xMin || 1)) * (W - PAD_L - PAD_R);
+  const yOf = (y) => PAD_T + (1 - (y - yMin) / (yMax - yMin || 1)) * (H - PAD_T - PAD_B);
+  const pts = pairs.map((p) => `${xOf(p.x).toFixed(2)},${yOf(p.y).toFixed(2)}`).join(' ');
+  const peakX = lr.gaussian?.converged ? lr.gaussian.mu : lr.peak_position_px;
+  const metricLo = lr.dof_low_px;
+  const metricHi = lr.dof_high_px;
+  const profileLo = lr.profile_dof_low_px;
+  const profileHi = lr.profile_dof_high_px;
+  const profilePeakX = lr.profile_peak_position_px;
+  const tickVals = [yMin + pad, (yMin + yMax) / 2, yMax - pad];
+  const fmtY = (v) => (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1));
+  return (
+    <div>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        width="100%"
+        height={H}
+        style={{ background: t.panelAlt, borderRadius: 4, border: `1px solid ${t.border}` }}
+      >
+        {tickVals.map((yv, idx) => (
+          <g key={idx}>
+            <line
+              x1={PAD_L}
+              y1={yOf(yv)}
+              x2={W - PAD_R}
+              y2={yOf(yv)}
+              stroke={t.border}
+              strokeWidth={0.5}
+              strokeDasharray={idx === 1 ? '2 2' : ''}
+            />
+            <text
+              x={PAD_L - 3}
+              y={yOf(yv) + 3}
+              fontSize={8.5}
+              fill={t.textMuted}
+              textAnchor="end"
+              fontFamily="ui-monospace,Menlo,monospace"
+            >
+              {fmtY(yv)}
+            </text>
+          </g>
+        ))}
+        {showMetricBand && metricLo != null && metricHi != null && (
+          <rect
+            x={xOf(metricLo)}
+            y={PAD_T}
+            width={xOf(metricHi) - xOf(metricLo)}
+            height={H - PAD_T - PAD_B}
+            fill="#1a7f37"
+            opacity={0.11}
+          />
+        )}
+        {showProfileBand && profileLo != null && profileHi != null && (
+          <rect
+            x={xOf(profileLo)}
+            y={PAD_T + 3}
+            width={xOf(profileHi) - xOf(profileLo)}
+            height={H - PAD_T - PAD_B - 6}
+            fill="#0ea5e9"
+            opacity={0.13}
+            stroke="#0ea5e9"
+            strokeWidth={0.8}
+            strokeDasharray="3 2"
+          />
+        )}
+        <polyline points={pts} fill="none" stroke={t.text} strokeWidth={1.1} />
+        {showMetricPeak && peakX != null && (
+          <line
+            x1={xOf(peakX)}
+            y1={PAD_T}
+            x2={xOf(peakX)}
+            y2={H - PAD_B}
+            stroke="#ffd54f"
+            strokeWidth={1.0}
+          />
+        )}
+        {showProfilePeak && profilePeakX != null && (
+          <line
+            x1={xOf(profilePeakX)}
+            y1={PAD_T}
+            x2={xOf(profilePeakX)}
+            y2={H - PAD_B}
+            stroke="#d946ef"
+            strokeWidth={1.0}
+            strokeDasharray="4 3"
+          />
+        )}
+        <text
+          x={PAD_L + (W - PAD_L - PAD_R) / 2}
+          y={H - 5}
+          fontSize={8.5}
+          fill={t.textFaint}
+          textAnchor="middle"
+          fontFamily="ui-monospace,Menlo,monospace"
+        >
+          raw intensity (DN)
+        </text>
+      </svg>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          fontSize: 9.5,
+          color: t.textFaint,
+          fontFamily: 'ui-monospace,Menlo,monospace',
+        }}
+      >
+        <span>{fmt(xMin, 0)}</span>
+        <span>pos along line</span>
+        <span>{fmt(xMax, 0)}</span>
+      </div>
+    </div>
   );
 };
 

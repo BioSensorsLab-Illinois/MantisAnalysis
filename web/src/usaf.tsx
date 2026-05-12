@@ -51,6 +51,7 @@ import {
   FloatingWindow,
   CanvasColorbar,
 } from './shared.tsx';
+import { PolarizationCalibrationPanel } from './polarization_calibration.tsx';
 
 const {
   useState: useStateU,
@@ -108,6 +109,17 @@ const manualPayloadForChannels = (line, channels) => {
 const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFile }) => {
   const t = useTheme();
   const source = useSource();
+  const sourceImageRevision = [
+    source?.source_id,
+    source?.has_dark,
+    source?.dark_name,
+    source?.has_polarization_calibration,
+    source?.polarization_calibration_name,
+    source?.polarization_calibration_profile_id,
+    source?.polarization_calibration_use_avg,
+    source?.polarization_calibration_enabled,
+    source?.polarization_calibration_ready,
+  ].join('|');
   // Global file-type filter (shared with the top-bar Open button) — drives
   // the `accept` string for the Dark-frame Load/Replace input as well, so
   // the user has a single place to switch between H5, image-only, all-files,
@@ -133,6 +145,10 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
   const [analysisChannels, setAnalysisChannels] = useLocalStorageState(
     'usaf/analysisChannels',
     defaultAnalysisChannels(available)
+  );
+  const validAnalysisChannels = useMemoU(
+    () => analysisChannels.filter((c) => available.includes(c)),
+    [analysisChannels, available]
   );
   // RGB composite is now an explicit "RGB" entry inside the Display channel
   // picker (see `rgbDisplayOptions` below), not a global override. Picking a
@@ -309,7 +325,7 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
     return () => {
       cancelled = true;
     };
-  }, [source?.source_id, source?.has_dark, activeChannel, autoRange, isRgbChannel]);
+  }, [sourceImageRevision, activeChannel, autoRange, isRgbChannel]);
 
   const imgSrc = useMemoU(() => {
     if (!source || !activeChannel) return null;
@@ -331,10 +347,12 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
       isRgbChannel ? 'gray' : colormap,
       isRgbChannel || autoRange ? null : vmin,
       isRgbChannel || autoRange ? null : vmax,
-      isRgbChannel
+      isRgbChannel,
+      sourceImageRevision
     );
   }, [
     source,
+    sourceImageRevision,
     activeChannel,
     isRgbChannel,
     rgbChannelArg,
@@ -1125,15 +1143,18 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
   // ---- Run analysis -------------------------------------------------------
   const runAnalysis = async () => {
     if (!source || !lines.length) return;
+    const chs = validAnalysisChannels;
+    if (!chs.length) {
+      say?.('No valid analysis channels selected.', 'warn');
+      return;
+    }
     try {
-      say?.(
-        `Running USAF analysis on ${analysisChannels.length} channel${analysisChannels.length !== 1 ? 's' : ''}…`
-      );
+      say?.(`Running USAF analysis on ${chs.length} channel${chs.length !== 1 ? 's' : ''}…`);
       const body = {
         source_id: source.source_id,
-        channels: analysisChannels,
+        channels: chs,
         lines: lines.map((l) => {
-          const manualPoints = manualPayloadForChannels(l, analysisChannels);
+          const manualPoints = manualPayloadForChannels(l, chs);
           return {
             group: l.group,
             element: l.element,
@@ -1144,14 +1165,13 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
           };
         }),
         threshold,
-        transform: { rotation, flip_h: flipH, flip_v: flipV },
         isp: buildIspPayload(),
       };
       const res = await apiFetch('/api/usaf/analyze', { method: 'POST', body });
       onRunAnalysis({
         mode: 'usaf',
         source,
-        channels: analysisChannels,
+        channels: chs,
         lines,
         threshold,
         response: res,
@@ -1386,6 +1406,14 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
             }}
           />
         </div>
+        <PolarizationCalibrationPanel
+          source={source}
+          onSourceUpdated={(updated) => {
+            onSwitchSource?.(updated);
+            reMeasureAll();
+          }}
+          say={say}
+        />
         <input
           ref={fileInputRef}
           type="file"
@@ -1431,7 +1459,7 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
     ),
 
     analysisChannels: (
-      <Card title={`Analysis channels · ${analysisChannels.length}`} icon="grid">
+      <Card title={`Analysis channels · ${validAnalysisChannels.length}`} icon="grid">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
           {available.map((c) => (
             <Tip key={c} title={`Include ${c} in Run analysis`}>
@@ -1623,7 +1651,7 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
               icon="run"
               size="lg"
               fullWidth
-              disabled={lines.length === 0 || analysisChannels.length === 0}
+              disabled={lines.length === 0 || validAnalysisChannels.length === 0}
               onClick={runAnalysis}
             >
               Run analysis
@@ -1632,9 +1660,9 @@ const USAFMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFi
           <div style={{ fontSize: 10.5, color: t.textFaint, marginTop: 6, textAlign: 'center' }}>
             {lines.length === 0
               ? 'Pick at least one line.'
-              : analysisChannels.length === 0
+              : validAnalysisChannels.length === 0
                 ? 'Choose ≥1 analysis channel.'
-                : `${lines.length} line${lines.length > 1 ? 's' : ''} · ${analysisChannels.length} ch · t=${thresholdPct}%`}
+                : `${lines.length} line${lines.length > 1 ? 's' : ''} · ${validAnalysisChannels.length} ch · t=${thresholdPct}%`}
           </div>
         </div>
       </Card>

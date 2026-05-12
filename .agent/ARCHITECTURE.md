@@ -66,7 +66,8 @@ Four user-facing modes: USAF Resolution, FPN, Depth of Field, and
 │ ANALYSIS MATH — pure NumPy / SciPy, headless-testable             │
 │   mantisanalysis/usaf_groups.py  — lp/mm, LineSpec, Michelson      │
 │   mantisanalysis/fpn_analysis.py — FPN stats + ISP                 │
-│   mantisanalysis/dof_analysis.py — 4 focus metrics + calibration  │
+│   mantisanalysis/dof_analysis.py — DoF metrics + raw line profiles│
+│   mantisanalysis/polarization.py — DoFP Stokes, DoLP/AoP, polcal   │
 │   mantisanalysis/resolution.py   — legacy auto-strip FFT MTF       │
 ├───────────────────────────────────────────────────────────────────┤
 │ IMAGE PIPELINE + I/O                                               │
@@ -86,8 +87,8 @@ Four user-facing modes: USAF Resolution, FPN, Depth of Field, and
 - `dof_render` → `plotting`, `dof_analysis`.
 - `dof_analysis` → `plotting` (lazy, inside a `@property`, for color).
 - `figures` → `usaf_render`, `fpn_render`, `dof_render`.
-- `session` → `image_io`.
-- `server` → `figures`, `session`, `usaf_groups`, `fpn_analysis`,
+- `session` → `image_io`, `polarization`.
+- `server` → `figures`, `session`, `polarization`, `usaf_groups`, `fpn_analysis`,
 - `app` → `server` (imports `mantisanalysis.server:app` via uvicorn).
 
 - `recording` → `image_io` (`extract_with_mode`, `luminance_from_rgb`).
@@ -138,15 +139,37 @@ Analysis response shape:
 - `/api/fpn/stability` → PRNU/DSNU stability curve (shrinking ROI).
 - `/api/fpn/analyze` → multi-channel × multi-ROI native JSON + per-ROI
   PNGs (overview / rowcol / map / psd / autocorr / psd1d / hotpix).
-- `/api/dof/compute` → rich per-point + per-line JSON: gaussian fit
-  (μ / σ / FWHM / R²), bootstrap 95% CI on peak + DoF, all-metrics
-  parallel sweep, tilt-plane coefficients (post `dof-rewrite-v1`).
+- `/api/dof/compute` → rich per-point + per-line JSON: raw
+  line-intensity profiles, supplemental `profile_threshold` contrast
+  bands, gaussian fit (μ / σ / FWHM / R²), bootstrap 95% CI on peak +
+  DoF, all-metrics parallel sweep, tilt-plane coefficients (post
+  `dof-rewrite-v1`).
 - `/api/dof/stability` → DoF-width vs half-window curve for one line.
-- `/api/dof/analyze` → multi-channel × multi-line native JSON +
-  per-channel base64 PNGs (heatmap / line scan / points / gaussian /
-  tilt / metric_compare) + optional multi-channel chromatic-shift PNG.
+- `/api/dof/analyze` → multi-channel × multi-line native JSON with raw
+  line-intensity profiles + supplemental profile contrast bands +
+  optional `metric_results.{laplacian,brenner,tenengrad,fft_hf}` full
+  result snapshots when `compute_all_metrics=true`, plus per-channel
+  base64 PNGs (heatmap / line scan / points / gaussian / tilt /
+  metric_compare) + optional multi-channel chromatic-shift PNG.
+- `/api/sources/{id}/polarization-cal/{upload,load-path,settings}` →
+  attach a standard `.polcal.h5` profile and toggle application. Enabling
+  is rejected until the source is in a polarization ISP mode and has both
+  an attached dark frame and a calibration profile.
 
 ## Key invariants
+
+- Picker **Display channel** state is preview/canvas-only. Run Analysis
+  payloads use the selected, currently-valid **Analysis channels** and do
+  not fall back to the display channel if localStorage contains stale
+  channel keys.
+- Imported `mantis-*-analysis` JSON files are frozen result snapshots.
+  Result-window display filters can hide/show/format existing data, but
+  they must not silently call server analyze endpoints. DoF metric
+  switching is allowed only when the saved response contains full
+  `metric_results` snapshots.
+- DoF H/V calibration is sent to the server in canonical `μm` units;
+  the picker/result `Show in` unit preference is display formatting, not
+  analysis input.
 
 1. **GSense Bayer constants** `ORIGIN = (0, 0)` and
    `LOC = {B:(0,0), R:(0,1), G:(1,0), NIR:(1,1)}` at
@@ -158,6 +181,10 @@ Analysis response shape:
    - H5 inputs → `{HG-R, HG-G, HG-B, HG-NIR, HG-Y, LG-R, LG-G, LG-B, LG-NIR, LG-Y}`.
    - RGB image inputs → `{R, G, B, Y}`.
    - Grayscale image inputs → `{L}`.
+   - Polarization ISP reconfigure adds virtual `S0`, `DoLP`, and `AoP`
+     keys (`HG-*/LG-*` in dual-gain mode). These are computed at access
+     time so dark subtraction and optional `.polcal.h5` calibration are
+     applied before Stokes-derived outputs are returned.
 4. **Theme is a dict** mapping role names (`BG`, `SURFACE`, `TEXT`,
    `ACCENT`, ...) to hex strings. Defined in `web/src/shared.jsx::THEMES`
    for light + dark palettes; every theme-aware component reads via
@@ -212,4 +239,7 @@ The `web/` tree is the only frontend. Important properties:
 - **Persistence** uses `localStorage` via `useLocalStorageState` under the
   `mantis/` prefix. User-facing state only (theme, mode, DoF references).
   Server state (loaded sources) is in-memory and does not survive process
-  restarts.
+  restarts. Exported `mantis-*-analysis` JSON files can be re-imported
+  from the top bar to reopen frozen analysis result snapshots; the
+  mode-specific `mantis-*-config` JSON files remain the pre-analysis
+  picker-state format.

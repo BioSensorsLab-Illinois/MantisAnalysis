@@ -56,6 +56,7 @@ import {
   ResizeHandle,
   CanvasColorbar,
 } from './shared.tsx';
+import { PolarizationCalibrationPanel } from './polarization_calibration.tsx';
 
 const {
   useState: useStateF,
@@ -107,6 +108,17 @@ const fmtPct = (v) => (!Number.isFinite(v) ? '—' : `${v.toFixed(3)} %`);
 const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFile }) => {
   const t = useTheme();
   const source = useSource();
+  const sourceImageRevision = [
+    source?.source_id,
+    source?.has_dark,
+    source?.dark_name,
+    source?.has_polarization_calibration,
+    source?.polarization_calibration_name,
+    source?.polarization_calibration_profile_id,
+    source?.polarization_calibration_use_avg,
+    source?.polarization_calibration_enabled,
+    source?.polarization_calibration_ready,
+  ].join('|');
   const available = source?.channels || [];
   const defaultCh = available.includes('HG-G')
     ? 'HG-G'
@@ -123,6 +135,10 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
   const [analysisChannels, setAnalysisChannels] = useLocalStorageState(
     'fpn/analysisChannels',
     defaultAnalysisChannels(available)
+  );
+  const validAnalysisChannels = useMemoF(
+    () => analysisChannels.filter((c) => available.includes(c)),
+    [analysisChannels, available]
   );
   // RGB composite is now an explicit "RGB" entry inside the Display channel
   // picker (see `rgbDisplayOptions` below), not a global override. Picking a
@@ -231,7 +247,7 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
     return () => {
       cancelled = true;
     };
-  }, [source?.source_id, source?.has_dark, activeChannel, autoRange, isRgbChannel]);
+  }, [sourceImageRevision, activeChannel, autoRange, isRgbChannel]);
 
   // Compose the ISP payload from the live FPN smoothing controls so the
   // canvas thumbnail previews the same preprocessing the analysis runs.
@@ -256,10 +272,12 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
       isRgbChannel ? 'gray' : colormap,
       isRgbChannel || autoRange ? null : vmin,
       isRgbChannel || autoRange ? null : vmax,
-      isRgbChannel
+      isRgbChannel,
+      sourceImageRevision
     );
   }, [
     source,
+    sourceImageRevision,
     activeChannel,
     isRgbChannel,
     rgbChannelArg,
@@ -350,7 +368,7 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
     return () => {
       alive = false;
     };
-  }, [activeChannel, dSettings]);
+  }, [activeChannel, dSettings, sourceImageRevision]);
 
   // ---- Rich fetch for the selected ROI (row/col profiles + PSDs) ---------
   const [selFull, setSelFull] = useStateF(null);
@@ -386,7 +404,7 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
     return () => {
       alive = false;
     };
-  }, [source?.source_id, activeChannel, selectedLine?.id, dSettings]);
+  }, [sourceImageRevision, activeChannel, selectedLine?.id, dSettings]);
 
   // ---- Stability curve for selected ROI ---------------------------------
   const [stabCurve, setStabCurve] = useStateF(null);
@@ -415,7 +433,7 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
     return () => {
       alive = false;
     };
-  }, [stabEnabled, source?.source_id, activeChannel, selectedLine?.id, dSettings]);
+  }, [stabEnabled, sourceImageRevision, activeChannel, selectedLine?.id, dSettings]);
 
   // ---- ROI mutation helpers ----------------------------------------------
   // Rapid back-to-back drags can fire before React commits prior setRois
@@ -1004,25 +1022,20 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
   const runAnalysis = async () => {
     if (!source || !rois.length) return;
     // localStorage keeps the previous session's channel set; filter to the
-    // ones the current source actually exposes so we never send an
-    // unknown channel to the server (which 400s with "no valid channels").
-    const chs = analysisChannels.filter((c) => available.includes(c));
-    const chsOrActive = chs.length
-      ? chs
-      : activeChannel && available.includes(activeChannel)
-        ? [activeChannel]
-        : [];
-    if (!chsOrActive.length) {
+    // ones the current source actually exposes. Display channel is preview-
+    // only and must never silently become the analysis channel.
+    const chs = validAnalysisChannels;
+    if (!chs.length) {
       say?.('No valid analysis channels selected.', 'warn');
       return;
     }
     try {
       say?.(
-        `Running FPN analysis on ${chsOrActive.length} channel${chsOrActive.length > 1 ? 's' : ''} × ${rois.length} ROI${rois.length > 1 ? 's' : ''}…`
+        `Running FPN analysis on ${chs.length} channel${chs.length > 1 ? 's' : ''} × ${rois.length} ROI${rois.length > 1 ? 's' : ''}…`
       );
       const body = {
         source_id: source.source_id,
-        channels: chsOrActive,
+        channels: chs,
         rois: rois.map((r) => [r.y0, r.x0, r.y1, r.x1]),
         settings: settingsPayload(),
         include_pngs: false, // plot-style-completion-v1: all native, no server PNGs.
@@ -1031,7 +1044,7 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
       onRunAnalysis({
         mode: 'fpn',
         source,
-        channels: chsOrActive,
+        channels: chs,
         rois: rois.map((r, i) => ({
           idx: i,
           id: r.id,
@@ -1263,6 +1276,11 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
               }}
             />
           </div>
+          <PolarizationCalibrationPanel
+            source={source}
+            onSourceUpdated={onSwitchSource}
+            say={say}
+          />
 
           <input
             ref={fileInputRef}
@@ -1305,7 +1323,7 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
           </div>
         </Card>
 
-        <Card title={`Analysis channels · ${analysisChannels.length}`} icon="grid">
+        <Card title={`Analysis channels · ${validAnalysisChannels.length}`} icon="grid">
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
             {available.map((c) => (
               <Tip key={c} title={`Include ${c} in Run analysis`}>
@@ -1470,7 +1488,7 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
             icon="run"
             size="lg"
             fullWidth
-            disabled={!rois.length || !analysisChannels.length}
+            disabled={!rois.length || !validAnalysisChannels.length}
             onClick={runAnalysis}
           >
             Run FPN analysis
@@ -1478,9 +1496,9 @@ const FPNMode = ({ onRunAnalysis, onStatusChange, say, onSwitchSource, onOpenFil
           <div style={{ fontSize: 10.5, color: t.textFaint, marginTop: 6, textAlign: 'center' }}>
             {!rois.length
               ? 'Draw at least one ROI.'
-              : !analysisChannels.length
+              : !validAnalysisChannels.length
                 ? 'Choose ≥1 analysis channel.'
-                : `${rois.length} ROI${rois.length > 1 ? 's' : ''} · ${analysisChannels.length} ch · ${driftOrder === 'none' ? 'raw' : driftOrder + '-detrended'}`}
+                : `${rois.length} ROI${rois.length > 1 ? 's' : ''} · ${validAnalysisChannels.length} ch · ${driftOrder === 'none' ? 'raw' : driftOrder + '-detrended'}`}
           </div>
         </Card>
       </div>

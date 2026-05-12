@@ -7,11 +7,15 @@ from scipy.ndimage import gaussian_filter
 
 from mantisanalysis.dof_analysis import (
     FOCUS_METRICS,
+    DoFPoint,
+    analyze_dof,
+    compute_profile_contrast_band,
     focus_brenner,
     focus_fft_hf,
     focus_laplacian,
     focus_tenengrad,
     measure_focus,
+    sample_line_profile,
 )
 
 
@@ -56,3 +60,58 @@ def test_empty_window_focus_is_zero() -> None:
     for metric in FOCUS_METRICS:
         f = measure_focus(img, cx=-50, cy=-50, half_window=4, metric=metric)
         assert f == 0.0
+
+
+def test_sample_line_profile_preserves_pixel_scale_bars() -> None:
+    img = np.tile(np.array([10.0, 10.0, 200.0, 200.0]), (16, 8))
+    pos, vals = sample_line_profile(img, (0, 8), (31, 8))
+
+    assert pos[0] == pytest.approx(0.0)
+    assert pos[-1] == pytest.approx(31.0)
+    assert len(vals) == 32
+    assert vals[0] == pytest.approx(10.0)
+    assert vals[2] == pytest.approx(200.0)
+    assert vals[4] == pytest.approx(10.0)
+
+
+def test_profile_contrast_band_tracks_local_stripe_amplitude() -> None:
+    x = np.arange(180, dtype=np.float64)
+    envelope = np.exp(-((x - 92.0) ** 2) / (2.0 * 24.0 ** 2))
+    carrier = np.sign(np.sin(2.0 * np.pi * x / 4.0))
+    profile = 800.0 + 3.0 * x + 120.0 * envelope * carrier
+
+    band = compute_profile_contrast_band(x, profile, threshold=0.5)
+    contrast = band["profile_contrast_norm"]
+
+    assert len(contrast) == len(profile)
+    assert float(np.max(contrast)) == pytest.approx(1.0)
+    assert band["profile_peak_position_px"] == pytest.approx(92.0, abs=12.0)
+    assert band["profile_dof_low_px"] < band["profile_peak_position_px"]
+    assert band["profile_dof_high_px"] > band["profile_peak_position_px"]
+    assert 30.0 < band["profile_dof_width_px"] < 120.0
+    assert band["profile_dof_left_bounded"] is True
+    assert band["profile_dof_right_bounded"] is True
+
+
+def test_analyze_dof_attaches_raw_intensity_profile() -> None:
+    img = np.tile(np.array([0.0, 255.0]), (64, 64))
+    res = analyze_dof(
+        img,
+        name="Y",
+        points=[DoFPoint(x=10, y=10)],
+        lines=[((0, 32), (63, 32))],
+        metric="tenengrad",
+        half_window=8,
+        build_heatmap=False,
+    )
+    ln = res.lines[0]
+
+    assert ln.profile_positions_px is not None
+    assert ln.intensity_profile is not None
+    assert len(ln.profile_positions_px) == len(ln.intensity_profile)
+    assert len(ln.intensity_profile) == 64
+    assert float(np.ptp(ln.intensity_profile)) == pytest.approx(255.0)
+    assert ln.profile_contrast_norm is not None
+    assert len(ln.profile_contrast_norm) == len(ln.intensity_profile)
+    assert ln.profile_threshold == pytest.approx(0.5)
+    assert ln.profile_dof_width_px is not None

@@ -1,57 +1,206 @@
 # HANDOFF — current live state pointer
 
-Last updated: **2026-04-29** — `usaf-channel-manual-points-v1`
-closed on branch `codex/usaf-channel-manual-points`. The USAF picker
-now stores manual 5-point extrema per channel, Profile Preview
-re-measures the active display channel with that channel's saved
-manual points, and `/api/usaf/analyze` applies
-`manual_points_by_channel[ch]` only to the matching analysis channel.
+Last updated: **2026-05-11** — `dof-profile-threshold-bands-v1`
+implemented on branch `codex/polarization-dolp-aop-calibration`. DoF line
+results now carry raw grayscale/intensity profiles plus a supplemental
+profile-threshold contrast band. The picker has a left-side `Profile
+threshold` card, and the right-side preview / Run Analysis raw-profile
+tab can show/hide the metric band (green) and profile band (blue).
+Follow-up fixed the results-page `Raw profiles` tab so it honors the
+Run-before band toggles and labels footer values as `Metric band` /
+`Profile band`.
+Another follow-up added top-bar `Load analysis` for exported
+`mantis-*-analysis` JSON snapshots, while leaving `mantis-*-config`
+files on the existing per-mode `Load cfg` path.
+Latest follow-up froze imported DoF snapshots so metric switching no
+longer re-runs `/api/dof/analyze`, restored the saved DoF display unit
+preference, and separated display-only picker state from Run Analysis:
+USAF/FPN/DoF now use only valid Analysis channels, and DoF sends
+calibration in canonical `μm` while unit controls only format values.
+Latest all-metric follow-up makes DoF **All 4 metrics** produce full
+cached `metric_results` trees, so metric switching after Run Analysis or
+Load analysis reads saved data instead of recomputing.
+Latest UI follow-up adds metric-aware titles to all DoF Run Analysis
+result tables/charts so the modal and exported chart cards identify the
+selected focus metric and chart type.
+Latest raw-profile follow-up keeps the yellow metric/Gaussian peak marker
+and adds an optional purple dashed `Profile peak` marker driven by
+`profile_peak_position_px`; the toggle is available before Run Analysis
+and in the results modal.
+Latest copy follow-up removes "selected metric" wording from the DoF
+`Metric compare` result tab because those charts always overlay all four
+metrics.
+Latest raw-profile overlay follow-up makes `Metric band`, `Profile band`,
+`Metric peak`, and `Profile peak` independently toggleable before and
+after Run Analysis; the result Raw profiles chart title includes the
+selected metric only when `Metric peak` is visible.
+Latest export follow-up adds per-chart **CSV** downloads beside the
+existing per-chart **PNG** button. The CSV is scoped to the individual
+chart card, covering USAF chart data, FPN histogram/profile/PSD/grid/
+outlier data, and DoF line/raw/metric/chromatic/Gaussian/heatmap/point
+diagnostic data.
 Initiative artifacts at
-[`.agent/runs/usaf-channel-manual-points-v1/`](runs/usaf-channel-manual-points-v1/).
+[`.agent/runs/dof-profile-threshold-bands-v1/`](runs/dof-profile-threshold-bands-v1/).
 
 ## Current state of the working tree
 
-- Branch: `codex/usaf-channel-manual-points`.
-- Uncommitted bugfix files:
-  * `mantisanalysis/server.py` — `ManualUSAFPointsIn`,
-    `LineSpecIn.manual_points_by_channel`, and per-channel override
-    lookup in `/api/usaf/analyze`.
-  * `web/src/usaf.tsx` — `manualPointsByChannel` state/config,
-    per-display-channel preview remeasurement, and analysis payload
-    emission only for matching analysis channels.
-  * `tests/unit/test_usaf_manual_points_api.py` — regression proving
-    HG-G and LG-G can use different manual profile indices in the same
-    analysis request.
-  * `.agent/ARCHITECTURE.md` and
-    `.agent/runs/usaf-channel-manual-points-v1/` — contract/status
-    documentation.
+- Branch: `codex/polarization-dolp-aop-calibration`.
+- Uncommitted feature files:
+  * `mantisanalysis/polarization.py` — runtime-safe DoFP Stokes,
+    DoLP/AoP, `.polcal.h5` profile loading, and calibration application.
+  * `mantisanalysis/session.py` — polarization calibration state on
+    `LoadedSource`, attach/load/clear/enable helpers, virtual channel
+    emission, and dark compatibility that ignores virtual derived keys.
+  * `mantisanalysis/server.py` — `SourceSummary` polarization
+    calibration fields, `/api/sources/{sid}/polarization-cal/*` routes,
+    `_channel_image` virtual-channel computation, and DoLP/AoP thumbnail
+    display bounds.
+  * `web/src/polarization_calibration.tsx`, `web/src/usaf.tsx`,
+    `web/src/fpn.tsx`, `web/src/playback.tsx`, `web/src/isp_settings.tsx`,
+    and `web/src/shared.tsx` — left-side polcal upload/path/clear/toggle
+    controls below the existing dark-frame controls, cleaned-up ISP modal,
+    channel colors, polarization-safe default analysis channel ordering, and
+    display-thumbnail refresh keys for dark/polcal state changes. `shared.tsx`
+    now also lets chart cards expose a per-card CSV export beside PNG.
+  * `tests/unit/test_polarization_calibration.py` — pure math,
+    session, dark-gating, live route coverage, and non-black DoLP/AoP
+    thumbnail regressions.
+  * `.agent/ARCHITECTURE.md`, `.agent/DECISIONS.md`,
+    `.agent/REPO_MAP.md`, `.agent/manifest.yaml`, `README.md`, and
+    `.agent/runs/polarization-dolp-aop-calibration-v1/` — docs/status.
+  * `mantisanalysis/dof_analysis.py`, `mantisanalysis/server.py`,
+    `web/src/dof.tsx`, `web/src/fpn.tsx`, `web/src/usaf.tsx`,
+    `web/src/app.tsx`, `web/src/analysis.tsx`,
+    `web/src/analysis/modes/dof.tsx`, `web/src/analysis/types.ts`, and
+    `tests/unit/test_dof_metrics.py` — DoF raw line-intensity profile
+    sampling, supplemental profile-threshold band computation,
+    serialization, live preview chart, results-tab chart, Load analysis
+    snapshots, frozen imported DoF result behavior, full cached
+    all-metric result trees, display-state / analysis-channel isolation,
+    independent raw-profile band/peak overlay display, per-chart CSV row
+    feeds for USAF/FPN/DoF result cards, and regression tests.
+  * `scripts/smoke_test.py` and `tests/unit/test_dof_metric_results_api.py`
+    — DoF all-metric API response coverage for cached full metric
+    snapshots.
+  * `.agent/runs/dof-line-intensity-profiles-v1/` — closed initiative
+    record for the DoF raw profile feature.
+  * `.agent/runs/dof-profile-threshold-bands-v1/` — active initiative
+    record for the supplemental profile-threshold band feature.
 - Pre-existing untracked files still present and intentionally not
   touched: `.agents/`, `START_MANTIS_WEBVIEW.md`.
-- Backup of original code before this fix:
-  `/Users/mini-09/BioSensorsLab/MantisAnalysis_backup_usaf_manual_points_20260429_000626`.
-- Local server is running on `http://127.0.0.1:8765/` from
-  `.venv/bin/python -m mantisanalysis --no-browser --port 8765`;
-  refresh the in-app browser to load the new backend/frontend.
+- Backup before polarization feature:
+  `/Users/mini-09/BioSensorsLab/MantisAnalysis_backup_before_pol_dolp_aop_20260430_111841`.
+- Backup before DoF raw profile feature:
+  `/Users/mini-09/BioSensorsLab/MantisAnalysis_backup_before_dof_line_profile_20260505_165259`.
+- Local server is running on `http://127.0.0.1:8765/`; `curl` confirmed it
+  serves the rebuilt frontend bundle `/assets/index-C70U4gM_.js`. Refresh the
+  in-app browser to load the per-chart CSV buttons.
 
-## Smoke status, last verified 2026-04-29
+## Smoke status, last verified 2026-05-11
+
+- `npm run build` — PASS after per-chart CSV exports
+- `npm run lint -- web/src/analysis.tsx web/src/shared.tsx` — PASS with
+  existing warnings only
+- `.venv/bin/python scripts/smoke_test.py --tier 0` — PASS
+- `.venv/bin/python scripts/smoke_test.py --tier 1` — PASS
+- `.venv/bin/python scripts/smoke_test.py --tier 2` — PASS
+- `.venv/bin/python scripts/smoke_test.py --tier 3` — PASS
+- `.venv/bin/python -m pytest -m web_smoke -q` — SKIPPED, Playwright is
+  not installed
+- `.venv/bin/python -m pytest -q` — PASS, 315 passed / 4 skipped
+- `git diff --check` — PASS
+- Live server curl — PASS: `/api/health` OK and root served
+  `/assets/index-C70U4gM_.js`
 
 - `.venv/bin/python scripts/smoke_test.py --tier 0` — PASS
 - `.venv/bin/python scripts/smoke_test.py --tier 1` — PASS
 - `.venv/bin/python scripts/smoke_test.py --tier 2` — PASS
 - `.venv/bin/python scripts/smoke_test.py --tier 3` — PASS
-- `.venv/bin/python -m pytest -q` — PASS, 306 passed / 4 skipped
-- `PATH="/opt/homebrew/opt/node@24/bin:$PATH" npm run build` — PASS
-- Live server `/api/health` and `/api/usaf/analyze` curl checks — PASS
+- `.venv/bin/python -m pytest -q` — PASS, 315 passed / 4 skipped
+- `.venv/bin/python -m pytest tests/unit/test_dof_metrics.py -q` —
+  PASS, 9 passed after adding profile-threshold band coverage
+- `.venv/bin/python -m pytest tests/unit/test_dof_metric_results_api.py -q`
+  — PASS, 2 passed after adding full all-metric result cache coverage
+- `npm run build` — PASS after adding DoF metric-aware result chart titles
+- `.venv/bin/python scripts/smoke_test.py --tier 0` — PASS after adding
+  DoF metric-aware result chart titles and syncing docs
+- `.venv/bin/python scripts/smoke_test.py --tier 1` — PASS after adding
+  DoF metric-aware result chart titles
+- `.venv/bin/python scripts/smoke_test.py --tier 2` — PASS after adding
+  DoF metric-aware result chart titles
+- `.venv/bin/python scripts/smoke_test.py --tier 3` — PASS after adding
+  DoF metric-aware result chart titles
+- `.venv/bin/python -m pytest tests/unit/test_polarization_calibration.py -q`
+  — PASS, 4 passed after adding DoLP/AoP thumbnail regressions
+- `.venv/bin/python -m pytest -q` — PASS, 315 passed / 4 skipped after
+  adding DoF metric-aware result chart titles
+- `npm run build` — PASS after adding optional DoF profile-peak marker
+- `.venv/bin/python scripts/smoke_test.py --tier 1` — PASS after adding
+  optional DoF profile-peak marker
+- `.venv/bin/python scripts/smoke_test.py --tier 2` — PASS after adding
+  optional DoF profile-peak marker
+- `.venv/bin/python scripts/smoke_test.py --tier 3` — PASS after adding
+  optional DoF profile-peak marker
+- `.venv/bin/python -m pytest tests/unit/test_dof_metrics.py tests/unit/test_dof_metric_results_api.py -q`
+  — PASS, 11 passed after adding optional DoF profile-peak marker
+- `.venv/bin/python scripts/smoke_test.py --tier 0` — PASS after adding
+  optional DoF profile-peak marker and syncing docs
+- `.venv/bin/python -m pytest -q` — PASS, 315 passed / 4 skipped after
+  adding optional DoF profile-peak marker
+- `git diff --check` — PASS after adding optional DoF profile-peak marker
+- `npm run build` — PASS after DoF Metric compare copy cleanup
+- `.venv/bin/python scripts/smoke_test.py --tier 1` — PASS after DoF
+  Metric compare copy cleanup
+- `.venv/bin/python scripts/smoke_test.py --tier 2` — PASS after DoF
+  Metric compare copy cleanup
+- `.venv/bin/python scripts/smoke_test.py --tier 3` — PASS after DoF
+  Metric compare copy cleanup
+- `.venv/bin/python -m pytest -q` — PASS, 315 passed / 4 skipped after
+  DoF Metric compare copy cleanup
+- `.venv/bin/python scripts/smoke_test.py --tier 0` — PASS after DoF
+  Metric compare copy cleanup docs sync
+- `git diff --check` — PASS after DoF Metric compare copy cleanup
+- `npm run build` — PASS after independent raw-profile overlay controls
+- `.venv/bin/python scripts/smoke_test.py --tier 1` — PASS after
+  independent raw-profile overlay controls
+- `.venv/bin/python scripts/smoke_test.py --tier 2` — PASS after
+  independent raw-profile overlay controls
+- `.venv/bin/python scripts/smoke_test.py --tier 3` — PASS after
+  independent raw-profile overlay controls
+- `.venv/bin/python -m pytest tests/unit/test_dof_metrics.py tests/unit/test_dof_metric_results_api.py -q`
+  — PASS, 11 passed after independent raw-profile overlay controls
+- `.venv/bin/python scripts/smoke_test.py --tier 0` — PASS after
+  independent raw-profile overlay controls and docs sync
+- `.venv/bin/python -m pytest -q` — PASS, 315 passed / 4 skipped after
+  independent raw-profile overlay controls
+- `git diff --check` — PASS after independent raw-profile overlay controls
+- `.venv/bin/python -m pytest -m web_smoke -q` — SKIPPED, Playwright
+  is not installed
+- `npm run build` — PASS after adding analysis JSON import, frozen DoF
+  snapshots, display-state isolation, and full DoF all-metric caches
+- `git diff --check` — PASS
+- Live server curl smoke — PASS: polarization dual mode, dark attach,
+  `.polcal.h5` attach, calibration enable, `LG-DoLP` range, and nonzero
+  DoLP/AoP PNG output.
+- Live DoF API sanity — PASS after restart:
+  `/api/dof/compute` with `profile_threshold=0.42` returned
+  `profile_threshold`, 171 `intensity_profile` samples, 171
+  `profile_contrast_norm` samples, and a profile DoF width.
 - Browser screenshots/manual UI walkthrough deferred: Playwright is
-  not installed and Browser Use tooling was unavailable.
+  not installed and no Browser Use tool was available in this thread.
 
 ## Where to pick up next
 
-1. Refresh `http://127.0.0.1:8765/` and manually try: calibrate
-   `LG-R`, switch to `LG-G`, calibrate separately, switch back and
-   confirm Profile Preview keeps each channel's saved extrema.
-2. If manual UI behavior looks good, commit branch
-   `codex/usaf-channel-manual-points`.
+1. Refresh `http://127.0.0.1:8765/`.
+2. Open a Run Analysis result modal and confirm chart cards with plotted
+   data show **CSV** beside **PNG**.
+3. Download representative USAF, FPN, and DoF chart CSV files and confirm
+   each contains only the data for that single chart card.
+4. In DoF, draw/select a line, turn one band off, run analysis, and
+   confirm the `Raw profiles` tab inherits all four overlay visibility
+   states: metric band, profile band, metric peak, and profile peak.
+5. Commit branch `codex/polarization-dolp-aop-calibration`, then push
+   and open/update the PR if the manual UI check looks good.
 - The **prior** "Three layered changes" listed below were **all
   committed** before this session began — see commits `8a1e056`
   (polish-sweep), `b01d8f7` (B-0037/B-0040/B-0041/B-0042), and
