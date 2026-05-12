@@ -100,12 +100,13 @@ MantisAnalysis/
 │   ├── image_io.py               ← unified load_any: H5 + PNG/TIFF/JPG; ISP-mode aware
 │   ├── image_processing.py       ← sharpen (unsharp/Laplacian/high-pass) + tone
 │   ├── isp_modes.py              ← ISP-mode registry (bare single/dual, RGB-NIR, image, polarization)
+│   ├── polarization.py           ← DoFP Stokes/DoLP/AoP + `.polcal.h5` runtime loader
 │   ├── usaf_groups.py            ← lp/mm table + Michelson estimators + LineSpec
 │   ├── usaf_render.py            ← USAF matplotlib figure builders
 │   ├── usaf_figures.py           ← alt USAF figure set (hi-dpi journal style)
 │   ├── fpn_analysis.py           ← FPN math (ISP + outlier mask + stats)
 │   ├── fpn_render.py             ← FPN matplotlib figure builders
-│   ├── dof_analysis.py           ← DoF focus metrics + line/heatmap scan
+│   ├── dof_analysis.py           ← DoF focus metrics + raw line profiles + profile-threshold bands
 │   ├── dof_render.py             ← DoF matplotlib figure builders
 │   ├── resolution.py             ← LEGACY: auto-strip FFT MTF (kept per D-0004)
 ├── scripts/
@@ -121,9 +122,11 @@ MantisAnalysis/
 │   │   ├── test_bayer.py
 │   │   ├── test_michelson.py
 │   │   ├── test_dof_metrics.py
+│   │   ├── test_dof_metric_results_api.py ← DoF all-metric cached result API
 │   │   ├── test_fpn_math.py
 │   │   ├── test_isp_modes.py     ← v1 ISP-mode registry + extraction
 │   │   ├── test_isp_override.py  ← ISP reconfigure path
+│   │   ├── test_polarization_calibration.py ← DoFP virtual channels + polcal routes
 │   ├── headless/
 │   │   ├── test_figures.py
 │   └── web/                      ← Playwright smoke (opt-in via [web-smoke])
@@ -140,6 +143,7 @@ MantisAnalysis/
 │       ├── shared.tsx            ← BRAND, THEMES, icons, hooks, Chart primitive,  ─╮  @ts-nocheck
 │       │                            useChartGeom, tokens, renderChartToPng,          │   pending per-
 │       │                            API helpers (apiFetch, apiUpload, channelPngUrl) │   file type
+│       ├── polarization_calibration.tsx ← left-side Polcal upload/path/clear/toggle panel
 │       ├── app.tsx               ← root <App>, TopBar, ModeRail, ⌘K palette, etc.    │   tightening
 │       ├── usaf.tsx              ← USAFMode — canvas + sidebars, line pick           │   in future
 │       ├── fpn.tsx               ← FPNMode — ROI drag, channel chips, live stats     │   sessions

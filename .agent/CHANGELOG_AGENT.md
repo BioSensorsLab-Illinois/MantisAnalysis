@@ -4,6 +4,147 @@ Append-only log of agent sessions. One bullet per session, newest at top.
 
 ---
 
+## 2026-05-11 — per-chart-csv-exports (Codex, GPT-5)
+
+Added a per-chart CSV export beside the existing per-card PNG button.
+`Chart` now accepts `csvRows`/`csvName` and shows CSV only when a chart
+has plotted data. USAF, FPN, and DoF result chart cards now feed that
+button with card-local data: MTF/profile/heatmap/group/FFT samples;
+histogram/profile/PSD/2-D grid/hot-cold/metric compare values; and
+DoF line/raw/metric/chromatic/Gaussian/heatmap/point diagnostic rows.
+Files: `web/src/{shared.tsx,analysis.tsx}`, `README.md`,
+`.agent/{HANDOFF.md,CHANGELOG_AGENT.md}`,
+`.agent/runs/dof-profile-threshold-bands-v1/Status.md`. Smoke: Vite
+build PASS; npm lint PASS with existing warnings only; Tier 0–3 PASS;
+pytest 315 passed / 4 skipped; web_smoke skipped because Playwright is
+not installed; git diff check PASS. Status: browser visual confirmation
+pending.
+
+## 2026-05-05 — dof-raw-profile-overlay-controls (Codex, GPT-5)
+
+Made DoF raw-profile overlays fully independent before and after Run
+Analysis: `Metric band`, `Profile band`, `Metric peak`, and
+`Profile peak` now each have their own checkbox in the picker and in the
+results modal. The yellow metric peak can be hidden, the purple profile
+peak now updates correctly in the Run Analysis `Raw profiles` tab, and
+raw-profile chart titles include the selected metric name only when the
+metric-peak overlay is visible. DoF cfg files and exported analysis JSON
+preserve both peak toggles. Files:
+`web/src/{dof.tsx,analysis.tsx,analysis/modes/dof.tsx,analysis/types.ts,app.tsx}`,
+`README.md`, `.agent/{HANDOFF.md,CHANGELOG_AGENT.md}`,
+`.agent/runs/dof-profile-threshold-bands-v1/Status.md`. Smoke: Vite
+build PASS; Tier 0–3 PASS; DoF focused tests 11 passed; pytest 315
+passed / 4 skipped; git diff check PASS; web_smoke skipped because
+Playwright is not installed. Status: browser visual confirmation pending.
+
+## 2026-05-05 — dof-metric-compare-title-copy (Codex, GPT-5)
+
+Removed misleading "selected metric" wording from the DoF Run Analysis
+`Metric compare` tab. The metric-comparison panels now simply describe
+the all-metric overlay and line label, since changing the result-window
+metric selector does not change what the comparison chart shows. Files:
+`web/src/analysis.tsx`, `.agent/{HANDOFF.md,CHANGELOG_AGENT.md}`,
+`.agent/runs/dof-profile-threshold-bands-v1/Status.md`. Smoke: Vite
+build PASS; Tier 0–3 PASS; pytest 315 passed / 4 skipped; git diff
+check PASS; web_smoke skipped because Playwright is not installed.
+Status: browser visual confirmation pending.
+
+## 2026-05-05 — dof-raw-profile-peak-toggle (Codex, GPT-5)
+
+Kept the existing yellow DoF raw-profile peak marker tied to the
+focus-metric / Gaussian result and added an optional purple dashed
+`Profile peak` marker tied to `profile_peak_position_px`, the peak of
+the local stripe-amplitude envelope used for the supplemental profile
+band. The toggle lives in the DoF picker `Profile threshold` card before
+Run Analysis and in the result modal `Bands` controls after Run
+Analysis; DoF cfg files and exported analysis JSON preserve the setting.
+Files: `web/src/{dof.tsx,analysis.tsx,analysis/modes/dof.tsx,analysis/types.ts,app.tsx}`,
+`README.md`, `.agent/{HANDOFF.md,CHANGELOG_AGENT.md}`,
+`.agent/runs/dof-profile-threshold-bands-v1/Status.md`. Smoke: Vite
+build PASS; Tier 0–3 PASS; DoF focused tests 11 passed; pytest 315
+passed / 4 skipped; git diff check PASS; web_smoke skipped because
+Playwright is not installed. Status: browser visual confirmation pending.
+
+## 2026-05-05 — dof-result-chart-metric-titles (Codex, GPT-5)
+
+Added metric-aware titles across the DoF Run Analysis result modal: the
+summary table and line scan, raw profile, metric comparison, chromatic
+shift, Gaussian fit, focus heatmap, and points/tilt chart cards now state
+the selected focus metric and chart type. The shared chart header now
+renders an explicit chart title alongside a channel label when both are
+provided. Files: `web/src/{shared.tsx,analysis.tsx,analysis/modes/dof.tsx}`,
+`.agent/{HANDOFF.md,CHANGELOG_AGENT.md}`,
+`.agent/runs/dof-profile-threshold-bands-v1/Status.md`. Smoke: Vite
+build PASS; Tier 0–3 PASS; DoF metric-results API tests PASS; pytest
+315 passed / 4 skipped; git diff check PASS; web_smoke skipped because
+Playwright is not installed. Status: browser visual confirmation
+pending.
+
+## 2026-05-05 — dof-all-metric-result-cache-json (Codex, GPT-5)
+
+Changed DoF all-metric Run Analysis from a partial `metric_sweep` overlay
+into four complete cached metric result trees. `/api/dof/analyze` now
+returns `metric_results.{laplacian,brenner,tenengrad,fft_hf}` when
+`compute_all_metrics=true`; the analysis modal metric selector reads
+those saved trees without server re-analysis, and DoF analysis JSON
+exports include the full cache regardless of the currently selected
+metric. Single-metric runs remain compact and show only one metric.
+Files: `mantisanalysis/server.py`, `scripts/smoke_test.py`,
+`tests/unit/test_dof_metric_results_api.py`,
+`web/src/{dof.tsx,app.tsx,analysis/modes/dof.tsx}`, `README.md`,
+`.agent/{ARCHITECTURE.md,DECISIONS.md,HANDOFF.md}`,
+`.agent/runs/dof-profile-threshold-bands-v1/Status.md`. Smoke:
+targeted DoF metric-results API tests PASS; Tier 1–3 PASS; Vite build
+PASS; pytest 315 passed / 4 skipped; web_smoke skipped because
+Playwright is not installed. Status: server restarted on
+`http://127.0.0.1:8765/`, browser visual confirmation pending.
+
+## 2026-05-05 — analysis-snapshot-display-state-isolation (Codex, GPT-5)
+
+Fixed two state-coupling regressions in the analysis workflow. Imported
+DoF `mantis-dof-analysis` JSONs are now frozen snapshots: metric changes
+do not call `/api/dof/analyze`, and the result filter shows a static
+`... snapshot` label instead of an interactive metric selector. USAF,
+FPN, and DoF Run Analysis now use only currently-valid Analysis channels;
+stale localStorage channel keys disable Run Analysis rather than falling
+back to the Display channel. DoF calibration is sent to the backend in
+canonical `μm`, so the picker/result `Show in` unit only formats existing
+values. Files: `web/src/{usaf.tsx,fpn.tsx,dof.tsx,app.tsx,analysis/types.ts,analysis/modes/dof.tsx}`,
+`README.md`, `.agent/{ARCHITECTURE.md,DECISIONS.md,HANDOFF.md}`,
+`.agent/runs/dof-profile-threshold-bands-v1/Status.md`. Smoke: Tier
+0–3 PASS; pytest 313 passed / 4 skipped; Vite build PASS; web_smoke
+skipped because Playwright is not installed. Status: server restart
+complete on `http://127.0.0.1:8765/`, browser visual confirmation
+pending.
+
+## 2026-05-05 — analysis-json-load-result-snapshots (Codex, GPT-5)
+
+Added a top-bar `Load analysis` button and command-palette action that import exported `mantis-usaf-analysis`, `mantis-fpn-analysis`, and `mantis-dof-analysis` JSON result snapshots back into the AnalysisShell. The loader reconstructs the correct mode, channels, points/lines/ROIs, settings, DoF band visibility, and response payload; future analysis JSON exports now include a source snapshot when available. Config JSONs remain separate and still use the mode-specific `Load cfg` flow. Files: `web/src/{app.tsx,analysis/types.ts,analysis/modes/{usaf,fpn,dof}.tsx}`, `README.md`, `.agent/{ARCHITECTURE.md,DECISIONS.md,HANDOFF.md}`, `.agent/runs/dof-profile-threshold-bands-v1/Status.md`. Smoke: Tier 0–3 PASS; pytest 313 passed / 4 skipped; Vite build PASS; web_smoke skipped because Playwright is not installed. Status: server restart pending, browser visual confirmation pending.
+
+## 2026-05-05 — dof-profile-threshold-bands raw-tab follow-up (Codex, GPT-5)
+
+Fixed the DoF Run Analysis `Raw profiles` tab so it now honors the Metric/Profile band visibility selected before Run Analysis instead of always defaulting both overlays on. The raw-profile footer now labels colored values explicitly as `Metric band` (green) and `Profile band` (blue), shows both values when both overlays are enabled, and reports `Bands hidden` when both are off. Files: `web/src/{analysis.tsx,analysis/modes/dof.tsx}` plus handoff/status docs. Smoke: Tier 0–3 PASS; pytest 313 passed / 4 skipped; Vite build PASS; web_smoke skipped because Playwright is not installed. Status: server restarted on 8765, pending user visual confirmation.
+
+## 2026-05-05 — dof-profile-threshold-bands-v1 closed (Codex, GPT-5)
+
+Added a supplemental DoF profile-threshold band: `/api/dof/compute` and `/api/dof/analyze` now accept `profile_threshold` and line results include `profile_contrast_norm`, profile peak, profile low/high/width, and bounded-edge flags. The DoF left panel has a `Profile threshold` card below `Focus metric`; the right-side raw profile preview and Run Analysis `Raw profiles` tab can independently show/hide the metric band (green) and profile band (blue). Files: `mantisanalysis/{dof_analysis.py,server.py}`, `web/src/{dof.tsx,analysis.tsx,analysis/modes/dof.tsx,analysis/types.ts}`, `tests/unit/test_dof_metrics.py`, `README.md`, `.agent/{ARCHITECTURE.md,DECISIONS.md,REPO_MAP.md,manifest.yaml,HANDOFF.md}`, `.agent/runs/dof-profile-threshold-bands-v1/`. Smoke: Tier 0–3 PASS; pytest 313 passed / 4 skipped; DoF focused pytest 9/9 PASS; Vite build PASS; web_smoke skipped because Playwright is not installed; live 8765 API sanity PASS. Status: closed, pending user visual confirmation in the refreshed browser.
+
+## 2026-05-05 — dof-line-intensity-profiles-v1 closed (Codex, GPT-5)
+
+Added raw DoF line-intensity profiles alongside the existing focus-metric curves. `/api/dof/compute` and `/api/dof/analyze` line results now include `profile_positions_px` + `intensity_profile`; the DoF right-side preview renders the raw DN waveform above the focus metric plot, and the analysis modal adds a `Raw profiles` tab with DoF-band and best-focus overlays. Files: `mantisanalysis/dof_analysis.py`, `mantisanalysis/server.py`, `web/src/{dof.tsx,analysis.tsx,analysis/modes/dof.tsx}`, `tests/unit/test_dof_metrics.py`, `README.md`, `.agent/{ARCHITECTURE.md,DECISIONS.md,REPO_MAP.md,manifest.yaml,HANDOFF.md}`, `.agent/runs/dof-line-intensity-profiles-v1/`. Smoke: Tier 0–3 PASS; pytest 312 passed / 4 skipped; DoF focused pytest 8/8 green; Vite build PASS; web_smoke skipped because Playwright is not installed; live 8765 API sanity PASS. Status: closed, pending user visual confirmation in the refreshed browser.
+
+## 2026-05-01 — polarization-dolp-aop-thumbnail-fix (Codex, GPT-5)
+
+Fixed the black DoLP/AoP display bug: polarization virtual thumbnails now use physical default display bounds (`DoLP` 0..1, `AoP` 0..180) instead of the raw-DN 0..65535 normalization path used for sensor channels. The same bounds are applied to live canvas thumbnails, per-frame thumbnails, analysis modal thumbnails, and tiled single-channel exports while preserving user-supplied vmin/vmax overrides. Added regression assertions that DoLP/AoP thumbnail PNGs are not all black. Follow-up: display thumbnail URLs now include a source-image revision key tied to dark/polcal state, so toggling Apply map refreshes the current display without switching channels. Files: `mantisanalysis/server.py`, `tests/unit/test_polarization_calibration.py`, `web/src/{shared.tsx,usaf.tsx,fpn.tsx,dof.tsx}`, `.agent/runs/polarization-dolp-aop-calibration-v1/Status.md`, `.agent/HANDOFF.md`. Smoke: Tier 0–3 PASS via `.venv/bin/python`; focused polarization pytest 4/4 green; Vite build PASS; live curl confirmed DoLP/AoP PNGs have nonzero range. Status: closed, browser refreshed server is running on 8765 but sources must be reloaded after restart.
+
+## 2026-04-30 — polarization-polcal-left-panel follow-up (Codex, GPT-5)
+
+Moved the `.polcal.h5` upload/path/clear controls out of the Filter & Channel Specification modal into a reusable left-side Polcal panel rendered below the existing dark-frame controls in USAF, FPN, and Play. The dark-frame upload flow is unchanged. The panel updates source state, purges Play frame cache when calibration changes, and keeps the "Apply map" toggle gated by polarization mode + dark frame + polcal readiness. Files: `web/src/{polarization_calibration.tsx,usaf.tsx,fpn.tsx,playback.tsx,isp_settings.tsx}`, docs under `.agent/` and `README.md`. Smoke: Tier 0–3 PASS; focused polarization pytest 4/4 green; Vite build PASS. Status: closed, pending optional manual browser walkthrough.
+
+## 2026-04-30 — polarization-dolp-aop-calibration-v1 closed (Codex, GPT-5)
+
+Polarization ISP modes now expose virtual `S0`, `DoLP`, and `AoP` channels, computed at access time so dark subtraction and optional `.polcal.h5` calibration are honored. Added a runtime-safe `mantisanalysis/polarization.py` module adapted from the supplied calibration scripts, source/session state for attached calibration profiles, four FastAPI routes under `/api/sources/{sid}/polarization-cal/*`, and a left-side Polcal panel below the existing dark-frame controls for upload/path/clear plus a gated "Apply map" toggle. The toggle is rejected server-side until the source is in a polarization mode and has both a dark frame and a calibration profile. Files: `mantisanalysis/{polarization.py,session.py,server.py,isp_modes.py,plotting.py,usaf_figures.py}`, `web/src/{polarization_calibration.tsx,usaf.tsx,fpn.tsx,playback.tsx,isp_settings.tsx,shared.tsx}`, `tests/unit/test_polarization_calibration.py`, docs under `.agent/` and `README.md`. Smoke: Tier 0–3 PASS; pytest 310 passed / 4 skipped; Vite build PASS; live 8765 curl smoke PASS. Status: closed, pending optional manual browser walkthrough.
+
 ## 2026-04-29 — usaf-channel-manual-points-v1 closed (Codex, GPT-5)
 
 USAF manual profile extrema are now channel-scoped end to end: the picker stores `manualPointsByChannel`, Profile Preview re-measures the active display channel with its own saved 3-bar/2-gap points, saved configs preserve the map, and `/api/usaf/analyze` accepts `manual_points_by_channel` and applies overrides only to the matching analysis channel. Added a FastAPI regression for distinct HG-G/LG-G manual indices, documented the API contract, restarted the local webview server at `http://127.0.0.1:8765/`, and kept the original-code backup at `/Users/mini-09/BioSensorsLab/MantisAnalysis_backup_usaf_manual_points_20260429_000626`. Files: `mantisanalysis/server.py`, `web/src/usaf.tsx`, `tests/unit/test_usaf_manual_points_api.py`, `.agent/ARCHITECTURE.md`, `.agent/runs/usaf-channel-manual-points-v1/`. Smoke: Tier 0–3 PASS; pytest 306 passed / 4 skipped; Vite build PASS. Status: closed, pending optional manual browser walkthrough.

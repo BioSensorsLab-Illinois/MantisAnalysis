@@ -23,6 +23,7 @@ import numpy as np
 from . import isp_modes as _isp
 from .extract import load_recording
 from .image_io import extract_with_mode, load_any_detail, luminance_from_rgb
+from . import polarization as _pol
 
 
 # Per-source LRU bound for the frame extraction cache. Each entry is a
@@ -167,6 +168,13 @@ class LoadedSource:
     dark_channels: Optional[Dict[str, np.ndarray]] = None
     dark_name: Optional[str] = None
     dark_path: Optional[str] = None
+    # Optional DoFP polarization calibration profile. The profile is loaded
+    # into memory at attach time so browser-uploaded calibration files do not
+    # need a durable disk path.
+    polarization_calibration: Optional[_pol.PolcalProfile] = None
+    polarization_calibration_name: Optional[str] = None
+    polarization_calibration_path: Optional[str] = None
+    polarization_calibration_enabled: bool = False
     # ISP-modes-v1: cache the raw frame + active mode so the user can
     # reconfigure extraction geometry / channel renames without re-reading
     # from disk. ``raw_frame`` is the array *before* dual-gain split and
@@ -300,6 +308,10 @@ class LoadedSource:
                 # M25 — synthesize HDR-{R,G,B,NIR,Y} alongside.
                 from .hdr_fusion import add_hdr_channels
                 add_hdr_channels(chs)
+            elif _pol.is_polarization_mode(mode.id):
+                chs = _pol.append_virtual_channels(
+                    chs, dual_gain=bool(mode.dual_gain)
+                )
             cache[cache_key] = chs
             while len(cache) > PLAYBACK_CACHE_SIZE:
                 cache.popitem(last=False)
@@ -395,6 +407,11 @@ class SessionStore:
         if is_legacy_gsbsi_h5(resolved):
             return self._load_legacy_gsbsi(resolved, name=name)
         channels, attrs, raw, mode_id, cfg, kind = load_any_detail(resolved)
+        mode = _isp.get_mode(mode_id)
+        if _pol.is_polarization_mode(mode_id):
+            channels = _pol.append_virtual_channels(
+                channels, dual_gain=bool(mode.dual_gain)
+            )
         any_ch = next(iter(channels.values()))
         shape_hw = (int(any_ch.shape[0]), int(any_ch.shape[1]))
         # Surface the raw mosaic dimensions so the FilePill can show
@@ -745,7 +762,108 @@ class SessionStore:
             src.dark_channels = None
             src.dark_name = None
             src.dark_path = None
+            # Calibration application is defined after dark subtraction; if
+            # the dark is removed, disable the switch until a dark is attached
+            # again.
+            src.polarization_calibration_enabled = False
         return src
+
+    # ---- Polarization calibration attachment -----------------------------
+
+    def attach_polarization_calibration_from_path(
+        self,
+        source_id: str,
+        path: str | Path,
+        *,
+        name: Optional[str] = None,
+        profile_id: Optional[str] = None,
+        use_avg: bool = False,
+    ) -> "LoadedSource":
+        src = self.get(source_id)
+        profile = _pol.load_polcal_profile(
+            path, profile_id=profile_id, use_avg=use_avg
+        )
+        self._validate_polcal_profile_for_source(src, profile)
+        with self._lock:
+            src.polarization_calibration = profile
+            src.polarization_calibration_name = name or Path(path).name
+            src.polarization_calibration_path = str(Path(path).expanduser().resolve())
+            src.polarization_calibration_enabled = False
+        return src
+
+    def attach_polarization_calibration_from_bytes(
+        self,
+        source_id: str,
+        data: bytes,
+        name: str,
+        *,
+        profile_id: Optional[str] = None,
+        use_avg: bool = False,
+    ) -> "LoadedSource":
+        import tempfile
+
+        suffix = Path(name).suffix or ".h5"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
+            f.write(data)
+            tmp_path = Path(f.name)
+        try:
+            src = self.get(source_id)
+            profile = _pol.load_polcal_profile(
+                tmp_path, profile_id=profile_id, use_avg=use_avg
+            )
+            self._validate_polcal_profile_for_source(src, profile)
+            with self._lock:
+                src.polarization_calibration = profile
+                src.polarization_calibration_name = name
+                src.polarization_calibration_path = None
+                src.polarization_calibration_enabled = False
+            return src
+        finally:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
+    def set_polarization_calibration_enabled(
+        self,
+        source_id: str,
+        enabled: bool,
+    ) -> "LoadedSource":
+        src = self.get(source_id)
+        if enabled:
+            if not _pol.is_polarization_mode(src.isp_mode_id):
+                raise ValueError("polarization calibration is only available in a polarization ISP mode")
+            if src.polarization_calibration is None:
+                raise ValueError("load a polarization calibration file before enabling calibration")
+            if not src.has_dark:
+                raise ValueError("load a dark frame before enabling polarization calibration")
+            self._validate_polcal_profile_for_source(src, src.polarization_calibration)
+        with self._lock:
+            src.polarization_calibration_enabled = bool(enabled)
+        return src
+
+    def clear_polarization_calibration(self, source_id: str) -> "LoadedSource":
+        src = self.get(source_id)
+        with self._lock:
+            src.polarization_calibration = None
+            src.polarization_calibration_name = None
+            src.polarization_calibration_path = None
+            src.polarization_calibration_enabled = False
+        return src
+
+    def _validate_polcal_profile_for_source(
+        self,
+        src: "LoadedSource",
+        profile: _pol.PolcalProfile,
+    ) -> None:
+        if not _pol.is_polarization_mode(src.isp_mode_id):
+            return
+        mode = _isp.get_mode(src.isp_mode_id)
+        prefixes = ("HG-", "LG-") if mode.dual_gain else ("",)
+        for prefix in prefixes:
+            key = f"{prefix}I0"
+            if key in src.channels:
+                _pol.validate_polcal_for_shape(profile, src.channels[key].shape)
 
     def create_transient_from_frame(self, parent_sid: str, frame_index: int,
                                     name_suffix: str = "") -> "LoadedSource":
@@ -810,6 +928,13 @@ class SessionStore:
             dark_channels=dark_snapshot,
             dark_name=parent.dark_name,
             dark_path=parent.dark_path,
+            polarization_calibration=parent.polarization_calibration,
+            polarization_calibration_name=parent.polarization_calibration_name,
+            polarization_calibration_path=parent.polarization_calibration_path,
+            polarization_calibration_enabled=(
+                bool(parent.polarization_calibration_enabled)
+                and dark_snapshot is not None
+            ),
             # Pinned: transient handoff sources should not be silently
             # evicted by an LRU-pressure burst. Frontend explicitly
             # closes them via DELETE when done.
@@ -907,6 +1032,10 @@ class SessionStore:
                 # M25 — keep HDR channels in sync after ISP reconfig.
                 from .hdr_fusion import add_hdr_channels
                 add_hdr_channels(new_channels)
+            elif _pol.is_polarization_mode(mode.id):
+                new_channels = _pol.append_virtual_channels(
+                    new_channels, dual_gain=bool(mode.dual_gain)
+                )
             elif src.source_kind == "image" and mode.id == _isp.RGB_IMAGE.id:
                 # RGB image path synthesizes Y too, for parity with
                 # load_image_channels default behaviour. (This branch
@@ -923,10 +1052,27 @@ class SessionStore:
         # user gets a SourceSummary with has_dark=False and can re-attach.
         drop_dark = False
         if src.has_dark:
-            for k, v in src.dark_channels.items():
-                if k not in new_channels or new_channels[k].shape != v.shape:
+            physical_keys = set(_pol.physical_channel_keys(new_channels))
+            for k in physical_keys:
+                if (
+                    src.dark_channels is None
+                    or k not in src.dark_channels
+                    or new_channels[k].shape != src.dark_channels[k].shape
+                ):
                     drop_dark = True
                     break
+        keep_polcal_enabled = bool(src.polarization_calibration_enabled)
+        if drop_dark or not _pol.is_polarization_mode(mode.id):
+            keep_polcal_enabled = False
+        if keep_polcal_enabled and src.polarization_calibration is not None:
+            prefixes = ("HG-", "LG-") if mode.dual_gain else ("",)
+            for prefix in prefixes:
+                key = f"{prefix}I0"
+                if key in new_channels:
+                    _pol.validate_polcal_for_shape(
+                        src.polarization_calibration,
+                        new_channels[key].shape,
+                    )
         with self._lock:
             src.channels = new_channels
             src.shape_hw = new_shape
@@ -936,6 +1082,7 @@ class SessionStore:
                 src.dark_channels = None
                 src.dark_name = None
                 src.dark_path = None
+            src.polarization_calibration_enabled = keep_polcal_enabled
             # ISP geometry / channel set changed → cached extracted frames
             # are stale; drop them so the next extract_frame re-extracts
             # under the new mode.
@@ -1042,14 +1189,15 @@ def _validate_dark_shapes(src: LoadedSource,
       * No channel-key overlap implies a wholly-different recording — bail
         out with a clear message instead of silently doing nothing.
     """
-    overlap = set(src.channels) & set(dark_channels)
+    source_physical_keys = set(_pol.physical_channel_keys(src.channels))
+    overlap = source_physical_keys & set(dark_channels)
     if not overlap:
         raise ValueError(
             f"dark frame channels {sorted(dark_channels)!r} do not overlap "
-            f"with source channels {sorted(src.channels)!r}"
+            f"with source channels {sorted(source_physical_keys)!r}"
         )
     mismatched = []
-    for k in src.channels:
+    for k in source_physical_keys:
         if k not in dark_channels:
             mismatched.append(f"  · {k}: missing in dark frame")
             continue
@@ -1105,6 +1253,7 @@ def _summary_dict(s: LoadedSource) -> dict:
     # round-trip as lists anyway; being explicit here saves a surprise).
     raw_loc_overrides = (s.isp_config or {}).get("channel_loc_overrides") or {}
     loc_overrides = {k: list(v) for k, v in raw_loc_overrides.items()}
+    polcal_ready = _polarization_calibration_ready(s, mode)
     return {
         "source_id": s.source_id,
         "name": s.name,
@@ -1130,6 +1279,19 @@ def _summary_dict(s: LoadedSource) -> dict:
         "has_dark": s.has_dark,
         "dark_name": s.dark_name,
         "dark_path": s.dark_path,
+        "has_polarization_calibration": s.polarization_calibration is not None,
+        "polarization_calibration_name": s.polarization_calibration_name,
+        "polarization_calibration_path": s.polarization_calibration_path,
+        "polarization_calibration_profile_id": (
+            s.polarization_calibration.profile_id
+            if s.polarization_calibration is not None else None
+        ),
+        "polarization_calibration_use_avg": (
+            bool(s.polarization_calibration.use_avg)
+            if s.polarization_calibration is not None else False
+        ),
+        "polarization_calibration_enabled": bool(s.polarization_calibration_enabled),
+        "polarization_calibration_ready": polcal_ready,
         # Play mode (play-tab-recording-inspection-rescue-v1 M1):
         # frame_count is 1 for image sources, ≥ 1 for H5. Per-frame
         # exposures / timestamps are H5-only (None for image).
@@ -1155,6 +1317,27 @@ def _summary_dict(s: LoadedSource) -> dict:
         "isp_channel_map": isp_channel_map,
         "rgb_composite_available": bool(mode.supports_rgb_composite),
     }
+
+
+def _polarization_calibration_ready(s: LoadedSource, mode: _isp.ISPMode) -> bool:
+    if (
+        not _pol.is_polarization_mode(s.isp_mode_id)
+        or not s.has_dark
+        or s.polarization_calibration is None
+    ):
+        return False
+    prefixes = ("HG-", "LG-") if mode.dual_gain else ("",)
+    try:
+        for prefix in prefixes:
+            key = f"{prefix}I0"
+            if key in s.channels:
+                _pol.validate_polcal_for_shape(
+                    s.polarization_calibration,
+                    s.channels[key].shape,
+                )
+    except ValueError:
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------

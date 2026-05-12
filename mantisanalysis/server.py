@@ -37,8 +37,10 @@ _DELETE_FILES_MAX_BATCH = 50
 
 from . import __version__
 from . import isp_modes as _isp
+from . import polarization as _pol
 from .image_io import rgb_composite as _rgb_composite
 from .dof_analysis import (
+    FOCUS_METRICS,
     DoFPoint,
     analyze_dof,
     analyze_dof_multi,
@@ -96,6 +98,13 @@ class SourceSummary(BaseModel):
     has_dark: bool = False           # True iff a dark frame is attached
     dark_name: Optional[str] = None  # display name (filename or 'load-path')
     dark_path: Optional[str] = None  # absolute disk path of dark, when known
+    has_polarization_calibration: bool = False
+    polarization_calibration_name: Optional[str] = None
+    polarization_calibration_path: Optional[str] = None
+    polarization_calibration_profile_id: Optional[str] = None
+    polarization_calibration_use_avg: bool = False
+    polarization_calibration_enabled: bool = False
+    polarization_calibration_ready: bool = False
     # ISP-modes-v1: active mode + resolved geometry + rename map.
     isp_mode_id: str = "rgb_nir"
     isp_config: Dict[str, Any] = Field(default_factory=dict)
@@ -170,6 +179,19 @@ class DarkLoadPathRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     path: str
     name: Optional[str] = None
+
+
+class PolarizationCalLoadPathRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    path: str
+    name: Optional[str] = None
+    profile_id: Optional[str] = None
+    use_avg: bool = False
+
+
+class PolarizationCalSettingsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool
 
 
 class LoadFromPathRequest(BaseModel):
@@ -714,6 +736,7 @@ class DoFComputeRequest(BaseModel):
     metric: str = "laplacian"
     half_window: int = 32
     threshold: float = 0.5
+    profile_threshold: float = Field(0.5, ge=0.0, le=1.0)
     calibration: Optional[Dict[str, Any]] = None
     theme: str = "light"
     isp: Optional[ISPParams] = None
@@ -737,6 +760,7 @@ class DoFAnalyzeRequest(BaseModel):
     metric: str = "laplacian"
     half_window: int = 32
     threshold: float = 0.5
+    profile_threshold: float = Field(0.5, ge=0.0, le=1.0)
     calibration: Optional[Dict[str, Any]] = None
     theme: str = "light"
     isp: Optional[ISPParams] = None
@@ -1201,6 +1225,100 @@ def _mount_api(app: FastAPI) -> None:
             raise HTTPException(404, f"unknown source id: {source_id}")
         return _summary(src)
 
+    # ---- Polarization calibration management ---------------------------
+
+    @app.post(
+        "/api/sources/{source_id}/polarization-cal/upload",
+        response_model=SourceSummary,
+    )
+    async def upload_polarization_calibration(
+        source_id: str,
+        file: UploadFile = File(...),
+        profile_id: Optional[str] = Query(None),
+        use_avg: bool = Query(False),
+    ):
+        data = await file.read()
+        if not data:
+            raise HTTPException(400, "empty upload")
+        try:
+            src = STORE.attach_polarization_calibration_from_bytes(
+                source_id,
+                data,
+                file.filename or "polarization.polcal.h5",
+                profile_id=profile_id,
+                use_avg=use_avg,
+            )
+        except KeyError:
+            raise HTTPException(404, f"unknown source id: {source_id}")
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+        except Exception as exc:
+            raise HTTPException(
+                400,
+                f"polarization calibration load failed: {type(exc).__name__}: {exc}",
+            )
+        return _summary(src)
+
+    @app.post(
+        "/api/sources/{source_id}/polarization-cal/load-path",
+        response_model=SourceSummary,
+    )
+    def load_polarization_calibration_path(
+        source_id: str,
+        req: PolarizationCalLoadPathRequest,
+    ):
+        p = Path(req.path).expanduser()
+        if not p.exists():
+            raise HTTPException(404, f"path not found: {p}")
+        try:
+            src = STORE.attach_polarization_calibration_from_path(
+                source_id,
+                p,
+                name=req.name,
+                profile_id=req.profile_id,
+                use_avg=bool(req.use_avg),
+            )
+        except KeyError:
+            raise HTTPException(404, f"unknown source id: {source_id}")
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+        except Exception as exc:
+            raise HTTPException(
+                400,
+                f"polarization calibration load failed: {type(exc).__name__}: {exc}",
+            )
+        return _summary(src)
+
+    @app.put(
+        "/api/sources/{source_id}/polarization-cal/settings",
+        response_model=SourceSummary,
+    )
+    def update_polarization_calibration_settings(
+        source_id: str,
+        req: PolarizationCalSettingsRequest,
+    ):
+        try:
+            src = STORE.set_polarization_calibration_enabled(
+                source_id,
+                bool(req.enabled),
+            )
+        except KeyError:
+            raise HTTPException(404, f"unknown source id: {source_id}")
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+        return _summary(src)
+
+    @app.delete(
+        "/api/sources/{source_id}/polarization-cal",
+        response_model=SourceSummary,
+    )
+    def clear_polarization_calibration(source_id: str):
+        try:
+            src = STORE.clear_polarization_calibration(source_id)
+        except KeyError:
+            raise HTTPException(404, f"unknown source id: {source_id}")
+        return _summary(src)
+
     # ---- ISP modes -----------------------------------------------------
 
     @app.get("/api/isp/modes", response_model=List[ISPModeOut])
@@ -1343,8 +1461,9 @@ def _mount_api(app: FastAPI) -> None:
                 bilateral=bilateral,
             )
             image = _apply_analysis_isp(image, isp)
+        display_vmin, display_vmax = _polarization_display_bounds(channel, vmin, vmax)
         png = channel_to_png_bytes(image, max_dim=max_dim, colormap=colormap,
-                                    vmin=vmin, vmax=vmax)
+                                    vmin=display_vmin, vmax=display_vmax)
         # Thumbnails are state-dependent (ISP params are passed as query
         # args). Disable HTTP caching so the browser always re-fetches when
         # the URL changes, even if the URL happens to repeat.
@@ -1647,9 +1766,10 @@ def _mount_api(app: FastAPI) -> None:
             # M20.1 — pre-normalize ISP linear correction.
             image = _apply_pre_norm(image, black_level=black_level,
                                     gain=gain, offset=offset)
+            display_vmin, display_vmax = _polarization_display_bounds(channel, vmin, vmax)
             png = channel_to_png_bytes(
                 image, max_dim=max_dim, colormap=colormap,
-                vmin=vmin, vmax=vmax, show_clipping=show_clipping,
+                vmin=display_vmin, vmax=display_vmax, show_clipping=show_clipping,
                 normalize_mode=normalize,
                 brightness=brightness, contrast=contrast, gamma=gamma,
             )
@@ -2928,7 +3048,11 @@ def _mount_api(app: FastAPI) -> None:
         thumbnails = {}
         thumb_dim = 520
         for ch, img in channel_images.items():
-            blob = channel_to_png_bytes(img, max_dim=thumb_dim, colormap="gray")
+            display_vmin, display_vmax = _polarization_display_bounds(ch, None, None)
+            blob = channel_to_png_bytes(
+                img, max_dim=thumb_dim, colormap="gray",
+                vmin=display_vmin, vmax=display_vmax,
+            )
             thumbnails[ch] = "data:image/png;base64," + base64.b64encode(blob).decode()
 
         any_ch = next(iter(channel_images))
@@ -3067,7 +3191,11 @@ def _mount_api(app: FastAPI) -> None:
                                     "error": f"{type(exc).__name__}: {exc}"})
             measurements[ch] = per_roi
             figures[ch] = per_roi_figs
-            blob = channel_to_png_bytes(img, max_dim=thumb_dim, colormap="gray")
+            display_vmin, display_vmax = _polarization_display_bounds(ch, None, None)
+            blob = channel_to_png_bytes(
+                img, max_dim=thumb_dim, colormap="gray",
+                vmin=display_vmin, vmax=display_vmax,
+            )
             thumbnails[ch] = "data:image/png;base64," + base64.b64encode(blob).decode()
 
         any_ch = next(iter(channel_images))
@@ -3110,6 +3238,7 @@ def _mount_api(app: FastAPI) -> None:
                 lines=[(l.p0, l.p1) for l in req.lines],
                 metric=req.metric, half_window=int(req.half_window),
                 threshold=float(req.threshold),
+                profile_threshold=float(req.profile_threshold),
                 build_heatmap=False,
                 calibration=req.calibration,
                 compute_all_metrics=bool(req.compute_all_metrics),
@@ -3168,26 +3297,61 @@ def _mount_api(app: FastAPI) -> None:
         lines = [(l.p0, l.p1) for l in req.lines]
         if not points and not lines:
             raise HTTPException(400, "need at least one point or line")
+        if req.metric not in FOCUS_METRICS:
+            raise HTTPException(422, f"unknown focus metric: {req.metric!r}")
         try:
-            per_ch = analyze_dof_multi(
-                channel_images,
-                points=points, lines=lines,
-                metric=req.metric, half_window=int(req.half_window),
-                threshold=float(req.threshold),
-                build_heatmap=True, heatmap_step=48,
-                calibration=req.calibration,
-                compute_all_metrics=bool(req.compute_all_metrics),
-                bootstrap=bool(req.bootstrap),
-                n_boot=int(req.n_boot),
-                fit_tilt_plane=bool(req.fit_tilt_plane),
-            )
+            if bool(req.compute_all_metrics):
+                metric_results: Dict[str, Dict[str, Any]] = {}
+                per_ch_by_metric: Dict[str, Any] = {}
+                for metric_name in FOCUS_METRICS:
+                    per_ch_metric = analyze_dof_multi(
+                        channel_images,
+                        points=points, lines=lines,
+                        metric=metric_name, half_window=int(req.half_window),
+                        threshold=float(req.threshold),
+                        profile_threshold=float(req.profile_threshold),
+                        build_heatmap=True, heatmap_step=48,
+                        calibration=req.calibration,
+                        compute_all_metrics=False,
+                        bootstrap=bool(req.bootstrap),
+                        n_boot=int(req.n_boot),
+                        fit_tilt_plane=bool(req.fit_tilt_plane),
+                    )
+                    per_ch_by_metric[metric_name] = per_ch_metric
+                    metric_results[metric_name] = {
+                        "channels": list(channel_images.keys()),
+                        "results": {r.name: _dof_to_dict(r) for r in per_ch_metric},
+                        "settings": _dof_settings_dict(req, metric_name),
+                    }
+                _attach_dof_metric_sweeps(metric_results)
+                per_ch = per_ch_by_metric[req.metric]
+                results_json = metric_results[req.metric]["results"]
+            else:
+                per_ch = analyze_dof_multi(
+                    channel_images,
+                    points=points, lines=lines,
+                    metric=req.metric, half_window=int(req.half_window),
+                    threshold=float(req.threshold),
+                    profile_threshold=float(req.profile_threshold),
+                    build_heatmap=True, heatmap_step=48,
+                    calibration=req.calibration,
+                    compute_all_metrics=False,
+                    bootstrap=bool(req.bootstrap),
+                    n_boot=int(req.n_boot),
+                    fit_tilt_plane=bool(req.fit_tilt_plane),
+                )
+                metric_results = {}
+                results_json = {r.name: _dof_to_dict(r) for r in per_ch}
         except Exception as exc:
             raise HTTPException(422, f"{type(exc).__name__}: {exc}") from exc
 
-        results_json = {r.name: _dof_to_dict(r) for r in per_ch}
         thumbnails: Dict[str, str] = {}
         for name, img in channel_images.items():
-            blob = channel_to_png_bytes(img, max_dim=520, colormap="gray")
+            display_vmin, display_vmax = _polarization_display_bounds(name, None, None)
+            blob = channel_to_png_bytes(
+                img, max_dim=520, colormap="gray",
+                vmin=display_vmin, vmax=display_vmax,
+            )
             thumbnails[name] = "data:image/png;base64," + base64.b64encode(blob).decode()
 
         figures_json: Dict[str, Dict[str, str]] = {}
@@ -3211,17 +3375,10 @@ def _mount_api(app: FastAPI) -> None:
             "channel_shape": list(next(iter(channel_images.values())).shape[:2]),
             "results": results_json,
             "channel_thumbnails": thumbnails,
-            "settings": {
-                "metric": req.metric,
-                "half_window": int(req.half_window),
-                "threshold": float(req.threshold),
-                "calibration": req.calibration,
-                "compute_all_metrics": bool(req.compute_all_metrics),
-                "bootstrap": bool(req.bootstrap),
-                "n_boot": int(req.n_boot),
-                "fit_tilt_plane": bool(req.fit_tilt_plane),
-            },
+            "settings": _dof_settings_dict(req, req.metric),
         }
+        if metric_results:
+            resp["metric_results"] = metric_results
         # PNG-figure responses are legacy (plot-style-completion-v1 native
         # canvas/SVG rewrite). Kept only when the caller explicitly opts
         # in, so existing CLI users can still ask for offline-ready PNGs.
@@ -3980,6 +4137,30 @@ def _must_get(source_id: str):
         raise HTTPException(404, f"unknown source id: {source_id}")
 
 
+def _polarization_display_bounds(
+    channel: str,
+    vmin: Optional[float],
+    vmax: Optional[float],
+) -> Tuple[Optional[float], Optional[float]]:
+    """Use physical display ranges for polarization angle/fraction outputs.
+
+    DoLP and AoP are float-valued virtual channels. The default raw-DN
+    thumbnail path scales floats against 65535 to preserve dark-corrected
+    sensor-channel brightness, which makes DoLP/AoP appear black unless the
+    caller explicitly passes bounds. These channels have natural units, so
+    fill only the missing bounds here.
+    """
+    parsed = _pol.parse_polarization_channel(channel)
+    if parsed is None:
+        return vmin, vmax
+    _, band = parsed
+    if band == "DoLP":
+        return (0.0 if vmin is None else vmin, 1.0 if vmax is None else vmax)
+    if band == "AoP":
+        return (0.0 if vmin is None else vmin, 180.0 if vmax is None else vmax)
+    return vmin, vmax
+
+
 def _channel_image(src, channel: str, *, apply_dark: bool = True) -> np.ndarray:
     """Return the channel pixel array, optionally with dark-frame subtraction.
 
@@ -3992,6 +4173,28 @@ def _channel_image(src, channel: str, *, apply_dark: bool = True) -> np.ndarray:
     """
     if channel not in src.channels:
         raise HTTPException(404, f"channel {channel!r} not in source {src.source_id}")
+    if (
+        _pol.is_polarization_mode(getattr(src, "isp_mode_id", None))
+        and _pol.is_polarization_virtual_channel(channel)
+    ):
+        try:
+            return _pol.compute_virtual_channel(
+                src.channels,
+                channel,
+                dark_channels=(
+                    src.dark_channels
+                    if apply_dark and src.has_dark else None
+                ),
+                calibration=getattr(src, "polarization_calibration", None),
+                calibration_enabled=(
+                    bool(getattr(src, "polarization_calibration_enabled", False))
+                    and bool(apply_dark)
+                ),
+            )
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
     if apply_dark and src.has_dark:
         dark = src.dark_channels.get(channel)
         if dark is not None:
@@ -4207,10 +4410,13 @@ def _render_tiled_view_to_rgb(spec: "TiledExportViewSpec", *,
             img, black_level=spec.black_level,
             gain=spec.isp_gain, offset=spec.offset,
         )
+        display_vmin, display_vmax = _polarization_display_bounds(
+            spec.channel, spec.vmin, spec.vmax
+        )
         png_bytes = channel_to_png_bytes(
             img, max_dim=max_dim,
             colormap=spec.colormap or "gray",
-            vmin=spec.vmin, vmax=spec.vmax,
+            vmin=display_vmin, vmax=display_vmax,
             show_clipping=spec.show_clipping,
             normalize_mode=spec.normalize,
             brightness=spec.isp_brightness,
@@ -5224,6 +5430,7 @@ def _dof_to_dict(r) -> Dict[str, Any]:
         "metric": r.metric,
         "half_window": int(r.half_window),
         "threshold": float(r.threshold),
+        "profile_threshold": float(r.profile_threshold),
         "is_calibrated": bool(r.is_calibrated),
         "unit_name": r.unit_name,
         "px_per_unit_h": r.px_per_unit_h,
@@ -5250,6 +5457,26 @@ def _dof_to_dict(r) -> Dict[str, Any]:
                 "positions_px": [float(x) for x in ln.positions.tolist()],
                 "focus": [float(x) for x in ln.focus.tolist()],
                 "focus_norm": [float(x) for x in ln.focus_norm.tolist()],
+                "profile_positions_px": (
+                    _finite_list(ln.profile_positions_px)
+                    if ln.profile_positions_px is not None else None
+                ),
+                "intensity_profile": (
+                    _finite_list(ln.intensity_profile)
+                    if ln.intensity_profile is not None else None
+                ),
+                "profile_contrast_norm": (
+                    _finite_list(ln.profile_contrast_norm)
+                    if ln.profile_contrast_norm is not None else None
+                ),
+                "profile_threshold": ln.profile_threshold,
+                "profile_peak_idx": ln.profile_peak_idx,
+                "profile_peak_position_px": ln.profile_peak_position_px,
+                "profile_dof_low_px": ln.profile_dof_low_px,
+                "profile_dof_high_px": ln.profile_dof_high_px,
+                "profile_dof_width_px": ln.profile_dof_width_px,
+                "profile_dof_left_bounded": bool(ln.profile_dof_left_bounded),
+                "profile_dof_right_bounded": bool(ln.profile_dof_right_bounded),
                 "peak_idx": int(ln.peak_idx),
                 "peak_position_px": float(ln.peak_position_px),
                 "dof_low_px": ln.dof_low_px,
@@ -5272,6 +5499,52 @@ def _dof_to_dict(r) -> Dict[str, Any]:
             for ln in r.lines
         ],
     }
+
+
+def _dof_settings_dict(req: DoFAnalyzeRequest, metric: str) -> Dict[str, Any]:
+    return {
+        "metric": metric,
+        "half_window": int(req.half_window),
+        "threshold": float(req.threshold),
+        "profile_threshold": float(req.profile_threshold),
+        "calibration": req.calibration,
+        "compute_all_metrics": bool(req.compute_all_metrics),
+        "bootstrap": bool(req.bootstrap),
+        "n_boot": int(req.n_boot),
+        "fit_tilt_plane": bool(req.fit_tilt_plane),
+    }
+
+
+def _attach_dof_metric_sweeps(
+    metric_results: Dict[str, Dict[str, Any]]
+) -> None:
+    """Attach compact metric-sweep overlays to each full metric result.
+
+    ``metric_results`` stores a complete DoF result tree for each metric.
+    The metric-comparison chart still consumes the older per-line
+    ``metric_sweep`` shape, so derive that compact overlay from the full
+    trees instead of asking the analysis layer to compute it a second time.
+    """
+    for _metric_name, snapshot in metric_results.items():
+        results = snapshot.get("results") or {}
+        for ch, ch_result in results.items():
+            lines = ch_result.get("lines") or []
+            for line_idx, line in enumerate(lines):
+                sweep: Dict[str, Dict[str, Any]] = {}
+                for other_metric, other_snapshot in metric_results.items():
+                    other_ch = (other_snapshot.get("results") or {}).get(ch) or {}
+                    other_lines = other_ch.get("lines") or []
+                    if line_idx >= len(other_lines):
+                        continue
+                    other_line = other_lines[line_idx]
+                    sweep[other_metric] = {
+                        "focus_norm": other_line.get("focus_norm"),
+                        "focus": other_line.get("focus"),
+                        "peak_position_px": other_line.get("peak_position_px"),
+                        "dof_width_px": other_line.get("dof_width_px"),
+                    }
+                if sweep:
+                    line["metric_sweep"] = sweep
 
 
 def _dof_gaussian_to_dict(g) -> Dict[str, Any]:

@@ -37,6 +37,8 @@ major_modules:
     role: "sharpen + tone-curve helpers"
   - path: mantisanalysis/isp_modes.py
     role: "ISP-mode registry — bare single/dual, RGB-NIR, RGB/grayscale image, polarization single/dual"
+  - path: mantisanalysis/polarization.py
+    role: "DoFP Stokes/DoLP/AoP math and standard .polcal.h5 runtime loader"
   - path: mantisanalysis/usaf_groups.py
     role: "USAF lp/mm + Michelson estimators (percentile / minmax / FFT)"
   - path: mantisanalysis/usaf_render.py
@@ -48,7 +50,7 @@ major_modules:
   - path: mantisanalysis/fpn_render.py
     role: "FPN matplotlib figure builders"
   - path: mantisanalysis/dof_analysis.py
-    role: "DoF focus metrics (laplacian, brenner, tenengrad, fft_hf)"
+    role: "DoF focus metrics (laplacian, brenner, tenengrad, fft_hf) + raw line profiles + profile-threshold bands + all-metric result caches"
   - path: mantisanalysis/dof_render.py
     role: "DoF matplotlib figure builders"
   - path: mantisanalysis/resolution.py
@@ -71,6 +73,8 @@ major_modules:
     role: "analysis modal — per-mode tabs + CSV/PNG export. TypeScript (@ts-nocheck)"
   - path: web/src/isp_settings.tsx
     role: "ISP settings modal — mode selector + per-channel geometry (TypeScript; typed — Phase 5b-1)"
+  - path: web/src/polarization_calibration.tsx
+    role: "left-side Polcal upload/path/clear/toggle panel for polarization calibration"
   - path: web/src/Brand.stories.tsx
     role: "Storybook seed story (BRAND swatches) — Phase 7 of bundler-migration-v1"
   - path: .storybook/main.ts
@@ -124,7 +128,7 @@ quality_gates:
 
 risky_areas:
   - "GSense Bayer constants in mantisanalysis/extract.py:25-26 (locked)"
-  - "Channel key schema HG-R..LG-Y / R..Y / L (frozen contract)"
+  - "Channel key schema HG-R..LG-Y / R..Y / L (frozen contract); polarization ISP adds virtual S0/DoLP/AoP keys"
   - "session.STORE LRU(12) — frontend holding stale source_id after eviction"
   - "ISP reconfig mid-analysis — dark frame detach + raw_frame re-extract"
   - "dom-to-image export pipeline — CORS on Google Fonts, canvas+SVG composite"

@@ -738,3 +738,181 @@ multi-channel analysis request.
 **Revisit**: If the lab later wants one calibrated channel to seed
 another channel, add an explicit "copy extrema to selected channels"
 command rather than implicit reuse.
+
+
+## D-0020 — Polarization calibration is a virtual-channel ISP extension (2026-04-30)
+
+**Status**: Active.
+
+**Context**: The polarization ISP modes existed, but only exposed the
+four analyzer planes. The supplied calibration scripts define a standard
+`.polcal.h5` profile with `Gc_map` / `Gc_avg` and runtime Stokes →
+DoLP/AoP calculation.
+
+**Decision**: Expose `S0`, `DoLP`, and `AoP` as virtual channels under
+the existing polarization ISP modes. They are listed in
+`SourceSummary.channels`, but computed at access time so dark
+subtraction and optional `.polcal.h5` calibration are applied before
+the derived output is returned.
+
+**Consequences**:
+- Existing USAF/FPN/DoF display and Run Analysis flows can select
+  polarization-derived outputs without a new page.
+- The calibration toggle is server-gated on polarization mode +
+  attached dark + attached calibration profile.
+- Base analyzer channels can also pass through the calibrated
+  reconstruction when the toggle is enabled.
+
+**Revisit**: If users need a dedicated polarization-report page with
+AoP/DoLP-specific plots rather than treating the maps as ordinary
+channels.
+
+
+## D-0021 — DoF raw profiles ride existing line results (2026-05-05)
+
+**Status**: Active.
+
+**Context**: Users need to show the raw grayscale waveform along a DoF
+scan line, not only the derived focus-metric curve. The same line is
+already computed live in `/api/dof/compute` and in the Run Analysis
+modal.
+
+**Decision**: Attach `profile_positions_px` and `intensity_profile` to
+each DoF line result. Sampling happens server-side at about 1 px spacing
+with a cap, while the focus-metric sliding-window calculation remains
+unchanged.
+
+**Consequences**:
+- Live preview and analysis modal stay consistent and reuse one response
+  shape.
+- Payloads grow with line length, so the sampler caps profile samples to
+  keep JSON bounded.
+- React still only renders server-emitted data; it does not sample image
+  pixels client-side.
+
+**Revisit**: If users start drawing many very long lines or request
+batch Z-stack profiles, move raw profile retrieval to an on-demand
+endpoint.
+
+
+## D-0022 — DoF profile-threshold band is supplemental to the focus metric (2026-05-05)
+
+**Status**: Active.
+
+**Context**: A 30 degree endoscope target can show visible stripe
+waveforms outside the Gaussian-like focus-metric band. The user needs a
+second, visually explainable band on the raw intensity profile without
+discarding the existing focus metrics.
+
+**Decision**: `/api/dof/compute` and `/api/dof/analyze` accept
+`profile_threshold` and compute `profile_contrast_norm` plus
+`profile_dof_low_px` / `profile_dof_high_px` / `profile_dof_width_px`
+server-side. The algorithm subtracts slow illumination background,
+measures local stripe amplitude, smooths and normalizes that envelope,
+then thresholds it around the peak. React only renders the server result
+and provides independent metric/profile band visibility toggles.
+
+**Consequences**:
+- The focus-metric DoF result remains the existing canonical estimate.
+- The profile band is useful for explaining visible black/white
+  separability, especially when illumination or target geometry makes the
+  metric band asymmetric.
+- If one side never crosses the threshold, the width is shown as an
+  edge-open lower bound.
+
+**Revisit**: If users need publication-grade DoF from the profile band,
+add an explicit calibration/validation workflow against known axial
+target geometry instead of treating it as only a supplemental overlay.
+
+
+## D-0023 — Analysis JSON import restores frozen result snapshots (2026-05-05)
+
+**Status**: Active.
+
+**Context**: The UI already exported two different JSON families:
+mode-specific pre-analysis configs (`mantis-*-config`) and post-analysis
+result snapshots (`mantis-*-analysis`). Config JSONs had Save/Load
+buttons, but analysis JSONs could only be downloaded, so users could not
+reopen a saved results window later.
+
+**Decision**: Add a top-bar `Load analysis` file input that accepts
+exported `mantis-usaf-analysis`, `mantis-fpn-analysis`, and
+`mantis-dof-analysis` JSON files and reconstructs the corresponding
+`RunRecord` directly in the analysis shell. Future analysis exports also
+include a `source` snapshot when available. Config JSONs remain separate
+and still load through each mode's left-panel `Load cfg` button.
+
+**Consequences**:
+- Users can reopen a saved analysis result without re-running analysis.
+- Old analysis JSONs without `source` still load; source-aware actions
+  such as DoF metric re-run are only meaningful when the current source
+  matches the original recording.
+- Imported DoF snapshots disable metric re-run controls unless the JSON
+  contains full `metric_results` snapshots; when present, the metric
+  selector reads those saved results without re-running the server.
+- The analysis loader intentionally rejects `mantis-*-config` files with
+  an actionable error instead of guessing a conversion.
+
+**Revisit**: If users need a single project/session bundle, define a
+larger project format that contains source references, picker config, and
+analysis results together.
+
+
+## D-0024 — Display controls are not analysis inputs (2026-05-05)
+
+**Status**: Active.
+
+**Context**: Picker pages keep display state (canvas channel, colormap,
+brightness, unit formatting, rotation/flip/zoom) next to true analysis
+state (selected analysis channels, lines/ROIs/points, thresholds, ISP).
+The user observed that changing a display-related control appeared able
+to change downstream results.
+
+**Decision**: Treat display controls as preview/formatting state only.
+USAF, FPN, and DoF Run Analysis payloads now use the selected
+currently-valid Analysis channels and never fall back to the display
+channel. DoF sends H/V calibration to the server in canonical `μm`
+units; `Show in` controls only front-end formatting and JSON snapshot
+display preference.
+
+**Consequences**:
+- Changing Display channel can still change the live preview because the
+  preview is intentionally for that channel, but it cannot silently
+  replace the Analysis channel list used for Run Analysis.
+- Stale localStorage channel keys from a previous source disable Run
+  Analysis until the user selects valid Analysis channels.
+- DoF px results and physical conversions are independent of whether the
+  picker was set to px / μm / mm / cm before Run Analysis.
+
+**Revisit**: If a future workflow wants "analyze the display channel" as
+an explicit shortcut, add a named button or command rather than using
+silent fallback.
+
+
+## D-0025 — DoF all-metric runs persist full metric result trees (2026-05-05)
+
+**Status**: Active.
+
+**Context**: Users want to run the four DoF focus metrics once, save the
+post-analysis JSON, and later switch metrics after loading that JSON
+without access to the original source or any silent recomputation.
+
+**Decision**: When `/api/dof/analyze` receives
+`compute_all_metrics=true`, it computes a complete result tree for each
+metric and returns `metric_results.{laplacian,brenner,tenengrad,fft_hf}`.
+The result modal switches among those cached result trees. DoF analysis
+JSON export writes the full `metric_results` map regardless of which
+metric is currently selected.
+
+**Consequences**:
+- Summary, line scans, raw profiles, Gaussian fits, heatmaps, points,
+  chromatic shift, and metric-compare views can all switch to the chosen
+  metric from saved data.
+- The payload is larger and the Run Analysis call is roughly four times
+  heavier when All 4 metrics is enabled.
+- Single-metric runs remain smaller and show only the selected metric
+  after export/import.
+
+**Revisit**: If all-metric runs become too slow or JSONs become too
+large for real recordings, split per-metric result trees into an
+on-demand artifact bundle rather than embedding them in one JSON.

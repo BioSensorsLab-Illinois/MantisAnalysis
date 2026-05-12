@@ -155,6 +155,7 @@ const useUsafModeView = (
       kind: 'mantis-usaf-analysis',
       version: 2,
       exportedAt: new Date().toISOString(),
+      source: run.source || null,
       channels: common.visibleChannels,
       specs: keptIdx.map((i) => allSpecs[i]),
       threshold,

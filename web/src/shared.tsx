@@ -147,6 +147,9 @@ const CHANNEL_COLORS = {
   I45: '#e5a13a',
   I90: '#3aba5e',
   I135: '#6b8df0',
+  S0: '#d0d4da',
+  DoLP: '#14b8a6',
+  AoP: '#c084fc',
 };
 
 // Pick default analysis channels for any source. Replaces the hardcoded
@@ -155,8 +158,13 @@ const CHANNEL_COLORS = {
 // polarization, image).
 const defaultAnalysisChannels = (available) => {
   if (!Array.isArray(available) || available.length === 0) return [];
+  const polOrder = ['I0', 'I45', 'I90', 'I135'];
   const hg = available.filter((c) => c.startsWith('HG-'));
+  const hgPol = polOrder.map((b) => `HG-${b}`).filter((c) => available.includes(c));
+  if (hgPol.length > 0) return hgPol.slice(0, 4);
   if (hg.length > 0) return hg.slice(0, 4);
+  const pol = polOrder.filter((c) => available.includes(c));
+  if (pol.length > 0) return pol.slice(0, 4);
   return available.slice(0, 4);
 };
 
@@ -2710,7 +2718,8 @@ const channelPngUrl = (
   colormap = 'gray',
   vmin = null,
   vmax = null,
-  rgbComposite = false
+  rgbComposite = false,
+  cacheKey = null
 ) => {
   const q = new URLSearchParams({ max_dim: String(maxDim) });
   if (colormap && colormap !== 'gray') q.set('colormap', colormap);
@@ -2740,6 +2749,10 @@ const channelPngUrl = (
   // When the active mode doesn't support composites, the server quietly
   // falls back to the single-channel grayscale path.
   if (rgbComposite) q.set('rgb_composite', 'true');
+  // Server returns no-store, but the browser still won't refetch an <img>
+  // when React renders the same src string. Let callers bind this to source
+  // image state (dark / polarization calibration / etc.) to force a refresh.
+  if (cacheKey != null) q.set('_rev', String(cacheKey));
   return `${API_BASE}/api/sources/${sourceId}/channel/${encodeURIComponent(channel)}/thumbnail.png?${q.toString()}`;
 };
 
@@ -4343,7 +4356,7 @@ const renderNodeToPng = async (node, opts = {}) => {
 // <Chart> — the single chart primitive.
 // ---------------------------------------------------------------------------
 // Props:
-//   title, sub, footer, channel, exportName, aspect, noExport, children
+//   title, sub, footer, channel, exportName, csvRows, aspect, noExport, children
 //   geom: { W, H, PAD, xDomain, yDomain, yFlipped } — optional; when
 //         provided, `<Chart>` computes geometry once and exposes it to
 //         child SVG code via `useChartGeom()`. Without `geom`, children
@@ -4355,6 +4368,8 @@ const Chart = ({
   footer,
   channel,
   exportName,
+  csvRows,
+  csvName,
   aspect,
   noExport = false,
   geom,
@@ -4382,10 +4397,12 @@ const Chart = ({
 
   const displayTitle = title || channel;
   const hasHeader = displayTitle || sub || !noExport;
+  const hasCsvRows = Array.isArray(csvRows) && csvRows.length > 0;
+
+  const exportBase = () => exportName || (channel ? `mantis-${channel}` : 'mantis-chart');
 
   const onExport = async () => {
-    const base = exportName || (channel ? `mantis-${channel}` : 'mantis-chart');
-    const name = `${base}-${Date.now()}`.replace(/\s+/g, '_').toLowerCase();
+    const name = `${exportBase()}-${Date.now()}`.replace(/\s+/g, '_').toLowerCase();
     try {
       await renderChartToPng(cardRef.current, {
         filename: name,
@@ -4395,6 +4412,12 @@ const Chart = ({
     } catch (err) {
       console.error('Chart export failed', err);
     }
+  };
+
+  const onExportCsv = () => {
+    const base = csvName || exportBase();
+    const name = `${base}-${Date.now()}.csv`.replace(/\s+/g, '_').toLowerCase();
+    exportCSV(name, csvRows);
   };
 
   const bodyStyle = {
@@ -4443,31 +4466,56 @@ const Chart = ({
               <span style={{ ...tok.title }}>{channel}</span>
             </>
           )}
-          {title && !channel && <span style={{ ...tok.title }}>{title}</span>}
+          {title && <span style={{ ...tok.title }}>{title}</span>}
           {sub && <span style={{ ...tok.legend, color: t.textMuted }}>{sub}</span>}
           <span style={{ flex: 1 }} />
           {!noExport && (
-            <button
-              data-no-export
-              onClick={onExport}
-              title="Download this chart as an image (tight crop)"
-              style={{
-                background: 'transparent',
-                border: `1px solid ${t.border}`,
-                color: t.textMuted,
-                borderRadius: 4,
-                padding: '2px 6px',
-                cursor: 'pointer',
-                fontFamily: 'inherit',
-                fontSize: 10.5,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-              }}
-            >
-              <Icon name="export" size={10} />
-              PNG
-            </button>
+            <>
+              <button
+                data-no-export
+                onClick={onExport}
+                title="Download this chart as an image (tight crop)"
+                style={{
+                  background: 'transparent',
+                  border: `1px solid ${t.border}`,
+                  color: t.textMuted,
+                  borderRadius: 4,
+                  padding: '2px 6px',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  fontSize: 10.5,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <Icon name="export" size={10} />
+                PNG
+              </button>
+              {hasCsvRows && (
+                <button
+                  data-no-export
+                  onClick={onExportCsv}
+                  title="Download this chart's plotted data as CSV"
+                  style={{
+                    background: 'transparent',
+                    border: `1px solid ${t.border}`,
+                    color: t.textMuted,
+                    borderRadius: 4,
+                    padding: '2px 6px',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    fontSize: 10.5,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                >
+                  <Icon name="download" size={10} />
+                  CSV
+                </button>
+              )}
+            </>
           )}
         </div>
       )}

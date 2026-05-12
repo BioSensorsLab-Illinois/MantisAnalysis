@@ -41,6 +41,8 @@ import {
 
 const { useState: useStateA, useEffect: useEffectA, useMemo: useMemoA, useRef: useRefA } = React;
 
+const csvNum = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
 // ---------------------------------------------------------------------------
 // Shared grid-tab frame + layout picker
 //
@@ -747,10 +749,14 @@ const MiniMTFChart = ({
   const series = ['H', 'V'].map((dir) => {
     const pts = keptIdx
       .filter((i) => specs[i].direction === dir)
-      .map((i) => measurements[channel]?.[i])
-      .filter((m) => m?.lp_mm != null && m?.modulation_5pt != null)
-      .sort((a, b) => a.lp_mm - b.lp_mm)
-      .map((m) => ({ x: xToPx(m.lp_mm), y: yToPx(m.modulation_5pt), m }));
+      .map((i) => ({ idx: i, spec: specs[i], m: measurements[channel]?.[i] }))
+      .filter((p) => p.m?.lp_mm != null && p.m?.modulation_5pt != null)
+      .sort((a, b) => a.m.lp_mm - b.m.lp_mm)
+      .map((p) => ({
+        x: xToPx(p.m.lp_mm),
+        y: yToPx(p.m.modulation_5pt),
+        ...p,
+      }));
     return { dir, pts };
   });
 
@@ -785,12 +791,31 @@ const MiniMTFChart = ({
         ]
   ).filter((v) => v >= xRange[0] && v <= xRange[1]);
   const yTicks = [0, 0.25, 0.5, 0.75, 1];
+  const mtfCsvRows = series.flatMap(({ dir, pts }) =>
+    pts.map(({ idx, spec, m }) => ({
+      chart: 'usaf_mtf_curve',
+      channel,
+      line_idx: idx,
+      direction: dir,
+      group: spec?.group ?? null,
+      element: spec?.element ?? null,
+      lp_mm: csvNum(m.lp_mm),
+      michelson_5pt: csvNum(m.modulation_5pt),
+      michelson_fft: csvNum(m.modulation_fft),
+      michelson_minmax: csvNum(m.modulation_minmax),
+      samples_per_cycle: csvNum(m.samples_per_cycle),
+      threshold: csvNum(threshold),
+      pass: m.modulation_5pt >= threshold ? 1 : 0,
+      detection_limit_lp_mm: csvNum(detectionLimit),
+    }))
+  );
 
   return (
     <Chart
       channel={channel}
       sub={`det. limit ${detectionLimit != null ? `${detectionLimit.toFixed(2)} lp/mm` : '—'}`}
       exportName={`mantis-usaf-mtf-${channel}`}
+      csvRows={mtfCsvRows}
     >
       <svg
         viewBox={`0 0 ${W} ${H}`}
@@ -1052,11 +1077,35 @@ const ProfileCard = ({ ch, spec, m, threshold }) => {
     ...(m.bar_indices || []).map((j) => ({ j, kind: 'bar' })),
     ...(m.gap_indices || []).map((j) => ({ j, kind: 'gap' })),
   ];
+  const barSet = new Set(m.bar_indices || []);
+  const gapSet = new Set(m.gap_indices || []);
+  const profileCsvRows = profile.map((v, idx) => ({
+    chart: 'usaf_profile',
+    channel: ch,
+    group: spec.group,
+    element: spec.element,
+    direction: spec.direction,
+    sample_idx: idx,
+    position_fraction: csvNum(idx / (N - 1 || 1) || 0),
+    intensity: csvNum(v),
+    profile_min: csvNum(m.profile_min),
+    profile_max: csvNum(m.profile_max),
+    is_bar_marker: barSet.has(idx) ? 1 : 0,
+    is_gap_marker: gapSet.has(idx) ? 1 : 0,
+    lp_mm: csvNum(m.lp_mm),
+    michelson_5pt: csvNum(m.modulation_5pt),
+    michelson_fft: csvNum(m.modulation_fft),
+    michelson_minmax: csvNum(m.modulation_minmax),
+    samples_per_cycle: csvNum(m.samples_per_cycle),
+    threshold: csvNum(threshold),
+    pass: pass ? 1 : 0,
+  }));
   return (
     <Chart
       channel={ch}
       sub={`· G${spec.group}E${spec.element}${spec.direction}`}
       exportName={`mantis-usaf-profile-${ch}-G${spec.group}E${spec.element}${spec.direction}`}
+      csvRows={profileCsvRows}
       style={{ border: `2px solid ${borderColor}` }}
       footer={
         <div
@@ -1427,8 +1476,25 @@ const HeatmapPanel = ({ channel, cells, cmap, threshold }) => {
   const t = useTheme();
   const groups = [0, 1, 2, 3, 4, 5];
   const elements = [1, 2, 3, 4, 5, 6];
+  const heatmapCsvRows = groups.flatMap((g) =>
+    elements.map((e) => {
+      const cell = cells[`${g}_${e}`];
+      const mean = cell ? cell.sum / cell.n : null;
+      return {
+        chart: 'usaf_detection_heatmap',
+        channel,
+        group: g,
+        element: e,
+        mean_michelson_5pt: csvNum(mean),
+        n_profiles: cell?.n ?? 0,
+        min_samples_per_cycle: csvNum(cell?.samples_per_cycle),
+        threshold: csvNum(threshold),
+        pass: mean == null ? null : mean >= threshold ? 1 : 0,
+      };
+    })
+  );
   return (
-    <Chart channel={channel} exportName={`mantis-usaf-heatmap-${channel}`}>
+    <Chart channel={channel} exportName={`mantis-usaf-heatmap-${channel}`} csvRows={heatmapCsvRows}>
       <div
         style={{
           display: 'grid',
@@ -1634,11 +1700,24 @@ const GroupMiniChart = ({ group, channels, specs, keptIdx, measurements, thresho
     return { ch, color: paletteColor(style, ch), pts };
   });
   const yTicks = [0, 0.25, 0.5, 0.75, 1];
+  const groupCsvRows = series.flatMap((s) =>
+    s.pts.map((p) => ({
+      chart: 'usaf_group_sweep',
+      group,
+      element: p.e,
+      channel: s.ch,
+      lp_mm: csvNum(lpmmFor(group, p.e)),
+      mean_michelson_5pt: csvNum(p.m),
+      threshold: csvNum(threshold),
+      pass: p.m == null ? null : p.m >= threshold ? 1 : 0,
+    }))
+  );
   return (
     <Chart
       title={`Group ${group}`}
       sub={`${lpmmFor(group, 1).toFixed(2)} – ${lpmmFor(group, 6).toFixed(2)} lp/mm`}
       exportName={`mantis-usaf-group-${group}`}
+      csvRows={groupCsvRows}
     >
       <svg viewBox={`0 0 ${W} ${H}`} width="100%">
         {yTicks.map((yv) => {
@@ -1910,12 +1989,31 @@ const FFTSpectraGrid = ({ channels, specs, keptIdx, measurements }) => {
         const yToPx = (mv) => PAD_T + (1 - Math.max(0, Math.min(1, mv))) * (H - PAD_T - PAD_B);
         const m0 = channels.map((c) => measurements[c]?.[i]).find(Boolean);
         const fExp = m0?.f_expected_cy_per_sample || 0;
+        const fftCsvRows = channels.flatMap((ch) => {
+          const m = measurements[ch]?.[i];
+          if (!m?.profile?.length) return [];
+          const { f, m: ma } = fftMag(m.profile);
+          return f.map((fx, k) => ({
+            chart: 'usaf_fft_spectrum',
+            channel: ch,
+            line_idx: i,
+            group: spec.group,
+            element: spec.element,
+            direction: spec.direction,
+            frequency_cy_per_sample: csvNum(fx),
+            normalized_magnitude: csvNum(ma[k]),
+            expected_frequency_cy_per_sample: csvNum(fExp),
+            lp_mm: csvNum(m.lp_mm),
+            michelson_5pt: csvNum(m.modulation_5pt),
+          }));
+        });
         return (
           <Chart
             key={i}
             title={`G${spec.group}E${spec.element}${spec.direction}`}
             sub={`f_expected = ${fExp.toFixed(4)} cy/sample`}
             exportName={`mantis-usaf-fft-G${spec.group}E${spec.element}${spec.direction}`}
+            csvRows={fftCsvRows}
           >
             <svg viewBox={`0 0 ${W} ${H}`} width="100%">
               {[0, 0.25, 0.5, 0.75, 1].map((yv) => (
@@ -2570,12 +2668,29 @@ const FPNHistChart = ({ channel, roiName, measurement, unit, fullDR }) => {
   // Stats lines: mean (±1σ) overlay if available
   const mean = measurement.mean_signal;
   const std = measurement.residual_pixel_noise_dn;
+  const histCsvRows = counts.map((count, idx) => ({
+    chart: 'fpn_histogram',
+    channel,
+    roi: roiName,
+    bin_idx: idx,
+    bin_lo_dn: csvNum(edges[idx]),
+    bin_hi_dn: csvNum(edges[idx + 1]),
+    bin_center_dn: csvNum((edges[idx] + edges[idx + 1]) / 2),
+    bin_lo_display: csvNum(unit === 'pctDR' ? (edges[idx] / fullDR) * 100 : edges[idx]),
+    bin_hi_display: csvNum(unit === 'pctDR' ? (edges[idx + 1] / fullDR) * 100 : edges[idx + 1]),
+    display_unit: unit === 'pctDR' ? 'pctDR' : 'DN',
+    count: csvNum(count),
+    probability: csvNum(count / (counts.reduce((s, v) => s + v, 0) || 1)),
+    mean_signal_dn: csvNum(mean),
+    residual_pixel_noise_dn: csvNum(std),
+  }));
 
   return (
     <Chart
       channel={channel}
       sub={`· ${roiName} — μ=${xfmt(mean)} · σ_res=${xfmt(std)}`}
       exportName={`mantis-fpn-hist-${channel}-${roiName}`}
+      csvRows={histCsvRows}
     >
       <svg
         viewBox={`0 0 ${W} ${H}`}
@@ -2780,11 +2895,42 @@ const RowColCard = ({ ch, label, m }) => {
       </g>
     );
   };
+  const rowColCsvRows = [
+    ...(m.row_means || []).map((value, idx) => ({
+      chart: 'fpn_row_col_profiles',
+      channel: ch,
+      roi: label,
+      axis: 'row',
+      index: idx,
+      mean_dn: csvNum(value),
+      std_dn: csvNum(m.row_stds?.[idx]),
+      roi_mean_signal_dn: csvNum(m.mean_signal),
+      dsnu_dn: csvNum(m.dsnu_dn),
+      prnu_pct: csvNum(m.prnu_pct),
+      row_noise_dn: csvNum(m.row_noise_dn),
+      col_noise_dn: csvNum(m.col_noise_dn),
+    })),
+    ...(m.col_means || []).map((value, idx) => ({
+      chart: 'fpn_row_col_profiles',
+      channel: ch,
+      roi: label,
+      axis: 'col',
+      index: idx,
+      mean_dn: csvNum(value),
+      std_dn: csvNum(m.col_stds?.[idx]),
+      roi_mean_signal_dn: csvNum(m.mean_signal),
+      dsnu_dn: csvNum(m.dsnu_dn),
+      prnu_pct: csvNum(m.prnu_pct),
+      row_noise_dn: csvNum(m.row_noise_dn),
+      col_noise_dn: csvNum(m.col_noise_dn),
+    })),
+  ];
   return (
     <Chart
       channel={ch}
       sub={`· ${label} — μ=${m.mean_signal.toFixed(1)} · σ=${m.dsnu_dn.toFixed(2)} · PRNU=${m.prnu_pct.toFixed(3)}%`}
       exportName={`mantis-fpn-rowcol-${ch}-${label}`}
+      csvRows={rowColCsvRows}
       footer={
         <div
           style={{
@@ -2837,12 +2983,42 @@ const FPNPSD1DTab = ({ channels, measurements, visibleRoiIdx, roiLabel }) => {
       storageKey="analysis/fpn/psd1dLayout"
     >
       {(() =>
-        visibleRoiIdx.map((i) => (
-          <Chart key={i} title={roiLabel(i)} exportName={`mantis-fpn-psd1d-${roiLabel(i)}`}>
-            <PSD1DChart axis="row" channels={channels} roiIdx={i} measurements={measurements} />
-            <PSD1DChart axis="col" channels={channels} roiIdx={i} measurements={measurements} />
-          </Chart>
-        )))()}
+        visibleRoiIdx.map((i) => {
+          const roiName = roiLabel(i);
+          const psdCsvRows = ['row', 'col'].flatMap((axis) => {
+            const keys =
+              axis === 'row'
+                ? ['row_freq', 'row_psd', 'row_peak_freq']
+                : ['col_freq', 'col_psd', 'col_peak_freq'];
+            return channels.flatMap((ch) => {
+              const m = measurements[ch]?.[i];
+              if (!m || m.error) return [];
+              const f = m[keys[0]] || [];
+              const p = m[keys[1]] || [];
+              return f.map((freq, sampleIdx) => ({
+                chart: 'fpn_psd_1d',
+                roi: roiName,
+                channel: ch,
+                axis,
+                sample_idx: sampleIdx,
+                frequency_cy_per_pixel: csvNum(freq),
+                psd: csvNum(p[sampleIdx]),
+                peak_frequency_cy_per_pixel: csvNum(m[keys[2]]),
+              }));
+            });
+          });
+          return (
+            <Chart
+              key={i}
+              title={roiName}
+              exportName={`mantis-fpn-psd1d-${roiName}`}
+              csvRows={psdCsvRows}
+            >
+              <PSD1DChart axis="row" channels={channels} roiIdx={i} measurements={measurements} />
+              <PSD1DChart axis="col" channels={channels} roiIdx={i} measurements={measurements} />
+            </Chart>
+          );
+        }))()}
     </GridTabFrame>
   );
 };
@@ -3081,10 +3257,30 @@ const FPNHeatmapCard = ({ ch, label, m, gridRaw, spec, cmap }) => {
   const sub = spec.divergent
     ? `${spec.label} · σ = ${fmtDN0(m?.std ?? 0)}`
     : `${spec.label} · ${grid.w}×${grid.h} cells`;
+  const heatmapCsvRows = [];
+  for (let gy = 0; gy < grid.h; gy++) {
+    for (let gx = 0; gx < grid.w; gx++) {
+      const k = gy * grid.w + gx;
+      heatmapCsvRows.push({
+        chart: 'fpn_heatmap',
+        channel: ch,
+        roi: label,
+        figure: spec.label,
+        grid_x: gx,
+        grid_y: gy,
+        value: csvNum(grid.data[k]),
+        vmin: csvNum(vmin),
+        vmax: csvNum(vmax),
+        divergent: spec.divergent ? 1 : 0,
+      });
+    }
+  }
   return (
     <Chart
       channel={ch}
       sub={`· ${label} — ${sub}`}
+      exportName={`mantis-fpn-${spec.label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${ch}-${label}`}
+      csvRows={heatmapCsvRows}
       footer={
         <HeatmapColorBar
           cmap={cmap}
@@ -3151,8 +3347,68 @@ const HotPixCard = ({ ch, label, m }) => {
   // pixel coords to the canvas (grid) coords using the same stride.
   const imgStrideY = m?.image_grid?.stride?.[0] || 1;
   const imgStrideX = m?.image_grid?.stride?.[1] || 1;
+  const hotPixCsvRows = [];
+  if (grid) {
+    for (let gy = 0; gy < grid.h; gy++) {
+      for (let gx = 0; gx < grid.w; gx++) {
+        const k = gy * grid.w + gx;
+        hotPixCsvRows.push({
+          chart: 'fpn_hot_cold_pixels',
+          channel: ch,
+          roi: label,
+          series: 'roi_image_cell',
+          grid_x: gx,
+          grid_y: gy,
+          image_x_px: gx * imgStrideX,
+          image_y_px: gy * imgStrideY,
+          value_dn: csvNum(grid.data[k]),
+          z_score: null,
+          outlier_rank: null,
+          threshold_sigma: csvNum(m?.settings?.hot_sigma),
+        });
+      }
+    }
+  }
+  hot.forEach((p, idx) => {
+    hotPixCsvRows.push({
+      chart: 'fpn_hot_cold_pixels',
+      channel: ch,
+      roi: label,
+      series: 'hot_pixel',
+      grid_x: null,
+      grid_y: null,
+      image_x_px: csvNum(p.x),
+      image_y_px: csvNum(p.y),
+      value_dn: csvNum(p.value),
+      z_score: csvNum(p.z),
+      outlier_rank: idx + 1,
+      threshold_sigma: csvNum(m?.settings?.hot_sigma),
+    });
+  });
+  cold.forEach((p, idx) => {
+    hotPixCsvRows.push({
+      chart: 'fpn_hot_cold_pixels',
+      channel: ch,
+      roi: label,
+      series: 'cold_pixel',
+      grid_x: null,
+      grid_y: null,
+      image_x_px: csvNum(p.x),
+      image_y_px: csvNum(p.y),
+      value_dn: csvNum(p.value),
+      z_score: csvNum(p.z),
+      outlier_rank: idx + 1,
+      threshold_sigma: csvNum(m?.settings?.hot_sigma),
+    });
+  });
   return (
-    <Chart channel={ch} sub={`· ${label}`} footer={<HotColdList m={m} />}>
+    <Chart
+      channel={ch}
+      sub={`· ${label}`}
+      exportName={`mantis-fpn-hotcold-${ch}-${label}`}
+      csvRows={hotPixCsvRows}
+      footer={<HotColdList m={m} />}
+    >
       <div
         style={{
           display: 'flex',
@@ -3352,8 +3608,29 @@ const MetricBars = ({ metric, channels, measurements, visibleRoiIdx, roiLabel })
   const barW = Math.max(2, (groupW - 4) / Math.max(1, channels.length));
   const yToPx = (v) => PAD_T + (1 - v / yMax) * (H - PAD_T - PAD_B);
   const yTicks = 5;
+  const metricCsvRows = visibleRoiIdx.flatMap((i, roiOrder) =>
+    channels.map((ch, channelOrder) => {
+      const m = measurements[ch]?.[i];
+      const value = m && !m.error ? (m[metric.key] ?? 0) : null;
+      return {
+        chart: 'fpn_metric_compare',
+        metric_key: metric.key,
+        metric_label: metric.label,
+        roi_idx: i,
+        roi_order: roiOrder,
+        roi: roiLabel(i),
+        channel: ch,
+        channel_order: channelOrder,
+        value: csvNum(value),
+      };
+    })
+  );
   return (
-    <Chart title={metric.label} exportName={`mantis-fpn-compare-${metric.key}`}>
+    <Chart
+      title={metric.label}
+      exportName={`mantis-fpn-compare-${metric.key}`}
+      csvRows={metricCsvRows}
+    >
       <svg
         viewBox={`0 0 ${W} ${H}`}
         width="100%"
@@ -3476,6 +3753,19 @@ const DOF_UNIT_OPTS = [
   { value: 'mm', label: 'mm' },
   { value: 'cm', label: 'cm' },
 ];
+const DOF_METRIC_LABELS = {
+  laplacian: 'Laplacian',
+  brenner: 'Brenner',
+  tenengrad: 'Tenengrad',
+  fft_hf: 'FFT-HF',
+};
+const dofMetricLabel = (metric) => {
+  const key = String(metric || '')
+    .trim()
+    .toLowerCase();
+  return DOF_METRIC_LABELS[key] || (metric ? String(metric) : 'Focus metric');
+};
+const dofMetricTitle = (metric, label) => `${dofMetricLabel(metric)} · ${label}`;
 const dofLineUnit = (ln) => ln?.unit_name || null;
 const dofLinePerUnit = (ln) => ln?.px_per_unit || null;
 const dofIsCalibrated = (ln) => !!(dofLineUnit(ln) && dofLinePerUnit(ln));
@@ -3522,6 +3812,11 @@ const dofFmt = (ln, px, prefOrDigits, maybeDigits) => {
 // render an em-dash.
 const dofScaled = (px, tiltFactor = 1) =>
   px == null || !Number.isFinite(px) ? px : px * tiltFactor;
+const dofCsvNum = csvNum;
+const dofCsvDisplay = (ln, px, unitPref = 'auto', tiltFactor = 1) => {
+  const v = dofToDisplay(ln, dofScaled(px, tiltFactor), unitPref);
+  return dofCsvNum(v);
+};
 
 const DoFSummaryTab = ({
   channels,
@@ -3529,10 +3824,12 @@ const DoFSummaryTab = ({
   visibleLineIdx,
   lineLabel,
   _pointLabel,
+  metric,
   unitPref = 'auto',
   tiltFactor = 1,
 }) => {
   const t = useTheme();
+  const metricTitle = dofMetricTitle(metric, 'Summary table');
   const [sortCol, setSortCol] = useStateA('order');
   const [sortDir, setSortDir] = useStateA('asc');
   const rows = useMemoA(() => {
@@ -3619,6 +3916,7 @@ const DoFSummaryTab = ({
           gap: 14,
         }}
       >
+        <span style={{ color: t.text, fontWeight: 700 }}>{metricTitle}</span>
         <span>
           {sorted.length} rows · {channels.length} channels × {visibleLineIdx.length} lines
         </span>
@@ -3745,16 +4043,18 @@ const DoFLinesTab = ({
   results,
   visibleLineIdx,
   lineLabel,
+  metric,
   unitPref = 'auto',
   tiltFactor = 1,
 }) => {
   const t = useTheme();
+  const metricLabel = dofMetricLabel(metric);
   if (!visibleLineIdx.length) {
     return <div style={{ color: t.textFaint, textAlign: 'center', paddingTop: 40 }}>No lines.</div>;
   }
   return (
     <GridTabFrame
-      caption="Each panel = one line · curves = per-channel normalized focus · dashed = Gaussian fit · green band = DoF at threshold"
+      caption={`${metricLabel} focus line scans · each panel = one line · curves = per-channel normalized focus · dashed = Gaussian fit · green band = DoF at threshold`}
       n={visibleLineIdx.length}
       minCardPx={420}
       storageKey="analysis/dof/linesLayout"
@@ -3766,6 +4066,7 @@ const DoFLinesTab = ({
           channels={channels}
           results={results}
           label={lineLabel(i)}
+          metric={metric}
           unitPref={unitPref}
           tiltFactor={tiltFactor}
         />
@@ -3774,7 +4075,15 @@ const DoFLinesTab = ({
   );
 };
 
-const LineOverlayChart = ({ idx, channels, results, label, unitPref = 'auto', tiltFactor = 1 }) => {
+const LineOverlayChart = ({
+  idx,
+  channels,
+  results,
+  label,
+  metric,
+  unitPref = 'auto',
+  tiltFactor = 1,
+}) => {
   const t = useTheme();
   const { style } = usePlotStyle();
   const W = 420,
@@ -3793,7 +4102,12 @@ const LineOverlayChart = ({ idx, channels, results, label, unitPref = 'auto', ti
     .filter(Boolean);
   if (!series.length)
     return (
-      <Chart sub={label} exportName={`mantis-dof-line-${label}`} noExport>
+      <Chart
+        title={dofMetricTitle(metric, 'Focus line scan')}
+        sub={label}
+        exportName={`mantis-dof-line-${label}`}
+        noExport
+      >
         <EmptyChartBody
           message={`No focus samples for ${label}. Pick at least one channel and run analysis.`}
         />
@@ -3828,9 +4142,60 @@ const LineOverlayChart = ({ idx, channels, results, label, unitPref = 'auto', ti
   ].map((v) => Math.round(v));
   const yTicks = [0, 0.25, 0.5, 0.75, 1];
   const threshold = results[channels[0]]?.threshold ?? 0.5;
+  const lineCsvRows = series.flatMap(({ ch, lr }) => {
+    const positions = lr.positions_px || [];
+    const focus = lr.focus || [];
+    const focusNorm = lr.focus_norm || [];
+    const g = lr.gaussian || {};
+    const peakRaw = focus.length ? Math.max(...focus) : null;
+    const peakPx = g?.converged ? g.mu : lr.peak_position_px;
+    const axisValue = (px) => (px == null ? null : dofCsvNum(toAxisFor(lr)(px)));
+    return positions.map((px, sampleIdx) => {
+      let fitNorm = null;
+      if (g?.converged && Number.isFinite(peakRaw) && peakRaw !== 0) {
+        const rawFit = g.amp * Math.exp(-((px - g.mu) ** 2) / (2 * g.sigma ** 2)) + g.baseline;
+        fitNorm = dofCsvNum(rawFit / peakRaw);
+      }
+      return {
+        chart: 'focus_line_scan',
+        line_label: label,
+        channel: ch,
+        metric: lr.metric || metric,
+        sample_idx: sampleIdx,
+        position_px: dofCsvNum(px),
+        position_display: axisValue(px),
+        display_unit: dofDisplayUnit(lr, unitPref),
+        focus: dofCsvNum(focus[sampleIdx]),
+        focus_norm: dofCsvNum(focusNorm[sampleIdx]),
+        gaussian_fit_norm: fitNorm,
+        threshold: dofCsvNum(results[ch]?.threshold ?? threshold),
+        peak_position_px: dofCsvNum(peakPx),
+        peak_position_display: axisValue(peakPx),
+        peak_ci95_lo_px: dofCsvNum(lr.peak_ci95_px?.[0]),
+        peak_ci95_hi_px: dofCsvNum(lr.peak_ci95_px?.[1]),
+        peak_ci95_lo_display: axisValue(lr.peak_ci95_px?.[0]),
+        peak_ci95_hi_display: axisValue(lr.peak_ci95_px?.[1]),
+        metric_dof_low_px: dofCsvNum(lr.dof_low_px),
+        metric_dof_high_px: dofCsvNum(lr.dof_high_px),
+        metric_dof_width_px: dofCsvNum(lr.dof_width_px),
+        metric_dof_low_display: axisValue(lr.dof_low_px),
+        metric_dof_high_display: axisValue(lr.dof_high_px),
+        metric_dof_width_display: dofCsvDisplay(lr, lr.dof_width_px, unitPref, tiltFactor),
+        gauss_mu_px: dofCsvNum(g.mu),
+        gauss_sigma_px: dofCsvNum(g.sigma),
+        gauss_fwhm_px: dofCsvNum(g.fwhm),
+        gauss_r_squared: dofCsvNum(g.r_squared),
+      };
+    });
+  });
 
   return (
-    <Chart sub={label} exportName={`mantis-dof-line-${label}`}>
+    <Chart
+      title={dofMetricTitle(metric, 'Focus line scan')}
+      sub={label}
+      exportName={`mantis-dof-line-${label}`}
+      csvRows={lineCsvRows}
+    >
       <svg
         viewBox={`0 0 ${W} ${H}`}
         width="100%"
@@ -4034,6 +4399,370 @@ const LineOverlayChart = ({ idx, channels, results, label, unitPref = 'auto', ti
 };
 
 // ---------------------------------------------------------------------------
+// DoF raw intensity profiles — per-line grayscale trace from the image itself
+// ---------------------------------------------------------------------------
+const DoFRawProfilesTab = ({
+  channels,
+  results,
+  visibleLineIdx,
+  lineLabel,
+  metric,
+  unitPref = 'auto',
+  tiltFactor = 1,
+  showMetricBand = true,
+  showProfileBand = true,
+  showMetricPeak = true,
+  showProfilePeak = false,
+}) => {
+  const t = useTheme();
+  const metricLabel = dofMetricLabel(metric);
+  const cards = [];
+  for (const i of visibleLineIdx)
+    for (const ch of channels) {
+      const lr = results[ch]?.lines?.[i];
+      cards.push({ i, ch, lr, label: lineLabel(i) });
+    }
+  if (!cards.length) {
+    return (
+      <div style={{ color: t.textFaint, textAlign: 'center', paddingTop: 40 }}>
+        No lines / channels match the current filter.
+      </div>
+    );
+  }
+  return (
+    <GridTabFrame
+      caption={`${showMetricPeak ? `${metricLabel} ` : ''}raw intensity profiles · ${cards.filter((c) => c.lr?.intensity_profile?.length).length} profiles · ${
+        [
+          showMetricBand ? 'green = metric band' : null,
+          showProfileBand ? 'blue = profile band' : null,
+          showMetricPeak ? 'yellow = metric peak' : null,
+          showProfilePeak ? 'purple dashed = profile peak' : null,
+        ]
+          .filter(Boolean)
+          .join(' · ') || 'overlays hidden'
+      }`}
+      n={cards.length}
+      minCardPx={360}
+      storageKey="analysis/dof/rawProfilesLayout"
+    >
+      {cards.map(({ ch, i, lr, label }) => (
+        <DoFRawProfileCard
+          key={`${ch}_${i}`}
+          ch={ch}
+          lr={lr}
+          label={label}
+          metric={metric}
+          unitPref={unitPref}
+          tiltFactor={tiltFactor}
+          showMetricBand={showMetricBand}
+          showProfileBand={showProfileBand}
+          showMetricPeak={showMetricPeak}
+          showProfilePeak={showProfilePeak}
+        />
+      ))}
+    </GridTabFrame>
+  );
+};
+
+const DoFRawProfileCard = ({
+  ch,
+  lr,
+  label,
+  metric,
+  unitPref = 'auto',
+  tiltFactor = 1,
+  showMetricBand = true,
+  showProfileBand = true,
+  showMetricPeak = true,
+  showProfilePeak = false,
+}) => {
+  const t = useTheme();
+  const { style } = usePlotStyle();
+  const color = paletteColor(style, ch);
+  const W = 420,
+    H = 210,
+    PAD_L = 54,
+    PAD_R = 14,
+    PAD_T = 16,
+    PAD_B = 36;
+  const chartTitle = showMetricPeak
+    ? dofMetricTitle(metric, 'Raw intensity profile')
+    : 'Raw intensity profile';
+  if (!lr?.intensity_profile?.length || !lr?.profile_positions_px?.length) {
+    return (
+      <Chart channel={ch} title={chartTitle} sub={`· ${label}`} noExport>
+        <EmptyChartBody message="No raw profile samples for this line." minHeight={H} />
+      </Chart>
+    );
+  }
+  const toAxis = (px) => {
+    const v = dofToDisplay(lr, dofScaled(px, tiltFactor), unitPref);
+    return v == null ? px : v;
+  };
+  const pairs = lr.profile_positions_px
+    .map((px, i) => ({ idx: i, px, x: toAxis(px), y: lr.intensity_profile[i] }))
+    .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+  if (!pairs.length) {
+    return (
+      <Chart channel={ch} title={chartTitle} sub={`· ${label}`} noExport>
+        <EmptyChartBody message="No finite raw profile samples for this line." minHeight={H} />
+      </Chart>
+    );
+  }
+  const xMin = pairs[0].x;
+  const xMax = pairs[pairs.length - 1].x;
+  let yMin = Math.min(...pairs.map((p) => p.y));
+  let yMax = Math.max(...pairs.map((p) => p.y));
+  const yPad = (yMax - yMin) * 0.08 || 1;
+  yMin -= yPad;
+  yMax += yPad;
+  const xOf = (x) => PAD_L + ((x - xMin) / (xMax - xMin || 1)) * (W - PAD_L - PAD_R);
+  const yOf = (y) => PAD_T + (1 - (y - yMin) / (yMax - yMin || 1)) * (H - PAD_T - PAD_B);
+  const pts = pairs.map((p) => `${xOf(p.x)},${yOf(p.y)}`).join(' ');
+  const unitName = dofDisplayUnit(lr, unitPref);
+  const yTicks = [yMin + yPad, (yMin + yMax) / 2, yMax - yPad];
+  const xTicks = [xMin, xMin + (xMax - xMin) / 2, xMax];
+  const peakPx = lr.gaussian?.converged ? lr.gaussian.mu : lr.peak_position_px;
+  const peakX = peakPx == null ? null : toAxis(peakPx);
+  const loX = lr.dof_low_px == null ? null : toAxis(lr.dof_low_px);
+  const hiX = lr.dof_high_px == null ? null : toAxis(lr.dof_high_px);
+  const profileLoX = lr.profile_dof_low_px == null ? null : toAxis(lr.profile_dof_low_px);
+  const profileHiX = lr.profile_dof_high_px == null ? null : toAxis(lr.profile_dof_high_px);
+  const profilePeakX =
+    lr.profile_peak_position_px == null ? null : toAxis(lr.profile_peak_position_px);
+  const profileWidth =
+    lr.profile_dof_width_px == null
+      ? null
+      : dofToDisplay(lr, dofScaled(lr.profile_dof_width_px, tiltFactor), unitPref);
+  const metricWidth =
+    lr.dof_width_px == null
+      ? null
+      : dofToDisplay(lr, dofScaled(lr.dof_width_px, tiltFactor), unitPref);
+  const fmtY = (v) =>
+    Math.abs(v) >= 1000 ? v.toFixed(0) : Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(2);
+  const fmtX = (v) => (unitName === 'px' ? v.toFixed(0) : v.toFixed(dofDefaultDigits(unitName)));
+  const metricBandText = metricWidth == null ? '—' : `${fmtX(metricWidth)} ${unitName}`;
+  const profileOpen =
+    lr.profile_dof_left_bounded === false || lr.profile_dof_right_bounded === false;
+  const profileBandText =
+    profileWidth == null ? '—' : `${profileOpen ? '≥' : ''}${fmtX(profileWidth)} ${unitName}`;
+  const axisValue = (px) => (px == null ? null : dofCsvNum(toAxis(px)));
+  const rawCsvRows = pairs.map((p) => ({
+    chart: 'raw_intensity_profile',
+    line_label: label,
+    channel: ch,
+    metric: lr.metric || metric,
+    sample_idx: p.idx,
+    position_px: dofCsvNum(p.px),
+    position_display: dofCsvNum(p.x),
+    display_unit: unitName,
+    raw_intensity_dn: dofCsvNum(p.y),
+    profile_contrast_norm: dofCsvNum(lr.profile_contrast_norm?.[p.idx]),
+    metric_peak_px: dofCsvNum(peakPx),
+    metric_peak_display: axisValue(peakPx),
+    profile_peak_px: dofCsvNum(lr.profile_peak_position_px),
+    profile_peak_display: axisValue(lr.profile_peak_position_px),
+    metric_threshold: dofCsvNum(lr.threshold),
+    profile_threshold: dofCsvNum(lr.profile_threshold),
+    metric_dof_low_px: dofCsvNum(lr.dof_low_px),
+    metric_dof_high_px: dofCsvNum(lr.dof_high_px),
+    metric_dof_width_px: dofCsvNum(lr.dof_width_px),
+    metric_dof_low_display: axisValue(lr.dof_low_px),
+    metric_dof_high_display: axisValue(lr.dof_high_px),
+    metric_dof_width_display: dofCsvDisplay(lr, lr.dof_width_px, unitPref, tiltFactor),
+    profile_dof_low_px: dofCsvNum(lr.profile_dof_low_px),
+    profile_dof_high_px: dofCsvNum(lr.profile_dof_high_px),
+    profile_dof_width_px: dofCsvNum(lr.profile_dof_width_px),
+    profile_dof_low_display: axisValue(lr.profile_dof_low_px),
+    profile_dof_high_display: axisValue(lr.profile_dof_high_px),
+    profile_dof_width_display: dofCsvDisplay(lr, lr.profile_dof_width_px, unitPref, tiltFactor),
+    profile_dof_left_bounded: lr.profile_dof_left_bounded === false ? 0 : 1,
+    profile_dof_right_bounded: lr.profile_dof_right_bounded === false ? 0 : 1,
+  }));
+  return (
+    <Chart
+      channel={ch}
+      title={chartTitle}
+      sub={`· ${label}`}
+      exportName={`mantis-dof-raw-profile-${ch}-${label}`}
+      csvRows={rawCsvRows}
+      footer={
+        <div
+          style={{
+            display: 'grid',
+            gap: 4,
+            fontFamily: 'ui-monospace,Menlo,monospace',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+            <span>{pairs.length} samples</span>
+            <span style={{ color }}>
+              DN range {fmtY(Math.min(...pairs.map((p) => p.y)))}-
+              {fmtY(Math.max(...pairs.map((p) => p.y)))}
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            {showMetricBand && (
+              <span style={{ color: '#1a7f37' }}>Metric band: {metricBandText}</span>
+            )}
+            {showProfileBand && (
+              <span style={{ color: '#0ea5e9' }}>Profile band: {profileBandText}</span>
+            )}
+            {showMetricPeak && (
+              <span style={{ color: '#ffd54f' }}>
+                Metric peak:{' '}
+                {peakPx == null ? '—' : dofFmt(lr, dofScaled(peakPx, tiltFactor), unitPref, 2)}
+              </span>
+            )}
+            {showProfilePeak && (
+              <span style={{ color: '#d946ef' }}>
+                Profile peak:{' '}
+                {lr.profile_peak_position_px == null
+                  ? '—'
+                  : dofFmt(lr, dofScaled(lr.profile_peak_position_px, tiltFactor), unitPref, 2)}
+              </span>
+            )}
+            {!showMetricBand && !showProfileBand && !showMetricPeak && !showProfilePeak && (
+              <span style={{ color: t.textFaint }}>Overlays hidden</span>
+            )}
+          </div>
+        </div>
+      }
+    >
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        width="100%"
+        preserveAspectRatio="xMidYMid meet"
+        style={{ background: 'transparent', borderRadius: 4, display: 'block' }}
+      >
+        {style.showGrid !== false &&
+          yTicks.map((y, idx) => (
+            <g key={`y${idx}`}>
+              <line
+                x1={PAD_L}
+                y1={yOf(y)}
+                x2={W - PAD_R}
+                y2={yOf(y)}
+                stroke={t.border}
+                strokeWidth={scaled(style.gridWidth, style)}
+                opacity={style.gridOpacity}
+              />
+              <text
+                x={PAD_L - 4}
+                y={yOf(y) + 3}
+                fontSize={scaled(style.tickSize, style)}
+                fill={t.textMuted}
+                textAnchor="end"
+                fontFamily="ui-monospace,Menlo,monospace"
+              >
+                {fmtY(y)}
+              </text>
+            </g>
+          ))}
+        {style.showGrid !== false &&
+          xTicks.map((x, idx) => (
+            <g key={`x${idx}`}>
+              <line
+                x1={xOf(x)}
+                y1={PAD_T}
+                x2={xOf(x)}
+                y2={H - PAD_B}
+                stroke={t.border}
+                strokeWidth={scaled(style.gridWidth, style)}
+                opacity={style.gridOpacity}
+              />
+              <text
+                x={xOf(x)}
+                y={H - PAD_B + 14}
+                fontSize={scaled(style.tickSize, style)}
+                fill={t.textMuted}
+                textAnchor="middle"
+                fontFamily="ui-monospace,Menlo,monospace"
+              >
+                {fmtX(x)}
+              </text>
+            </g>
+          ))}
+        {showMetricBand && loX != null && hiX != null && (
+          <rect
+            x={xOf(loX)}
+            y={PAD_T}
+            width={xOf(hiX) - xOf(loX)}
+            height={H - PAD_T - PAD_B}
+            fill="#1a7f37"
+            opacity={0.12}
+          />
+        )}
+        {showProfileBand && profileLoX != null && profileHiX != null && (
+          <rect
+            x={xOf(profileLoX)}
+            y={PAD_T + 4}
+            width={xOf(profileHiX) - xOf(profileLoX)}
+            height={H - PAD_T - PAD_B - 8}
+            fill="#0ea5e9"
+            opacity={0.13}
+            stroke="#0ea5e9"
+            strokeWidth={scaled(style.axisStrokeWidth, style)}
+            strokeDasharray="4 3"
+          />
+        )}
+        <polyline
+          points={pts}
+          fill="none"
+          stroke={color}
+          strokeWidth={scaled(style.lineWidth, style)}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+        {showMetricPeak && peakX != null && (
+          <line
+            x1={xOf(peakX)}
+            y1={PAD_T}
+            x2={xOf(peakX)}
+            y2={H - PAD_B}
+            stroke="#ffd54f"
+            strokeWidth={scaled(style.axisStrokeWidth, style)}
+            strokeDasharray="4 3"
+          />
+        )}
+        {showProfilePeak && profilePeakX != null && (
+          <line
+            x1={xOf(profilePeakX)}
+            y1={PAD_T}
+            x2={xOf(profilePeakX)}
+            y2={H - PAD_B}
+            stroke="#d946ef"
+            strokeWidth={scaled(style.axisStrokeWidth, style)}
+            strokeDasharray="4 3"
+          />
+        )}
+        <text
+          x={PAD_L + (W - PAD_L - PAD_R) / 2}
+          y={H - 5}
+          fontSize={scaled(style.axisLabelSize, style)}
+          fill={t.textMuted}
+          textAnchor="middle"
+          fontFamily={style.fontFamily}
+        >
+          position along line ({unitName})
+        </text>
+        <text
+          x={12}
+          y={PAD_T + (H - PAD_T - PAD_B) / 2}
+          fontSize={scaled(style.axisLabelSize, style)}
+          fill={t.textMuted}
+          textAnchor="middle"
+          transform={`rotate(-90 12 ${PAD_T + (H - PAD_T - PAD_B) / 2})`}
+          fontFamily={style.fontFamily}
+        >
+          raw intensity (DN)
+        </text>
+      </svg>
+    </Chart>
+  );
+};
+
+// ---------------------------------------------------------------------------
 // DoF Metric compare — per-line × per-channel overlay of the 4 metrics
 // ---------------------------------------------------------------------------
 const DoFMetricCompareTab = ({
@@ -4061,7 +4790,7 @@ const DoFMetricCompareTab = ({
   }
   return (
     <GridTabFrame
-      caption="One panel per (channel × line) · 4 metrics overlaid · peaks should agree if the DoF estimate is robust."
+      caption="All metrics comparison · one panel per (channel × line) · peaks should agree if the DoF estimate is robust."
       n={cards.length}
       minCardPx={380}
       storageKey="analysis/dof/metricCompareLayout"
@@ -4095,11 +4824,13 @@ const MetricOverlayChart = ({ ch, lr, label, unitPref = 'auto', tiltFactor = 1 }
     tenengrad: '#2ca02c',
     fft_hf: '#9467bd',
   };
+  const metricNames = ['laplacian', 'brenner', 'tenengrad', 'fft_hf'];
   const xsPx = lr.positions_px || [];
   if (!xsPx.length)
     return (
       <Chart
         channel={ch}
+        title="All metrics · Metric comparison"
         sub={`· ${label}`}
         exportName={`mantis-dof-metric-${ch}-${label}`}
         noExport
@@ -4118,8 +4849,34 @@ const MetricOverlayChart = ({ ch, lr, label, unitPref = 'auto', tiltFactor = 1 }
   const xMax = xs[xs.length - 1];
   const xOf = (x) => PAD_L + (x / (xMax || 1)) * (W - PAD_L - PAD_R);
   const yOf = (y) => PAD_T + (1 - Math.max(0, Math.min(1, y))) * (H - PAD_T - PAD_B);
+  const metricCsvRows = metricNames.flatMap((m) => {
+    const msw = lr.metric_sweep?.[m];
+    if (!msw?.focus_norm) return [];
+    return xsPx.map((px, sampleIdx) => ({
+      chart: 'metric_compare',
+      line_label: label,
+      channel: ch,
+      metric: m,
+      sample_idx: sampleIdx,
+      position_px: dofCsvNum(px),
+      position_display: dofCsvNum(xs[sampleIdx]),
+      display_unit: unitName,
+      focus: dofCsvNum(msw.focus?.[sampleIdx]),
+      focus_norm: dofCsvNum(msw.focus_norm?.[sampleIdx]),
+      peak_position_px: dofCsvNum(msw.peak_position_px),
+      peak_position_display: dofCsvDisplay(lr, msw.peak_position_px, unitPref, tiltFactor),
+      dof_width_px: dofCsvNum(msw.dof_width_px),
+      dof_width_display: dofCsvDisplay(lr, msw.dof_width_px, unitPref, tiltFactor),
+    }));
+  });
   return (
-    <Chart channel={ch} sub={`· ${label}`} exportName={`mantis-dof-metric-${ch}-${label}`}>
+    <Chart
+      channel={ch}
+      title="All metrics · Metric comparison"
+      sub={`· ${label}`}
+      exportName={`mantis-dof-metric-${ch}-${label}`}
+      csvRows={metricCsvRows}
+    >
       <svg
         viewBox={`0 0 ${W} ${H}`}
         width="100%"
@@ -4139,7 +4896,7 @@ const MetricOverlayChart = ({ ch, lr, label, unitPref = 'auto', tiltFactor = 1 }
               opacity={style.gridOpacity}
             />
           ))}
-        {['laplacian', 'brenner', 'tenengrad', 'fft_hf'].map((m) => {
+        {metricNames.map((m) => {
           const msw = lr.metric_sweep?.[m];
           if (!msw?.focus_norm) return null;
           const pts = xs.map((x, i) => `${xOf(x)},${yOf(msw.focus_norm[i])}`).join(' ');
@@ -4171,7 +4928,7 @@ const MetricOverlayChart = ({ ch, lr, label, unitPref = 'auto', tiltFactor = 1 }
       </svg>
       {style.showLegend !== false && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
-          {['laplacian', 'brenner', 'tenengrad', 'fft_hf'].map((m) => {
+          {metricNames.map((m) => {
             const msw = lr.metric_sweep?.[m];
             if (!msw) return null;
             return (
@@ -4213,11 +4970,13 @@ const DoFChromaticTab = ({
   results,
   visibleLineIdx,
   lineLabel,
+  metric,
   unitPref = 'auto',
   tiltFactor = 1,
 }) => {
   const t = useTheme();
   const { style } = usePlotStyle();
+  const metricLabel = dofMetricLabel(metric);
   if (!visibleLineIdx.length || channels.length < 2) {
     return (
       <div style={{ color: t.textFaint, textAlign: 'center', paddingTop: 40 }}>
@@ -4236,8 +4995,8 @@ const DoFChromaticTab = ({
           fontFamily: style.fontFamily,
         }}
       >
-        Peak position per channel per line. Error bars = 95% bootstrap CI. Spread across channels =
-        chromatic focus shift.
+        {metricLabel} chromatic focus shift. Peak position per channel per line. Error bars = 95%
+        bootstrap CI. Spread across channels = chromatic focus shift.
       </div>
       {/* Single chart — bound width so it stops ballooning to fill a wide
           modal (otherwise the viewBox scales, and so do all the SVG
@@ -4249,6 +5008,7 @@ const DoFChromaticTab = ({
             results={results}
             visibleLineIdx={visibleLineIdx}
             lineLabel={lineLabel}
+            metric={metric}
             unitPref={unitPref}
             tiltFactor={tiltFactor}
           />
@@ -4263,6 +5023,7 @@ const ChromaticShiftChart = ({
   results,
   visibleLineIdx,
   lineLabel,
+  metric,
   unitPref = 'auto',
   tiltFactor = 1,
 }) => {
@@ -4300,6 +5061,7 @@ const ChromaticShiftChart = ({
   if (!allPeaks.length)
     return (
       <Chart
+        title={dofMetricTitle(metric, 'Chromatic focus shift')}
         sub={`Peak position per channel (${unitName})`}
         exportName="mantis-dof-chromatic"
         noExport
@@ -4310,8 +5072,42 @@ const ChromaticShiftChart = ({
   const yMin = Math.min(...allPeaks) * 0.9;
   const yMax = Math.max(...allPeaks) * 1.1;
   const yOf = (y) => PAD_T + (1 - (y - yMin) / (yMax - yMin || 1)) * (H - PAD_T - PAD_B);
+  const chromaticCsvRows = [];
+  for (const [lineOrder, idx] of visibleLineIdx.entries()) {
+    for (const ch of channels) {
+      const ln = results[ch]?.lines?.[idx];
+      if (!ln) continue;
+      const peakPx = ln.gaussian?.converged ? ln.gaussian.mu : ln.peak_position_px;
+      if (peakPx == null) continue;
+      const ci95 = ln.peak_ci95_px;
+      chromaticCsvRows.push({
+        chart: 'chromatic_focus_shift',
+        line_idx: idx,
+        line_order: lineOrder,
+        line_label: lineLabel(idx),
+        channel: ch,
+        metric: ln.metric || metric,
+        display_unit: dofDisplayUnit(ln, unitPref),
+        peak_position_px: dofCsvNum(peakPx),
+        peak_position_display: dofCsvNum(asAxis(ln, peakPx)),
+        peak_ci95_lo_px: dofCsvNum(ci95?.[0]),
+        peak_ci95_hi_px: dofCsvNum(ci95?.[1]),
+        peak_ci95_lo_display: ci95 ? dofCsvNum(asAxis(ln, ci95[0])) : null,
+        peak_ci95_hi_display: ci95 ? dofCsvNum(asAxis(ln, ci95[1])) : null,
+        gauss_mu_px: dofCsvNum(ln.gaussian?.mu),
+        gauss_sigma_px: dofCsvNum(ln.gaussian?.sigma),
+        gauss_fwhm_px: dofCsvNum(ln.gaussian?.fwhm),
+        gauss_r_squared: dofCsvNum(ln.gaussian?.r_squared),
+      });
+    }
+  }
   return (
-    <Chart sub={`Peak position per channel (${unitName})`} exportName="mantis-dof-chromatic">
+    <Chart
+      title={dofMetricTitle(metric, 'Chromatic focus shift')}
+      sub={`Peak position per channel (${unitName})`}
+      exportName="mantis-dof-chromatic"
+      csvRows={chromaticCsvRows}
+    >
       <svg
         viewBox={`0 0 ${W} ${H}`}
         width="100%"
@@ -4460,10 +5256,12 @@ const DoFGaussianTab = ({
   results,
   visibleLineIdx,
   lineLabel,
+  metric,
   unitPref = 'auto',
   tiltFactor = 1,
 }) => {
   const t = useTheme();
+  const metricLabel = dofMetricLabel(metric);
   const cards = [];
   for (const ch of channels) {
     for (const i of visibleLineIdx) {
@@ -4481,7 +5279,7 @@ const DoFGaussianTab = ({
   }
   return (
     <GridTabFrame
-      caption="Gaussian fit overlay per (channel × line). Solid = normalized focus; dashed = parametric Gaussian fit; shaded band = ±95% bootstrap CI on the peak."
+      caption={`${metricLabel} Gaussian focus fits · solid = normalized focus; dashed = parametric Gaussian fit; shaded band = ±95% bootstrap CI on the peak.`}
       n={cards.length}
       minCardPx={440}
       storageKey="analysis/dof/gaussianLayout"
@@ -4492,6 +5290,7 @@ const DoFGaussianTab = ({
           ch={ch}
           ln={ln}
           label={lineLabel(i)}
+          metric={metric}
           unitPref={unitPref}
           tiltFactor={tiltFactor}
         />
@@ -4500,7 +5299,7 @@ const DoFGaussianTab = ({
   );
 };
 
-const GaussianFitChart = ({ ch, ln, label, unitPref = 'auto', tiltFactor = 1 }) => {
+const GaussianFitChart = ({ ch, ln, label, metric, unitPref = 'auto', tiltFactor = 1 }) => {
   const t = useTheme();
   const { style } = usePlotStyle();
   const W = 460,
@@ -4515,6 +5314,7 @@ const GaussianFitChart = ({ ch, ln, label, unitPref = 'auto', tiltFactor = 1 }) 
   const xsPx = ln.positions_px;
   const xsAxis = xsPx.map((px) => dofToDisplay(ln, dofScaled(px, tiltFactor), unitPref) ?? px);
   const unitName = dofDisplayUnit(ln, unitPref);
+  const peakRaw = ln.focus?.length ? Math.max(...ln.focus) : null;
 
   const xMin = 0;
   const xMax = Math.max(...xsAxis);
@@ -4527,10 +5327,10 @@ const GaussianFitChart = ({ ch, ln, label, unitPref = 'auto', tiltFactor = 1 }) 
         const frac = k / 119;
         const px = xsPx[0] + frac * (xsPx[xsPx.length - 1] - xsPx[0]);
         const raw = g.amp * Math.exp(-((px - g.mu) ** 2) / (2 * g.sigma ** 2)) + g.baseline;
-        const peakRaw = Math.max(...ln.focus);
         return {
+          px,
           ax: dofToDisplay(ln, dofScaled(px, tiltFactor), unitPref) ?? px,
-          y: raw / peakRaw,
+          y: Number.isFinite(peakRaw) && peakRaw !== 0 ? raw / peakRaw : null,
         };
       })
     : null;
@@ -4552,10 +5352,64 @@ const GaussianFitChart = ({ ch, ln, label, unitPref = 'auto', tiltFactor = 1 }) 
         ? v.toFixed(1)
         : v.toFixed(unitName === 'μm' ? 1 : 3)
       : '—';
+  const gaussianBaseCsv = {
+    chart: 'gaussian_focus_fit',
+    line_label: label,
+    channel: ch,
+    metric: ln.metric || metric,
+    display_unit: unitName,
+    threshold: dofCsvNum(ln.threshold),
+    peak_position_px: dofCsvNum(converged ? g.mu : ln.peak_position_px),
+    peak_position_display: dofCsvDisplay(
+      ln,
+      converged ? g.mu : ln.peak_position_px,
+      unitPref,
+      tiltFactor
+    ),
+    peak_ci95_lo_px: dofCsvNum(ln.peak_ci95_px?.[0]),
+    peak_ci95_hi_px: dofCsvNum(ln.peak_ci95_px?.[1]),
+    peak_ci95_lo_display: dofCsvDisplay(ln, ln.peak_ci95_px?.[0], unitPref, tiltFactor),
+    peak_ci95_hi_display: dofCsvDisplay(ln, ln.peak_ci95_px?.[1], unitPref, tiltFactor),
+    dof_low_px: dofCsvNum(ln.dof_low_px),
+    dof_high_px: dofCsvNum(ln.dof_high_px),
+    dof_width_px: dofCsvNum(ln.dof_width_px),
+    dof_low_display: dofCsvDisplay(ln, ln.dof_low_px, unitPref, tiltFactor),
+    dof_high_display: dofCsvDisplay(ln, ln.dof_high_px, unitPref, tiltFactor),
+    dof_width_display: dofCsvDisplay(ln, ln.dof_width_px, unitPref, tiltFactor),
+    gauss_mu_px: dofCsvNum(g.mu),
+    gauss_sigma_px: dofCsvNum(g.sigma),
+    gauss_fwhm_px: dofCsvNum(g.fwhm),
+    gauss_r_squared: dofCsvNum(g.r_squared),
+  };
+  const gaussianCsvRows = [
+    ...xsPx.map((px, sampleIdx) => ({
+      ...gaussianBaseCsv,
+      series: 'sample',
+      sample_idx: sampleIdx,
+      position_px: dofCsvNum(px),
+      position_display: dofCsvNum(xsAxis[sampleIdx]),
+      focus: dofCsvNum(ln.focus?.[sampleIdx]),
+      focus_norm: dofCsvNum(ln.focus_norm?.[sampleIdx]),
+      gaussian_fit_norm: null,
+    })),
+    ...((fitSamples || []).map((s, sampleIdx) => ({
+      ...gaussianBaseCsv,
+      series: 'gaussian_fit',
+      sample_idx: sampleIdx,
+      position_px: dofCsvNum(s.px),
+      position_display: dofCsvNum(s.ax),
+      focus: null,
+      focus_norm: null,
+      gaussian_fit_norm: dofCsvNum(s.y),
+    })) || []),
+  ];
 
   return (
     <Chart
       channel={ch}
+      title={dofMetricTitle(metric, 'Gaussian focus fit')}
+      exportName={`mantis-dof-gaussian-${ch}-${label}`}
+      csvRows={gaussianCsvRows}
       sub={
         <>
           · {label}
@@ -4807,10 +5661,11 @@ const GaussianFitChart = ({ ch, ln, label, unitPref = 'auto', tiltFactor = 1 }) 
 };
 
 // Native focus heatmap — canvas + SVG overlay for picks.
-const DoFHeatmapTab = ({ channels, results, lineLabel, pointLabel }) => {
+const DoFHeatmapTab = ({ channels, results, lineLabel, pointLabel, metric }) => {
   const t = useTheme();
   const { style } = usePlotStyle();
   const [cmap, setCmap] = useStateA('viridis');
+  const metricLabel = dofMetricLabel(metric);
   const cards = channels.filter((ch) => results[ch]?.heatmap_grid);
   if (!cards.length) {
     return (
@@ -4850,7 +5705,7 @@ const DoFHeatmapTab = ({ channels, results, lineLabel, pointLabel }) => {
         />
       </div>
       <GridTabFrame
-        caption="Per-channel focus heatmap over the whole image. Brightest region = best focus. Picked points + lines overlay in white."
+        caption={`${metricLabel} focus heatmaps · per-channel focus over the whole image. Brightest region = best focus. Picked points + lines overlay in white.`}
         n={cards.length}
         minCardPx={460}
         storageKey="analysis/dof/heatmapLayout"
@@ -4863,6 +5718,7 @@ const DoFHeatmapTab = ({ channels, results, lineLabel, pointLabel }) => {
             cmap={cmap}
             lineLabel={lineLabel}
             pointLabel={pointLabel}
+            metric={metric}
           />
         ))}
       </GridTabFrame>
@@ -4870,7 +5726,7 @@ const DoFHeatmapTab = ({ channels, results, lineLabel, pointLabel }) => {
   );
 };
 
-const DoFHeatmapCard = ({ ch, r, cmap, _lineLabel, _pointLabel }) => {
+const DoFHeatmapCard = ({ ch, r, cmap, _lineLabel, _pointLabel, metric }) => {
   const { style } = usePlotStyle();
   const grid = useMemoA(() => decodeFloat32Grid(r.heatmap_grid), [r.heatmap_grid]);
   if (!grid) return null;
@@ -4881,13 +5737,89 @@ const DoFHeatmapCard = ({ ch, r, cmap, _lineLabel, _pointLabel }) => {
   const imgW = r.image_grid?.dims?.[1]
     ? r.image_grid.dims[1] * (r.image_grid.stride?.[1] || 1)
     : grid.w * step;
+  const heatmapCsvRows = (() => {
+    if (!grid) return [];
+    let pk = 0;
+    let pv = -Infinity;
+    for (let i = 0; i < grid.data.length; i++) {
+      if (grid.data[i] > pv) {
+        pv = grid.data[i];
+        pk = i;
+      }
+    }
+    const base = {
+      chart: 'focus_heatmap',
+      channel: ch,
+      metric: r.metric || metric,
+      heatmap_step_px: dofCsvNum(step),
+      half_window_px: dofCsvNum(r.half_window),
+      threshold: dofCsvNum(r.threshold),
+      series: null,
+      grid_x: null,
+      grid_y: null,
+      image_x_px: null,
+      image_y_px: null,
+      focus_value: null,
+      best_focus_cell: null,
+      overlay_index: null,
+      overlay_label: null,
+      point_x_px: null,
+      point_y_px: null,
+      line_x0_px: null,
+      line_y0_px: null,
+      line_x1_px: null,
+      line_y1_px: null,
+    };
+    const rows = [];
+    for (let gy = 0; gy < grid.h; gy++) {
+      for (let gx = 0; gx < grid.w; gx++) {
+        const k = gy * grid.w + gx;
+        rows.push({
+          ...base,
+          series: 'heatmap_cell',
+          grid_x: gx,
+          grid_y: gy,
+          image_x_px: ((gx + 0.5) / grid.w) * imgW,
+          image_y_px: ((gy + 0.5) / grid.h) * imgH,
+          focus_value: dofCsvNum(grid.data[k]),
+          best_focus_cell: k === pk ? 1 : 0,
+        });
+      }
+    }
+    (r.points || []).forEach((pt, idx) => {
+      rows.push({
+        ...base,
+        series: 'picked_point_overlay',
+        overlay_index: idx,
+        overlay_label: pt.label || null,
+        point_x_px: dofCsvNum(pt.x),
+        point_y_px: dofCsvNum(pt.y),
+      });
+    });
+    (r.lines || []).forEach((ln, idx) => {
+      rows.push({
+        ...base,
+        series: 'line_overlay',
+        overlay_index: idx,
+        overlay_label: ln.label || null,
+        line_x0_px: dofCsvNum(ln.p0?.[0]),
+        line_y0_px: dofCsvNum(ln.p0?.[1]),
+        line_x1_px: dofCsvNum(ln.p1?.[0]),
+        line_y1_px: dofCsvNum(ln.p1?.[1]),
+      });
+    });
+    return rows;
+  })();
   // Map image-space px → canvas-space px (canvas is drawn at grid resolution
   // then CSS-scaled; overlays use viewBox aligned to the heatmap grid).
   const toCv = (imgPx, imgSize, gridSize) => (imgPx / imgSize) * gridSize;
   return (
     <Chart
       channel={ch}
+      title={dofMetricTitle(r.metric || metric, 'Focus heatmap')}
       sub={`${r.metric} · half-win=${r.half_window}px · threshold=${(r.threshold * 100).toFixed(0)}%`}
+      exportName={`mantis-dof-heatmap-${ch}`}
+      csvRows={heatmapCsvRows}
       footer={
         <>
           best-focus cell marked ×; {(r.points || []).length} pts · {(r.lines || []).length} lines
@@ -5021,9 +5953,17 @@ const DoFHeatmapCard = ({ ch, r, cmap, _lineLabel, _pointLabel }) => {
 
 // Points + tilt diagnostic tab. Bar chart of focus per point, plus a native
 // SVG tilt-plane visualization using the server's `tilt_plane` coefficients.
-const DoFPointsTab = ({ channels, results, pointLabel, _unitPref = 'auto', _tiltFactor = 1 }) => {
+const DoFPointsTab = ({
+  channels,
+  results,
+  pointLabel,
+  metric,
+  _unitPref = 'auto',
+  _tiltFactor = 1,
+}) => {
   const t = useTheme();
   const { style } = usePlotStyle();
+  const metricLabel = dofMetricLabel(metric);
   const hasPoints = channels.some((ch) => (results[ch]?.points || []).length > 0);
   if (!hasPoints) {
     return (
@@ -5034,7 +5974,7 @@ const DoFPointsTab = ({ channels, results, pointLabel, _unitPref = 'auto', _tilt
   }
   return (
     <GridTabFrame
-      caption="Per-channel focus at each picked point (normalized) + bilinear tilt-plane diagnostic where available."
+      caption={`${metricLabel} point focus / tilt diagnostics · per-channel focus at each picked point (normalized) + bilinear tilt-plane diagnostic where available.`}
       n={channels.length}
       minCardPx={480}
       storageKey="analysis/dof/pointsLayout"
@@ -5043,11 +5983,38 @@ const DoFPointsTab = ({ channels, results, pointLabel, _unitPref = 'auto', _tilt
         const r = results[ch];
         const pts = r?.points || [];
         const tilt = r?.tilt_plane;
+        const pointCsvRows = pts.map((pt, idx) => {
+          const pred =
+            tilt && pt.x != null && pt.y != null ? tilt.a + tilt.b * pt.x + tilt.c * pt.y : null;
+          return {
+            chart: 'point_focus_tilt_diagnostic',
+            series: 'picked_point',
+            channel: ch,
+            metric: r?.metric || metric,
+            point_idx: idx,
+            point_label: pt.label || pointLabel(idx),
+            x_px: dofCsvNum(pt.x),
+            y_px: dofCsvNum(pt.y),
+            focus: dofCsvNum(pt.focus),
+            focus_norm: dofCsvNum(pt.focus_norm),
+            tilt_a: dofCsvNum(tilt?.a),
+            tilt_b: dofCsvNum(tilt?.b),
+            tilt_c: dofCsvNum(tilt?.c),
+            tilt_slope_mag_per_px: dofCsvNum(tilt?.slope_mag_per_px),
+            tilt_direction_deg: dofCsvNum(tilt?.tilt_direction_deg),
+            tilt_r_squared: dofCsvNum(tilt?.r_squared),
+            tilt_predicted_focus_norm: dofCsvNum(pred),
+            tilt_residual: dofCsvNum(tilt?.residuals?.[idx]),
+          };
+        });
         return (
           <Chart
             key={ch}
             channel={ch}
+            title={dofMetricTitle(metric, 'Point focus / tilt diagnostic')}
             sub={`${pts.length} points${tilt ? ` · tilt ${tilt.tilt_direction_deg?.toFixed?.(1) ?? '—'}°, R²=${tilt.r_squared?.toFixed?.(3) ?? '—'}` : ''}`}
+            exportName={`mantis-dof-points-${ch}`}
+            csvRows={pointCsvRows}
           >
             <PointsBarChart points={pts} pointLabel={pointLabel} color={paletteColor(style, ch)} />
             {tilt && <TiltPlaneSVG r={r} color={paletteColor(style, ch)} />}
@@ -5501,8 +6468,13 @@ const _DoFTabBody = ({
   visibleLineIdx,
   lineLabel,
   pointLabel,
+  metric,
   unitPref,
   tiltFactor,
+  showMetricBand = true,
+  showProfileBand = true,
+  showMetricPeak = true,
+  showProfilePeak = false,
 }) => {
   if (tab === 'summary')
     return (
@@ -5512,6 +6484,7 @@ const _DoFTabBody = ({
         visibleLineIdx={visibleLineIdx}
         lineLabel={lineLabel}
         pointLabel={pointLabel}
+        metric={metric}
         unitPref={unitPref}
         tiltFactor={tiltFactor}
       />
@@ -5523,8 +6496,25 @@ const _DoFTabBody = ({
         results={results}
         visibleLineIdx={visibleLineIdx}
         lineLabel={lineLabel}
+        metric={metric}
         unitPref={unitPref}
         tiltFactor={tiltFactor}
+      />
+    );
+  if (tab === 'raw')
+    return (
+      <DoFRawProfilesTab
+        channels={visibleChannels}
+        results={results}
+        visibleLineIdx={visibleLineIdx}
+        lineLabel={lineLabel}
+        metric={metric}
+        unitPref={unitPref}
+        tiltFactor={tiltFactor}
+        showMetricBand={showMetricBand}
+        showProfileBand={showProfileBand}
+        showMetricPeak={showMetricPeak}
+        showProfilePeak={showProfilePeak}
       />
     );
   if (tab === 'gaussian')
@@ -5545,6 +6535,7 @@ const _DoFTabBody = ({
         results={results}
         visibleLineIdx={visibleLineIdx}
         lineLabel={lineLabel}
+        metric={metric}
         unitPref={unitPref}
         tiltFactor={tiltFactor}
       />
@@ -5556,6 +6547,7 @@ const _DoFTabBody = ({
         results={results}
         visibleLineIdx={visibleLineIdx}
         lineLabel={lineLabel}
+        metric={metric}
         unitPref={unitPref}
         tiltFactor={tiltFactor}
       />
@@ -5567,6 +6559,7 @@ const _DoFTabBody = ({
         results={results}
         lineLabel={lineLabel}
         pointLabel={pointLabel}
+        metric={metric}
       />
     );
   if (tab === 'points')
@@ -5575,6 +6568,7 @@ const _DoFTabBody = ({
         channels={visibleChannels}
         results={results}
         pointLabel={pointLabel}
+        metric={metric}
         unitPref={unitPref}
         tiltFactor={tiltFactor}
       />

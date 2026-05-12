@@ -227,8 +227,8 @@ POLARIZATION_SINGLE = ISPMode(
     description=(
         "2×2 polarization super-pixel at analyzer angles 0°/45°/90°/135°. "
         "Default locs mirror MantisCamUnified cameras/isp/gs_polar. "
-        "Channels: I0, I45, I90, I135. Derived Intensity/AoP/DoLP are "
-        "computed per analysis request; not exposed as raw channels."
+        "Channels: I0, I45, I90, I135. The app also exposes virtual "
+        "S0/DoLP/AoP channels computed from those analyzer planes."
     ),
     dual_gain=False,
     channels=(
@@ -247,7 +247,7 @@ POLARIZATION_DUAL = ISPMode(
     display_name="Polarization (GSense dual-gain)",
     description=(
         "GSense dual-gain polarization — 2×2 angle mosaic per half. "
-        "Emits HG-{I0,I45,I90,I135} and LG-{I0,I45,I90,I135}."
+        "Emits HG/LG analyzer channels plus virtual HG/LG S0, DoLP, and AoP."
     ),
     dual_gain=True,
     channels=(

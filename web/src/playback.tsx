@@ -68,6 +68,7 @@ import {
   useLocalStorageState,
   useViewport,
 } from './shared.tsx';
+import { PolarizationCalibrationPanel } from './polarization_calibration.tsx';
 
 // ---------------------------------------------------------------------------
 // Helpers — frame URL builders, exposure formatting
@@ -2203,6 +2204,7 @@ export const PlaybackMode = ({
           r.source_id === sid
             ? {
                 ...r,
+                ...sum,
                 has_dark: !!sum.has_dark,
                 dark_name: sum.dark_name,
                 dark_path: sum.dark_path,
@@ -2214,6 +2216,18 @@ export const PlaybackMode = ({
       // ignore — UI just won't reflect the latest has_dark state.
     }
   }, []);
+
+  const handleSourceSummaryUpdated = React.useCallback(
+    (updated) => {
+      if (!updated?.source_id) return;
+      _frameCachePurgeForSource(updated.source_id);
+      setRecordings((prev) =>
+        prev.map((r) => (r.source_id === updated.source_id ? { ...r, ...updated } : r))
+      );
+      onSwitchSource?.(updated);
+    },
+    [onSwitchSource]
+  );
 
   const attachDarkToSource = React.useCallback(
     async (sid, file) => {
@@ -3079,6 +3093,13 @@ export const PlaybackMode = ({
           darkErrors={darkErrors}
           onOpenDark={handleOpenDarkClick}
           onRemoveDark={handleRemoveDark}
+          activeSource={
+            recordings.find((r) => r.source_id === selectedRecId) ||
+            recordings.find((r) => r.source_id === activeAtGlobal.sourceId) ||
+            null
+          }
+          onSourceUpdated={handleSourceSummaryUpdated}
+          say={say}
           onOpenWarningCenter={() => setWarningCenterOpen(true)}
           dismissedWarnings={dismissedWarnings}
           onDismissWarning={dismissWarning}
@@ -3639,6 +3660,9 @@ const SourcesPanel = ({
   darkErrors = [],
   onOpenDark,
   onRemoveDark,
+  activeSource,
+  onSourceUpdated,
+  say,
   onOpenWarningCenter,
   dismissedWarnings,
   onDismissWarning,
@@ -3933,6 +3957,12 @@ const SourcesPanel = ({
             Add dark frames
           </Button>
         )}
+        <div style={{ height: 8 }} />
+        <PolarizationCalibrationPanel
+          source={activeSource}
+          onSourceUpdated={onSourceUpdated}
+          say={say}
+        />
       </div>
     </div>
   );
