@@ -7,7 +7,7 @@
 
 import type React from 'react';
 
-export type AnalysisMode = 'usaf' | 'fpn' | 'dof' | 'tbr';
+export type AnalysisMode = 'usaf' | 'fpn' | 'dof' | 'lod_ratio';
 
 export type ToastLevel = 'success' | 'warn' | 'danger';
 export type ToastFn = (msg: string, level?: ToastLevel) => void;

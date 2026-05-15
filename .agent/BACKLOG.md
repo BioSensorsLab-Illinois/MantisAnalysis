@@ -5,6 +5,105 @@ has a unique `B-000N` ID. Append-only; do not renumber.
 
 ---
 
+## B-0043 — Vitest infrastructure + standalone unit tests for `web/src/playback/lod.ts` (2026-05-07)
+
+The LoD calculation in `web/src/playback/lod.ts` is a pure function
+with branching logic (k·σ rule, sustained vs non-sustained walks,
+diagnostic emission, edge cases for σ=0 / NaN / missing
+numericValue). Today it has only browser-side regression coverage.
+
+**Action**: install `vitest` + a minimal `vitest.config.ts`, add
+`tests/web/lod.test.ts` covering: happy path k=3, k=6, k=10 at
+known fixtures; `degenerate-baseline` emission when σ ≤ 0;
+`non-monotonic` emission on inversion; `no-numeric` and
+`no-baseline` paths; sustained vs non-sustained semantics;
+single-entry pass; replicate ties (TBD: tie-break behaviour). Wire
+into `npm run test` and `scripts/smoke_test.py --tier 0`.
+
+Surfaced by frontend-react-engineer + risk-skeptic at
+`play-lod-ratio-tools-v1` M6.
+
+---
+
+## B-0044 — Debounce per-row localStorage writes during inline-edit (2026-05-07)
+
+`web/src/playback.tsx:1339-1345` — entry-persist effect runs on
+every `tbrEntries` mutation. Inline-edit inputs (label / numericValue
+/ unit) fire `onChange` per keystroke → full `JSON.stringify(50 ×
+0.5 KB)` ≈ 25 KB write per keystroke at 50 entries.
+
+**Action**: debounce the persist effect 300 ms; flush synchronously
+on `beforeunload`. Surfaced by frontend-react-engineer P2-5 +
+risk-skeptic P2-I at `play-lod-ratio-tools-v1` M6.
+
+---
+
+## B-0045 — Reorder-arrow accessibility + Checkbox `ariaLabel` forwarding (2026-05-07)
+
+Reorder buttons in the LoD/Ratio entry table use `▲` / `▼`
+glyph-only text content; screen readers announce "black up-pointing
+triangle button". Add `aria-label="Move entry up"` / `"Move entry
+down"`.
+
+Separately, the shared `Checkbox` (`web/src/shared.tsx:1800`) does
+not accept `ariaLabel` despite call sites passing it (e.g.
+sustained checkbox in `lod_ratio.tsx`). The cast is a phantom prop;
+extend `Checkbox` to forward `ariaLabel` to the underlying input
+or wrap call sites in a `<label>`.
+
+Surfaced by frontend-react-engineer P2-3 + P2-4 at
+`play-lod-ratio-tools-v1` M6.
+
+---
+
+## B-0046 — LoD: SNR-style criterion + calibration-curve fit (3.3·σ/slope) (2026-05-07)
+
+`computeLod` in `web/src/playback/lod.ts` implements only the
+k·σ rule. ICH Q2(R1) and USP <1225> also recognise:
+- **SNR ≥ k** as a parallel framework (algebraically identical to
+  k·σ at the same k, but the user-facing concept matches USP).
+- **Calibration-curve fit**: `LoD = 3.3 · σ / slope` where `slope`
+  is the linear-fit gradient of `signal vs numericValue`. Only
+  meaningful when ≥ 3 entries carry a numericValue.
+
+**Action**: extend `LodInput` with a `criterion: 'k-sigma' |
+'snr' | 'cal-curve'` discriminator; route through `computeLod`;
+add radio-button selector in the modal filter bar.
+
+D-0019 explicitly deferred this; logged so it isn't lost.
+Surfaced at `play-lod-ratio-tools-v1` plan time (2026-05-07).
+
+---
+
+## B-0047 — LoD math edge-case follow-ups: replicate ties, real-zero conflation (2026-05-07)
+
+risk-skeptic P2-E + P2-F at `play-lod-ratio-tools-v1` M6:
+
+1. `(e.signalValue ?? e.tumorValue) || 0` in
+   `web/src/analysis/modes/lod_ratio.tsx:259, 268` conflates real-0
+   measurements with missing fields. Switch to `?? null` and let
+   `computeLod`'s `FINITE` guards filter.
+
+2. Replicate ties (two entries at the same numericValue) — the
+   sustained-walk-down treats whichever is at higher array index
+   as the boundary; if one passes and the other fails, results
+   depend on insertion order. Define semantics: probably
+   "tier passes only if every replicate passes" before the chain
+   advances.
+
+---
+
+## B-0048 — Inline chart components in `useTbrModeView` factor out (low priority, 2026-05-07)
+
+`Axis`, `RatioBarChart`, `TumorVsBgChart`, `ScatterChart`,
+`Histogram`, `BoxPlot`, `PlotCard`, `StatCard` are defined inline
+inside the hook (`web/src/analysis/modes/lod_ratio.tsx:347-831`).
+Recreated every modal render. Matches existing pattern in
+`usaf.tsx` / `fpn.tsx`; mentioned for parity if a future cleanup
+hoists all four mode files at once.
+
+---
+
 ## B-0026 — Drive axe-core violation baseline toward zero — **CLOSED 2026-04-24**
 
 All 5 critical/serious violations remediated in one pass:

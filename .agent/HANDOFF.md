@@ -1,13 +1,26 @@
 # HANDOFF — current live state pointer
 
-Last updated: **2026-04-29** — `usaf-channel-manual-points-v1`
-closed on branch `codex/usaf-channel-manual-points`. The USAF picker
-now stores manual 5-point extrema per channel, Profile Preview
-re-measures the active display channel with that channel's saved
-manual points, and `/api/usaf/analyze` applies
-`manual_points_by_channel[ch]` only to the matching analysis channel.
-Initiative artifacts at
+Last updated: **2026-05-15** — `usaf-channel-manual-points-v1`
+merged (PR #3). USAF manual 5-point extrema are now channel-scoped
+end to end: the picker stores `manualPointsByChannel`, Profile
+Preview re-measures the active display channel with that channel's
+saved 3-bar/2-gap points, and `/api/usaf/analyze` applies
+`manual_points_by_channel[ch]` only to the matching analysis
+channel. Initiative artifacts at
 [`.agent/runs/usaf-channel-manual-points-v1/`](runs/usaf-channel-manual-points-v1/).
+Landed on top of the prior `play-lod-ratio-tools-v1` closure
+(2026-05-07): 6 Play-mode data-inspection features (live cursor
+pixel readback; TBR ergonomics rework; LoD/Ratio dual-mode rename
+with k·σ LoD calculation; flexible labels + numericValue + unit;
+reorder; detachable FloatingWindow panel), 3 reviewers green at M6,
+2 P0s caught and fixed inline. Artifacts at
+[`.agent/runs/play-lod-ratio-tools-v1/`](runs/play-lod-ratio-tools-v1/).
+Prior `play-export-and-roi-fixes-v1` initiative artifacts at
+[`.agent/runs/play-export-and-roi-fixes-v1/`](runs/play-export-and-roi-fixes-v1/).
+Prior PM-session ultra-review work (27-item Phase-A/B/C sweep,
+plan at `/Users/zz4/.claude/plans/tranquil-growing-lollipop.md`)
+was committed in `8a1e056` / `b01d8f7` / `d1c0a9b` before that
+session began.
 
 ## Current state of the working tree
 

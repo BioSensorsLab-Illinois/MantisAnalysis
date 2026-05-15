@@ -5,6 +5,71 @@ Append-only log. Every non-trivial choice gets an entry. The counter
 
 ---
 
+## D-0019 — `play-lod-ratio-tools-v1` initiative — 4 architectural decisions (2026-05-07)
+
+**Context**: User-requested overhaul of Play-mode TBR analysis +
+related data-inspection ergonomics. 4 design choices were locked at
+plan time via AskUserQuestion (all 4 confirmed by user as the
+recommended option).
+
+**Decision 1 — LoD criterion**: k·σ rule, k ∈ {3, 6, 10}, default
+k=3, sustained-criterion toggle ON by default. Rejected
+alternatives: SNR-style as parallel framework; calibration-curve
+fit (3.3·σ/slope). Both deferred to backlog.
+
+**Decision 2 — Pop-out scope**: the entire LoD/Ratio Analysis
+section pops out into a single `<FloatingWindow>` (Mode toggle +
+draw controls + readout + table + Add). Rejected: table-only or
+two-pop-out designs.
+
+**Decision 3 — Pixel readout location**: bottom-left badge on the
+canvas, mirroring the existing zoom badge at
+playback.tsx:6389. Rejected: floating tooltip near cursor;
+dedicated Inspector → Pixel Inspector card.
+
+**Decision 4 — Mode-id rename**: `'tbr'` → `'lod_ratio'`
+end-to-end with one-way v1→v2 localStorage migration. Rejected:
+keep `'tbr'` as technical id, rename only UI strings.
+
+Plan file:
+`/Users/zz4/.claude/plans/for-the-play-mode-recursive-globe.md`.
+Initiative artifacts:
+[`.agent/runs/play-lod-ratio-tools-v1/`](runs/play-lod-ratio-tools-v1/).
+
+---
+
+## D-0020 — LoD math safety: refuse degenerate baselines, warn on cross-channel + non-monotonic ladders (2026-05-07)
+
+**Context**: M6 risk-skeptic review flagged two P0 paths in
+`play-lod-ratio-tools-v1` where the LoD calculation produces a
+confidently-wrong number suitable for publication: (P0-A) a
+single-pixel baseline polygon collapses σ → 0 so the threshold
+equals μ exactly and any positive signal "passes"; (P0-B) baseline
+on `HG-NIR` and signal entries on `HG-G` silently produces a
+threshold in different DN units than the signals.
+
+**Decision**: lock four LoD-math safety guards into the v1 ship:
+
+1. `computeLod` returns `threshold=null` and `lod=null` when
+   `baseline.std ≤ 0`, AND emits a `'degenerate-baseline'`
+   diagnostic. Modal renders a red error banner.
+2. `commitIntensity` panel guard refuses to add an Intensity
+   entry when `tbrChannel !== baselineEntry.channel`. UI shows
+   a channel-mismatch banner + disables the Add button.
+3. Modal `baselineEntry` lookup uses unfiltered `allEntries` so
+   the channel-chip filter cannot orphan the baseline.
+4. `computeLod` emits a `'non-monotonic'` diagnostic when the
+   sustained-mode walk encounters a failing entry between two
+   passing entries — the LoD reported is correct but the ladder
+   has an inversion the user should review.
+
+**Rationale**: this is a research tool whose output ends up in
+papers and grant submissions. False confidence from a smooth-looking
+LoD card is the worst failure mode. Guards must be inline, visible,
+and unsuppressible.
+
+---
+
 ## D-0001 — License: MIT  (2026-04-22)
 
 **Context**: Phase 1 audit listed several license options; user
