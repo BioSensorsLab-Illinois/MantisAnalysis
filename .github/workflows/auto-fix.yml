@@ -1,17 +1,30 @@
 name: auto-fix
 
-# Fires when `smoke` or `release` fail. The workflow:
-#   1. Checks out the commit that failed.
-#   2. Runs deterministic auto-fixes (ruff --fix, ruff format).
-#   3. If ANTHROPIC_API_KEY is configured, hands the failure log to
-#      Claude Code and lets it attempt a smarter fix.
-#   4. Re-runs the cheap smoke tier (imports + unit tests).
-#   5. If anything was fixed and tests pass, opens a PR targeting the
-#      failing branch. Otherwise opens an Issue with the log excerpt so
-#      a human can jump in.
+# Fires when `smoke` or `release` fail. Two modes:
 #
-# Safe-by-default: never force-pushes, always opens a PR for review, and
-# is gated to the repo's own branches (skips forks).
+#   FIRST-ATTEMPT — failing branch is anything OTHER than `auto-fix/*`.
+#     Runs deterministic auto-fixes (ruff --fix, ruff format) + optional
+#     Claude Code agentic fix loop + verification. On success, opens a
+#     fresh `auto-fix/<workflow>-<run-id>` PR. On no-fix-possible, opens
+#     a deduped Issue.
+#
+#   CONTINUATION — failing branch is already `auto-fix/*` (i.e. the
+#     prior auto-fix PR's CI just failed). Pushes ANOTHER commit to
+#     the existing branch with a refined patch. Claude sees a summary
+#     of prior attempts so it doesn't repeat broken patches. Iterates
+#     up to MAX_ITERATIONS commits per PR. On exhaustion, comments on
+#     the PR + adds an `autofix-exhausted` label; PR stays open for
+#     human takeover.
+#
+# Safe-by-default: never force-pushes, always opens a PR for review,
+# and is gated to the repo's own branches (skips forks).
+#
+# Activation (one-time, gh CLI):
+#   gh secret set ANTHROPIC_API_KEY --body "$ANTHROPIC_API_KEY"
+#   gh api -X PUT /repos/$OWNER/$REPO/actions/permissions/workflow \
+#       -F can_approve_pull_request_reviews=true
+#
+# Design + decision log: .agent/runs/ci-autofix-iteration-loop/
 
 on:
   workflow_run:
@@ -28,6 +41,9 @@ permissions:
   pull-requests: write
   issues: write
   actions: read
+
+env:
+  MAX_ITERATIONS: "10"
 
 jobs:
   diagnose-and-fix:
@@ -69,13 +85,91 @@ jobs:
         run: |
           mkdir -p .auto-fix
           gh run view "$FAILED_RUN_ID" --log-failed > .auto-fix/failure.log 2>&1 || true
-          # Truncate to the last ~400 lines so downstream steps (and any
-          # Claude prompt) stay within reasonable size limits.
           tail -n 400 .auto-fix/failure.log > .auto-fix/failure.tail.log || true
           wc -l .auto-fix/failure.log || true
 
+      - name: Determine mode (first-attempt vs continuation)
+        id: mode
+        run: |
+          set -euo pipefail
+          if [[ "${FAILED_BRANCH:-}" == auto-fix/* ]]; then
+            echo "mode=continue" >> "$GITHUB_OUTPUT"
+            echo "branch=$FAILED_BRANCH" >> "$GITHUB_OUTPUT"
+            echo "::notice::Continuation mode on branch $FAILED_BRANCH"
+          else
+            echo "mode=first" >> "$GITHUB_OUTPUT"
+            echo "branch=auto-fix/${FAILED_WORKFLOW}-${FAILED_RUN_ID}" >> "$GITHUB_OUTPUT"
+            echo "::notice::First-attempt mode → new branch auto-fix/${FAILED_WORKFLOW}-${FAILED_RUN_ID}"
+          fi
+
+      - name: Iteration check (continuation only — count claude-autofix commits)
+        id: iter-check
+        if: steps.mode.outputs.mode == 'continue'
+        run: |
+          set -euo pipefail
+          # Find the base branch for divergence counting. Try main, then master.
+          git fetch --no-tags origin main:refs/remotes/origin/main 2>/dev/null \
+            || git fetch --no-tags origin master:refs/remotes/origin/master 2>/dev/null \
+            || true
+          BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/@@' || echo "origin/main")
+          count=$(git log "$BASE..HEAD" --author='claude-autofix' --oneline | wc -l | tr -d ' ')
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "::notice::Iteration count on $FAILED_BRANCH: $count / $MAX_ITERATIONS"
+          if [ "$count" -ge "$MAX_ITERATIONS" ]; then
+            echo "max_reached=true"  >> "$GITHUB_OUTPUT"
+          else
+            echo "max_reached=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Comment + label PR (max iterations exhausted)
+        if: |
+          steps.mode.outputs.mode == 'continue' &&
+          steps.iter-check.outputs.max_reached == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ steps.mode.outputs.branch }}
+          ITER_COUNT: ${{ steps.iter-check.outputs.count }}
+        run: |
+          set -euo pipefail
+          PR_NUM=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // ""')
+          if [ -z "$PR_NUM" ]; then
+            echo "::warning::No open PR found for $BRANCH; cannot post exhaustion comment."
+            exit 0
+          fi
+          gh label create autofix-exhausted \
+            --description "Autofix loop hit the iteration cap; needs human" \
+            --color B60205 2>/dev/null || true
+          gh pr edit "$PR_NUM" --add-label autofix-exhausted || true
+          gh pr comment "$PR_NUM" --body "$(cat <<EOF
+          :x: **Autofix iteration cap reached** ($ITER_COUNT / $MAX_ITERATIONS commits, CI still failing).
+
+          Latest failed run: https://github.com/${{ github.repository }}/actions/runs/$FAILED_RUN_ID
+
+          Claude could not converge on a passing patch within the cap. Manual intervention needed.
+          EOF
+          )"
+
+      - name: Build prior-attempts summary (continuation only)
+        id: prior
+        if: |
+          steps.mode.outputs.mode == 'continue' &&
+          steps.iter-check.outputs.max_reached != 'true'
+        run: |
+          set -euo pipefail
+          BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/@@' || echo "origin/main")
+          {
+            echo "Prior autofix attempts on this branch (most recent last):"
+            echo
+            git log "$BASE..HEAD" --author='claude-autofix' \
+              --pretty=format:'--- attempt %h (%ci) ---%n%s%n%n%b%n' \
+              --reverse
+          } > .auto-fix/prior_attempts.txt
+          head -100 .auto-fix/prior_attempts.txt
+          echo "path=.auto-fix/prior_attempts.txt" >> "$GITHUB_OUTPUT"
+
       - name: Run deterministic auto-fixes (ruff)
         id: ruff
+        if: steps.mode.outputs.mode == 'first' || steps.iter-check.outputs.max_reached != 'true'
         continue-on-error: true
         run: |
           python -m ruff check --fix --unsafe-fixes . || true
@@ -89,6 +183,7 @@ jobs:
 
       - name: Probe Anthropic secret
         id: probe
+        if: steps.mode.outputs.mode == 'first' || steps.iter-check.outputs.max_reached != 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
@@ -100,20 +195,28 @@ jobs:
 
       - name: Invoke Claude Code for smarter fix (if configured)
         id: claude
-        if: steps.probe.outputs.available == 'true'
+        if: |
+          steps.probe.outputs.available == 'true' &&
+          (steps.mode.outputs.mode == 'first' || steps.iter-check.outputs.max_reached != 'true')
         continue-on-error: true
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           python -m pip install "anthropic>=0.34"
+          PRIOR_ARG=()
+          if [ -n "${{ steps.prior.outputs.path }}" ] && [ -f "${{ steps.prior.outputs.path }}" ]; then
+            PRIOR_ARG=(--prior-attempts "${{ steps.prior.outputs.path }}")
+          fi
           python .github/auto-fix/claude_fix.py \
               --log .auto-fix/failure.tail.log \
               --workflow "$FAILED_WORKFLOW" \
               --branch "$FAILED_BRANCH" \
-              --commit "$FAILED_SHA"
+              --commit "$FAILED_SHA" \
+              "${PRIOR_ARG[@]}"
 
       - name: Re-run smoke tier 1 after fixes
         id: verify
+        if: steps.mode.outputs.mode == 'first' || steps.iter-check.outputs.max_reached != 'true'
         continue-on-error: true
         run: |
           python scripts/smoke_test.py --tier 1
@@ -121,6 +224,7 @@ jobs:
 
       - name: Detect any changes produced
         id: diff
+        if: steps.mode.outputs.mode == 'first' || steps.iter-check.outputs.max_reached != 'true'
         run: |
           if git diff --quiet && git diff --cached --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -128,12 +232,26 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Open auto-fix PR
-        if: steps.diff.outputs.changed == 'true' && steps.verify.outcome == 'success'
+      - name: Configure git identity (autofix bot)
+        if: |
+          steps.diff.outputs.changed == 'true' &&
+          steps.verify.outcome == 'success' &&
+          (steps.mode.outputs.mode == 'first' || steps.iter-check.outputs.max_reached != 'true')
+        run: |
+          git config user.name "claude-autofix[bot]"
+          git config user.email "claude-autofix-bot@users.noreply.github.com"
+
+      - name: Open auto-fix PR (first-attempt mode only)
+        if: |
+          steps.mode.outputs.mode == 'first' &&
+          steps.diff.outputs.changed == 'true' &&
+          steps.verify.outcome == 'success'
         uses: peter-evans/create-pull-request@v7
         with:
           branch: auto-fix/${{ env.FAILED_WORKFLOW }}-${{ env.FAILED_RUN_ID }}
           base: ${{ env.FAILED_BRANCH }}
+          author: "claude-autofix[bot] <claude-autofix-bot@users.noreply.github.com>"
+          committer: "claude-autofix[bot] <claude-autofix-bot@users.noreply.github.com>"
           title: "auto-fix: ${{ env.FAILED_WORKFLOW }} failure on ${{ env.FAILED_BRANCH }}"
           commit-message: |
             auto-fix: repair ${{ env.FAILED_WORKFLOW }} failures
@@ -156,14 +274,62 @@ jobs:
             - `scripts/smoke_test.py --tier 1` → passed
             - `pytest tests/unit` → passed
 
+            ### Iteration loop
+            If this PR's own CI fails on the next run, the auto-fix workflow
+            will push another commit to this same branch with a refined
+            patch (up to **${{ env.MAX_ITERATIONS }}** total iterations).
+            On exhaustion: comment + `autofix-exhausted` label.
+
             Review carefully before merging — automated fixes are a starting
             point, not a guarantee of correctness.
           labels: |
             auto-fix
             ci
 
-      - name: Open issue if no fix was possible
-        if: steps.diff.outputs.changed == 'false' || steps.verify.outcome != 'success'
+      - name: Push iteration commit to existing PR (continuation mode)
+        if: |
+          steps.mode.outputs.mode == 'continue' &&
+          steps.iter-check.outputs.max_reached != 'true' &&
+          steps.diff.outputs.changed == 'true' &&
+          steps.verify.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ steps.mode.outputs.branch }}
+          ITER_PRIOR: ${{ steps.iter-check.outputs.count }}
+        run: |
+          set -euo pipefail
+          ITER_NEXT=$((ITER_PRIOR + 1))
+          git add -A
+          if git diff --cached --quiet; then
+            echo "::warning::No staged changes after add -A; ending loop."
+            exit 0
+          fi
+          git commit -m "[auto-fix] iteration $ITER_NEXT/$MAX_ITERATIONS — retry after $FAILED_WORKFLOW failure
+
+          Failed run: https://github.com/${{ github.repository }}/actions/runs/$FAILED_RUN_ID
+          Head SHA before retry: $FAILED_SHA
+
+          Generated by Claude via .github/auto-fix/claude_fix.py.
+          Prior-attempts summary fed into the prompt to avoid repeated patches."
+          git push origin "HEAD:$BRANCH"
+          PR_NUM=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // ""')
+          if [ -n "$PR_NUM" ]; then
+            gh pr comment "$PR_NUM" --body "$(cat <<EOF
+          :arrows_counterclockwise: **Auto-fix iteration $ITER_NEXT/$MAX_ITERATIONS** pushed.
+
+          Triggered by failed $FAILED_WORKFLOW run: https://github.com/${{ github.repository }}/actions/runs/$FAILED_RUN_ID
+
+          Smoke tier 1 + pytest unit both passed locally before pushing.
+          The PR's own CI will re-validate the full matrix. If it fails
+          again, the loop continues — up to $MAX_ITERATIONS commits total.
+          EOF
+          )"
+          fi
+
+      - name: Open issue if no fix was possible (first-attempt mode only)
+        if: |
+          steps.mode.outputs.mode == 'first' &&
+          (steps.diff.outputs.changed == 'false' || steps.verify.outcome != 'success')
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -184,7 +350,6 @@ jobs:
               tail.slice(-12000),
               '```',
             ].join('\n');
-            // Dedupe: reuse an open issue with the same title instead of spamming.
             const existing = await github.rest.issues.listForRepo({
               owner: context.repo.owner, repo: context.repo.repo,
               state: 'open', labels: 'auto-fix',

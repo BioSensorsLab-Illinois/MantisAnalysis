@@ -179,11 +179,17 @@ GROUND RULES
    or restructure code.
 2. Prefer small, surgical edits over rewrites.
 3. Never introduce a new dependency unless the failure clearly demands it.
-4. Never touch `.github/workflows/*` unless the failure is obviously inside
-   the workflow YAML itself.
+4. `.github/workflows/*` are FIRST-CLASS fix surfaces when the failure is in
+   a workflow step's configuration: missing `pip install <mod>`, wrong
+   `runs-on`, wrong `setup-python` version, missing `apt-get install <libfoo>`,
+   missing artifact `path:`. Don't touch them for code-logic bugs — only when
+   the workflow itself is misconfigured.
 5. Never delete tests to silence failures; fix the underlying cause.
-6. If the failure root cause is unclear or outside your reach (infrastructure,
-   network, secrets), call `finish` with `fixed=false` and a short explanation.
+6. Never edit `.agent/` (initiative docs are human-maintained), `outputs/`,
+   `dist/`, `build/`, `node_modules/`, `storybook-static/` (built artifacts).
+7. If the failure root cause is unclear or outside your reach (infrastructure,
+   network, secrets, rate limits), call `finish` with `fixed=false` and a short
+   explanation.
 
 PROCESS
 - Start by reading the failure log, then the relevant source files.
@@ -202,34 +208,67 @@ Project layout (read-only hint):
 """
 
 
-def build_first_message(log_tail: str, workflow: str, branch: str, commit: str) -> str:
-    return f"""\
-Workflow **{workflow}** failed on branch `{branch}` at commit `{commit}`.
-
-Here is the tail of the failure log:
-
-<failure_log>
-{log_tail}
-</failure_log>
-
-Investigate, fix, and call `finish` when done. If you cannot confidently fix
-it, call `finish` with `fixed=false` and explain why.
-"""
+def build_first_message(
+    log_tail: str,
+    workflow: str,
+    branch: str,
+    commit: str,
+    prior_attempts: str | None = None,
+) -> str:
+    prior_block = ""
+    if prior_attempts:
+        if len(prior_attempts) > 20_000:
+            prior_attempts = prior_attempts[:20_000] + "\n... (prior-attempts log truncated for size) ...\n"
+        prior_block = (
+            "<prior_attempts>\n"
+            "These are the prior auto-fix attempts on this same branch — DO NOT repeat "
+            "any of these patches. If your previous reasoning was wrong, switch approach: "
+            "try a different file, a different fix shape, or call `finish(fixed=false)` "
+            "with an explanation. Do not re-edit the same lines with cosmetically different "
+            "values; that signals a stuck loop.\n\n"
+            f"{prior_attempts}\n"
+            "</prior_attempts>\n\n"
+        )
+    return (
+        f"{prior_block}"
+        f"Workflow **{workflow}** failed on branch `{branch}` at commit `{commit}`.\n\n"
+        "Here is the tail of the failure log:\n\n"
+        "<failure_log>\n"
+        f"{log_tail}\n"
+        "</failure_log>\n\n"
+        "Investigate, fix, and call `finish` when done. If you cannot confidently fix\n"
+        "it, call `finish` with `fixed=false` and explain why.\n"
+    )
 
 
 # --- Main loop ---------------------------------------------------------------
 
-def run(log_path: Path, workflow: str, branch: str, commit: str) -> int:
+def run(
+    log_path: Path,
+    workflow: str,
+    branch: str,
+    commit: str,
+    prior_attempts_path: Path | None = None,
+) -> int:
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         print("ANTHROPIC_API_KEY not set; skipping Claude fix.")
         return 0
 
     log_tail = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else "(no log available)"
+
+    prior_attempts: str | None = None
+    if prior_attempts_path is not None and prior_attempts_path.exists():
+        try:
+            prior_attempts = prior_attempts_path.read_text(encoding="utf-8", errors="replace")
+            print(f"[claude] including {len(prior_attempts)} bytes of prior-attempt history")
+        except Exception as exc:
+            print(f"[claude] could not read prior-attempts file: {exc}")
+
     client = anthropic.Anthropic(api_key=api_key)
 
     messages: list[dict[str, Any]] = [
-        {"role": "user", "content": build_first_message(log_tail, workflow, branch, commit)},
+        {"role": "user", "content": build_first_message(log_tail, workflow, branch, commit, prior_attempts=prior_attempts)},
     ]
 
     for step in range(MAX_ITER):
@@ -292,8 +331,15 @@ def main() -> int:
     ap.add_argument("--workflow", required=True)
     ap.add_argument("--branch", required=True)
     ap.add_argument("--commit", required=True)
+    ap.add_argument(
+        "--prior-attempts",
+        default=None,
+        help="Path to a text summary of prior auto-fix attempts on this branch — fed to "
+             "Claude so it doesn't repeat broken patches. Continuation mode only.",
+    )
     args = ap.parse_args()
-    return run(Path(args.log), args.workflow, args.branch, args.commit)
+    prior_path = Path(args.prior_attempts) if args.prior_attempts else None
+    return run(Path(args.log), args.workflow, args.branch, args.commit, prior_attempts_path=prior_path)
 
 
 if __name__ == "__main__":
