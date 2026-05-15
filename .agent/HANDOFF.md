@@ -1,47 +1,70 @@
 # HANDOFF — current live state pointer
 
-Last updated: **2026-05-07** — the `play-lod-ratio-tools-v1`
-initiative addressing 6 user-requested Play-mode data-inspection
-features (live cursor pixel readback; TBR ergonomics rework;
-LoD/Ratio dual-mode rename with k·σ LoD calculation; flexible
-labels + numericValue + unit; reorder; detachable FloatingWindow
-panel). Seven milestones (M0 scaffold → M1 pixel-readback → M2
-mode rename + migration → M3 table ergonomics → M4 FloatingWindow
-pop-out → M5 LoD analysis modal → M6 reviewer pass + close).
-3 reviewers spawned at M6 (fastapi-backend-reviewer,
-frontend-react-engineer, risk-skeptic). risk-skeptic flagged 2 P0s
-(degenerate-baseline collapses threshold to μ; cross-channel
-baseline+signal silently produces meaningless number) — both
-fixed inline before close, with diagnostic banners surfaced in
-the LoD modal + a panel-level commit guard. All P1s resolved.
-Initiative artifacts at
+Last updated: **2026-05-15** — `usaf-channel-manual-points-v1`
+merged (PR #3). USAF manual 5-point extrema are now channel-scoped
+end to end: the picker stores `manualPointsByChannel`, Profile
+Preview re-measures the active display channel with that channel's
+saved 3-bar/2-gap points, and `/api/usaf/analyze` applies
+`manual_points_by_channel[ch]` only to the matching analysis
+channel. Initiative artifacts at
+[`.agent/runs/usaf-channel-manual-points-v1/`](runs/usaf-channel-manual-points-v1/).
+Landed on top of the prior `play-lod-ratio-tools-v1` closure
+(2026-05-07): 6 Play-mode data-inspection features (live cursor
+pixel readback; TBR ergonomics rework; LoD/Ratio dual-mode rename
+with k·σ LoD calculation; flexible labels + numericValue + unit;
+reorder; detachable FloatingWindow panel), 3 reviewers green at M6,
+2 P0s caught and fixed inline. Artifacts at
 [`.agent/runs/play-lod-ratio-tools-v1/`](runs/play-lod-ratio-tools-v1/).
 Prior `play-export-and-roi-fixes-v1` initiative artifacts at
 [`.agent/runs/play-export-and-roi-fixes-v1/`](runs/play-export-and-roi-fixes-v1/).
 Prior PM-session ultra-review work (27-item Phase-A/B/C sweep,
 plan at `/Users/zz4/.claude/plans/tranquil-growing-lollipop.md`)
-was committed in `8a1e056` / `b01d8f7` / `d1c0a9b` before this
+was committed in `8a1e056` / `b01d8f7` / `d1c0a9b` before that
 session began.
 
 ## Current state of the working tree
 
-- Branch: `main` (50 commits ahead of `origin/main`, still never
-  pushed — B-0010 still open). Most-recent commit is the B-0037
-  Phase 2-4 module extractions (sourceModes, RoiOverlay,
-  WarningCenter, SmallModals).
-- **Uncommitted: play-export-and-roi-fixes-v1 closed but unpushed.**
-  All 7 user-reported Play-mode bugs fixed; 3 reviewers green; all
-  P0/P1 resolved + verified. Touches:
-  * `mantisanalysis/server.py` (overlay labels, export_video CRF +
-    ISP, MultiSourceVideoRequest with Field/Literal validation, 4
-    new `/api/play/exports/*` routes, JOBS shutdown hook).
-  * `mantisanalysis/export_jobs.py` (NEW — JobStore + ExportJob).
-  * `web/src/playback.tsx` (vertex drag/delete/insert, TBR overlay
-    channel picker + skip-gain, multi-source export polling +
-    progress UI, Spinbox decoupled validation, hi-res defaults).
-  * `tests/unit/test_export_jobs.py` (NEW — 11 tests).
-  * `.agent/runs/play-export-and-roi-fixes-v1/` (NEW — initiative
-    + reviews/).
+- Branch: `codex/usaf-channel-manual-points`.
+- Uncommitted bugfix files:
+  * `mantisanalysis/server.py` — `ManualUSAFPointsIn`,
+    `LineSpecIn.manual_points_by_channel`, and per-channel override
+    lookup in `/api/usaf/analyze`.
+  * `web/src/usaf.tsx` — `manualPointsByChannel` state/config,
+    per-display-channel preview remeasurement, and analysis payload
+    emission only for matching analysis channels.
+  * `tests/unit/test_usaf_manual_points_api.py` — regression proving
+    HG-G and LG-G can use different manual profile indices in the same
+    analysis request.
+  * `.agent/ARCHITECTURE.md` and
+    `.agent/runs/usaf-channel-manual-points-v1/` — contract/status
+    documentation.
+- Pre-existing untracked files still present and intentionally not
+  touched: `.agents/`, `START_MANTIS_WEBVIEW.md`.
+- Backup of original code before this fix:
+  `/Users/mini-09/BioSensorsLab/MantisAnalysis_backup_usaf_manual_points_20260429_000626`.
+- Local server is running on `http://127.0.0.1:8765/` from
+  `.venv/bin/python -m mantisanalysis --no-browser --port 8765`;
+  refresh the in-app browser to load the new backend/frontend.
+
+## Smoke status, last verified 2026-04-29
+
+- `.venv/bin/python scripts/smoke_test.py --tier 0` — PASS
+- `.venv/bin/python scripts/smoke_test.py --tier 1` — PASS
+- `.venv/bin/python scripts/smoke_test.py --tier 2` — PASS
+- `.venv/bin/python scripts/smoke_test.py --tier 3` — PASS
+- `.venv/bin/python -m pytest -q` — PASS, 306 passed / 4 skipped
+- `PATH="/opt/homebrew/opt/node@24/bin:$PATH" npm run build` — PASS
+- Live server `/api/health` and `/api/usaf/analyze` curl checks — PASS
+- Browser screenshots/manual UI walkthrough deferred: Playwright is
+  not installed and Browser Use tooling was unavailable.
+
+## Where to pick up next
+
+1. Refresh `http://127.0.0.1:8765/` and manually try: calibrate
+   `LG-R`, switch to `LG-G`, calibrate separately, switch back and
+   confirm Profile Preview keeps each channel's saved extrema.
+2. If manual UI behavior looks good, commit branch
+   `codex/usaf-channel-manual-points`.
 - The **prior** "Three layered changes" listed below were **all
   committed** before this session began — see commits `8a1e056`
   (polish-sweep), `b01d8f7` (B-0037/B-0040/B-0041/B-0042), and
