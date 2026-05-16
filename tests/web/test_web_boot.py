@@ -23,7 +23,6 @@ from pathlib import Path
 
 import pytest
 
-
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DIST_INDEX = _REPO_ROOT / "web" / "dist" / "index.html"
 
@@ -40,8 +39,13 @@ def test_isp_modes_api_reachable(web_server: str) -> None:
     with urllib.request.urlopen(f"{web_server}/api/isp/modes", timeout=5) as r:
         data = json.loads(r.read().decode())
     ids = {m["id"] for m in data}
-    assert {"bare_single", "bare_dualgain", "rgb_nir",
-            "polarization_single", "polarization_dual"}.issubset(ids)
+    assert {
+        "bare_single",
+        "bare_dualgain",
+        "rgb_nir",
+        "polarization_single",
+        "polarization_dual",
+    }.issubset(ids)
     rgb_nir = next(m for m in data if m["id"] == "rgb_nir")
     # Locked defaults — match feedback_locked_constants.md.
     assert tuple(rgb_nir["default_origin"]) == (0, 0)
@@ -65,9 +69,7 @@ def test_root_page_boots(web_server: str) -> None:
     # "build the frontend first" page, not React — skip in that case
     # so CI that doesn't have Node still passes the non-browser test.
     if not _DIST_INDEX.is_file():
-        pytest.skip(
-            "web/dist/index.html not built. Run `npm install && npm run build`."
-        )
+        pytest.skip("web/dist/index.html not built. Run `npm install && npm run build`.")
 
     errors: list[str] = []
     with sync_playwright() as p:
@@ -86,9 +88,7 @@ def test_root_page_boots(web_server: str) -> None:
         root_children = page.evaluate(
             "() => document.querySelector('#root')?.children?.length ?? 0"
         )
-        assert root_children >= 1, (
-            f"React failed to mount (0 children in #root). Console: {errors}"
-        )
+        assert root_children >= 1, f"React failed to mount (0 children in #root). Console: {errors}"
 
         # Three mode-rail buttons render.
         for label in ("USAF", "FPN", "DoF"):
@@ -105,10 +105,7 @@ def test_root_page_boots(web_server: str) -> None:
     # Babel-standalone transformer warning is gone post-Phase 3 but
     # the filter is cheap to keep for older checkouts.
     errors = [
-        e
-        for e in errors
-        if "in-browser Babel transformer" not in e
-        and "React DevTools" not in e
+        e for e in errors if "in-browser Babel transformer" not in e and "React DevTools" not in e
     ]
     assert not errors, f"console errors during boot: {errors}"
 
@@ -133,9 +130,7 @@ def test_analysis_modal_plotly_renders(web_server: str) -> None:
     from playwright.sync_api import sync_playwright  # noqa: E402
 
     if not _DIST_INDEX.is_file():
-        pytest.skip(
-            "web/dist/index.html not built. Run `npm install && npm run build`."
-        )
+        pytest.skip("web/dist/index.html not built. Run `npm install && npm run build`.")
 
     errors: list[str] = []
     with sync_playwright() as p:
@@ -162,9 +157,11 @@ def test_analysis_modal_plotly_renders(web_server: str) -> None:
 
         # Click "Run analysis" via the command palette so we don't depend
         # on a specific button label that may move.
-        page.keyboard.press("Meta+K" if page.evaluate(
-            "() => navigator.platform.toLowerCase().includes('mac')"
-        ) else "Control+K")
+        page.keyboard.press(
+            "Meta+K"
+            if page.evaluate("() => navigator.platform.toLowerCase().includes('mac')")
+            else "Control+K"
+        )
         page.wait_for_timeout(150)
         # Type "run" — narrows to "Run analysis" command.
         page.keyboard.type("run analysis")
@@ -192,9 +189,7 @@ def test_analysis_modal_plotly_renders(web_server: str) -> None:
         browser.close()
 
     errors = [
-        e for e in errors
-        if "in-browser Babel transformer" not in e
-        and "React DevTools" not in e
+        e for e in errors if "in-browser Babel transformer" not in e and "React DevTools" not in e
     ]
     assert not errors, f"console errors during analysis modal: {errors}"
 
@@ -234,9 +229,7 @@ def test_play_tab_boots(web_server: str) -> None:
     from playwright.sync_api import sync_playwright  # noqa: E402
 
     if not _DIST_INDEX.is_file():
-        pytest.skip(
-            "web/dist/index.html not built. Run `npm install && npm run build`."
-        )
+        pytest.skip("web/dist/index.html not built. Run `npm install && npm run build`.")
 
     errors: list[str] = []
     with sync_playwright() as p:
@@ -270,7 +263,7 @@ def test_play_tab_boots(web_server: str) -> None:
 
         # 4. Cache-status landmark mounts — proves the bottom-edge
         # subtree (which includes the cache budget panel) survived.
-        cache_status = page.locator('[data-play-cache-status]')
+        cache_status = page.locator("[data-play-cache-status]")
         cache_status.wait_for(state="attached", timeout=5_000)
 
         # 5. Let deferred errors surface.
@@ -279,9 +272,7 @@ def test_play_tab_boots(web_server: str) -> None:
         browser.close()
 
     errors = [
-        e for e in errors
-        if "in-browser Babel transformer" not in e
-        and "React DevTools" not in e
+        e for e in errors if "in-browser Babel transformer" not in e and "React DevTools" not in e
     ]
     assert not errors, f"console errors during Play-tab boot: {errors}"
 
@@ -307,9 +298,7 @@ def test_analysis_shell_module_imports_clean(web_server: str) -> None:
     from playwright.sync_api import sync_playwright  # noqa: E402
 
     if not _DIST_INDEX.is_file():
-        pytest.skip(
-            "web/dist/index.html not built. Run `npm install && npm run build`."
-        )
+        pytest.skip("web/dist/index.html not built. Run `npm install && npm run build`.")
 
     errors: list[str] = []
     with sync_playwright() as p:
@@ -341,10 +330,6 @@ def test_analysis_shell_module_imports_clean(web_server: str) -> None:
         browser.close()
 
     errors = [
-        e for e in errors
-        if "in-browser Babel transformer" not in e
-        and "React DevTools" not in e
+        e for e in errors if "in-browser Babel transformer" not in e and "React DevTools" not in e
     ]
-    assert not errors, (
-        f"console errors during AnalysisShell import-chain boot: {errors}"
-    )
+    assert not errors, f"console errors during AnalysisShell import-chain boot: {errors}"

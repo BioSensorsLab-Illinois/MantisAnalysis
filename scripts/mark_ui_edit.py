@@ -10,6 +10,7 @@ Reads the current initiative from `.agent/HANDOFF.md` "Active
 initiative" line or falls back to the most-recently-modified folder
 under `.agent/runs/` (excluding `_archive/`).
 """
+
 from __future__ import annotations
 
 import re
@@ -36,9 +37,11 @@ def _active_initiative() -> Path | None:
     # Fallback: pick most recently touched run folder.
     if not RUNS.is_dir():
         return None
-    candidates = [p for p in RUNS.iterdir()
-                  if p.is_dir() and p.name not in ("_archive",)
-                  and not p.name.startswith(".")]
+    candidates = [
+        p
+        for p in RUNS.iterdir()
+        if p.is_dir() and p.name not in ("_archive",) and not p.name.startswith(".")
+    ]
     if not candidates:
         return None
     return max(candidates, key=lambda p: p.stat().st_mtime)

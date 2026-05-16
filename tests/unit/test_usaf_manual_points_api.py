@@ -1,4 +1,5 @@
 """Regression tests for channel-scoped USAF manual extrema."""
+
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
@@ -51,4 +52,3 @@ def test_usaf_analyze_uses_manual_points_for_matching_channel_only() -> None:
     assert hg["gap_indices"] == hg_manual["gap_indices"]
     assert lg["bar_indices"] == lg_manual["bar_indices"]
     assert lg["gap_indices"] == lg_manual["gap_indices"]
-

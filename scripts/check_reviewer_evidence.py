@@ -12,13 +12,13 @@ Usage
     python scripts/check_reviewer_evidence.py .agent/runs/<slug>
     python scripts/check_reviewer_evidence.py --all
 """
+
 from __future__ import annotations
 
 import argparse
 import re
 import sys
 from pathlib import Path
-from typing import List, Set, Tuple
 
 ROOT = Path(__file__).resolve().parent.parent
 RUNS = ROOT / ".agent" / "runs"
@@ -33,15 +33,15 @@ ROW_RE = re.compile(
 )
 
 
-def _known_agent_names() -> Set[str]:
+def _known_agent_names() -> set[str]:
     d = ROOT / ".agent" / "agents"
     if not d.is_dir():
         return set()
     return {p.stem for p in d.glob("*.md") if p.stem != "README"}
 
 
-def reviewers_claimed(status_text: str, known: Set[str]) -> Set[str]:
-    claimed: Set[str] = set()
+def reviewers_claimed(status_text: str, known: set[str]) -> set[str]:
+    claimed: set[str] = set()
     for m in ROW_RE.finditer(status_text):
         name = m.group(1).lower()
         if name in known:
@@ -49,11 +49,11 @@ def reviewers_claimed(status_text: str, known: Set[str]) -> Set[str]:
     return claimed
 
 
-def reviewers_evidenced(initiative_dir: Path) -> Set[str]:
+def reviewers_evidenced(initiative_dir: Path) -> set[str]:
     reviews = initiative_dir / "reviews"
     if not reviews.is_dir():
         return set()
-    out: Set[str] = set()
+    out: set[str] = set()
     for p in reviews.glob("*.md"):
         # File convention: <agent-slug>-<date>.md OR <agent-slug>.md
         base = p.stem
@@ -63,7 +63,7 @@ def reviewers_evidenced(initiative_dir: Path) -> Set[str]:
     return out
 
 
-def check(initiative_dir: Path) -> Tuple[bool, List[str]]:
+def check(initiative_dir: Path) -> tuple[bool, list[str]]:
     status = initiative_dir / "Status.md"
     if not status.is_file():
         return True, [f"{initiative_dir.name}: no Status.md — skipping"]
@@ -71,7 +71,9 @@ def check(initiative_dir: Path) -> Tuple[bool, List[str]]:
     known = _known_agent_names()
     claimed = reviewers_claimed(text, known)
     if not claimed:
-        return True, [f"{initiative_dir.name}: no reviewer findings table — OK (nothing to evidence)"]
+        return True, [
+            f"{initiative_dir.name}: no reviewer findings table — OK (nothing to evidence)"
+        ]
     evidenced = reviewers_evidenced(initiative_dir)
     missing = sorted(claimed - evidenced)
     if missing:
@@ -82,24 +84,26 @@ def check(initiative_dir: Path) -> Tuple[bool, List[str]]:
                 f".agent/runs/{initiative_dir.name}/reviews/{name}*.md"
             )
         return False, msgs
-    return True, [
-        f"{initiative_dir.name}: OK ({len(claimed)} reviewer(s) claimed, all evidenced)"
-    ]
+    return True, [f"{initiative_dir.name}: OK ({len(claimed)} reviewer(s) claimed, all evidenced)"]
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("target", nargs="?", help="Initiative slug or path to its folder")
     g.add_argument("--all", action="store_true")
     args = ap.parse_args()
 
-    dirs: List[Path]
+    dirs: list[Path]
     if args.all:
-        dirs = [p for p in sorted(RUNS.iterdir())
-                if p.is_dir() and p.name not in ("_archive",) and not p.name.startswith(".")]
+        dirs = [
+            p
+            for p in sorted(RUNS.iterdir())
+            if p.is_dir() and p.name not in ("_archive",) and not p.name.startswith(".")
+        ]
     else:
         p = Path(args.target)
         if p.is_dir():

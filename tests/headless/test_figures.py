@@ -1,4 +1,5 @@
 """Headless figure-builder smoke tests (Agg backend)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -26,9 +27,13 @@ def test_build_usaf_figures_returns_figure_list(synthetic_half: np.ndarray) -> N
         LineSpec(group=2, element=2, direction="H", p0=(40, 40), p1=(80, 40)),
         LineSpec(group=2, element=2, direction="V", p0=(50, 40), p1=(50, 80)),
     ]
-    figs = build_analysis_figures(imgs, specs, mode="luminance",
-                                  transform={"rotation": 0, "flip_h": False, "flip_v": False},
-                                  threshold=0.2)
+    figs = build_analysis_figures(
+        imgs,
+        specs,
+        mode="luminance",
+        transform={"rotation": 0, "flip_h": False, "flip_v": False},
+        threshold=0.2,
+    )
     assert len(figs) >= 1
     assert all(isinstance(f, Figure) for f in figs)
 
@@ -38,9 +43,7 @@ def test_fpn_overview_figure(synthetic_half: np.ndarray) -> None:
     from mantisanalysis.fpn_analysis import FPNSettings, compute_fpn
     from mantisanalysis.fpn_render import build_overview_fig
 
-    res = compute_fpn(synthetic_half, name="Y",
-                      roi=(20, 20, 100, 100),
-                      settings=FPNSettings())
+    res = compute_fpn(synthetic_half, name="Y", roi=(20, 20, 100, 100), settings=FPNSettings())
     fig = build_overview_fig(res, fig_face="#ffffff", text="#1f2328")
     assert isinstance(fig, Figure)
     # Must contain multiple axes (2×2 grid)
@@ -52,10 +55,14 @@ def test_dof_line_scan_figure(synthetic_half: np.ndarray) -> None:
     from mantisanalysis.dof_analysis import DoFPoint, analyze_dof
     from mantisanalysis.dof_render import build_line_scan_fig
 
-    res = analyze_dof(synthetic_half, name="Y",
-                      points=[DoFPoint(x=30, y=30)],
-                      lines=[((10, 64), (120, 64))],
-                      metric="laplacian", half_window=12,
-                      build_heatmap=False)
+    res = analyze_dof(
+        synthetic_half,
+        name="Y",
+        points=[DoFPoint(x=30, y=30)],
+        lines=[((10, 64), (120, 64))],
+        metric="laplacian",
+        half_window=12,
+        build_heatmap=False,
+    )
     fig = build_line_scan_fig(res, fig_face="#ffffff", text="#1f2328")
     assert isinstance(fig, Figure)

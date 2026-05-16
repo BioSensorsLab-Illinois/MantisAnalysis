@@ -14,6 +14,7 @@ Design notes:
   * Prompt caches the "system + project layout" prefix so repeated runs
     across many failures stay cheap.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -100,6 +101,7 @@ TOOLS: list[dict[str, Any]] = [
 
 
 # --- Tool implementations ----------------------------------------------------
+
 
 def _safe_path(rel: str) -> Path:
     p = (REPO / rel).resolve()
@@ -218,7 +220,9 @@ def build_first_message(
     prior_block = ""
     if prior_attempts:
         if len(prior_attempts) > 20_000:
-            prior_attempts = prior_attempts[:20_000] + "\n... (prior-attempts log truncated for size) ...\n"
+            prior_attempts = (
+                prior_attempts[:20_000] + "\n... (prior-attempts log truncated for size) ...\n"
+            )
         prior_block = (
             "<prior_attempts>\n"
             "These are the prior auto-fix attempts on this same branch — DO NOT repeat "
@@ -243,6 +247,7 @@ def build_first_message(
 
 # --- Main loop ---------------------------------------------------------------
 
+
 def run(
     log_path: Path,
     workflow: str,
@@ -255,7 +260,11 @@ def run(
         print("ANTHROPIC_API_KEY not set; skipping Claude fix.")
         return 0
 
-    log_tail = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else "(no log available)"
+    log_tail = (
+        log_path.read_text(encoding="utf-8", errors="replace")
+        if log_path.exists()
+        else "(no log available)"
+    )
 
     prior_attempts: str | None = None
     if prior_attempts_path is not None and prior_attempts_path.exists():
@@ -268,7 +277,12 @@ def run(
     client = anthropic.Anthropic(api_key=api_key)
 
     messages: list[dict[str, Any]] = [
-        {"role": "user", "content": build_first_message(log_tail, workflow, branch, commit, prior_attempts=prior_attempts)},
+        {
+            "role": "user",
+            "content": build_first_message(
+                log_tail, workflow, branch, commit, prior_attempts=prior_attempts
+            ),
+        },
     ]
 
     for step in range(MAX_ITER):
@@ -300,20 +314,24 @@ def run(
                 fixed = bool(args.get("fixed"))
                 print(f"[claude] finish(fixed={fixed}): {summary}")
                 finished = True
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": "acknowledged",
-                })
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": "acknowledged",
+                    }
+                )
             else:
                 result = dispatch(name, args)
                 preview = result if len(result) < 2000 else result[:2000] + "\n…[truncated]"
                 print(f"[claude] {name}({json.dumps(args)[:200]}) → {len(result)} chars")
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": preview,
-                })
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": preview,
+                    }
+                )
 
         messages.append({"role": "user", "content": tool_results})
         if finished:
@@ -335,11 +353,13 @@ def main() -> int:
         "--prior-attempts",
         default=None,
         help="Path to a text summary of prior auto-fix attempts on this branch — fed to "
-             "Claude so it doesn't repeat broken patches. Continuation mode only.",
+        "Claude so it doesn't repeat broken patches. Continuation mode only.",
     )
     args = ap.parse_args()
     prior_path = Path(args.prior_attempts) if args.prior_attempts else None
-    return run(Path(args.log), args.workflow, args.branch, args.commit, prior_attempts_path=prior_path)
+    return run(
+        Path(args.log), args.workflow, args.branch, args.commit, prior_attempts_path=prior_path
+    )
 
 
 if __name__ == "__main__":

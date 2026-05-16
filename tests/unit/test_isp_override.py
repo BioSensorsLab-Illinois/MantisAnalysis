@@ -11,9 +11,9 @@ Covers the session-store path the HTTP API uses:
 We build the H5 via h5py in a tempfile rather than shipping a binary
 fixture.
 """
+
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 
 import h5py
@@ -37,8 +37,7 @@ def _write_synthetic_h5(path: Path, h: int = 32, w: int = 64) -> None:
         cam = f.create_group("camera")
         cam.create_dataset("frames", data=frame[None, ...])
         cam.create_dataset("timestamp", data=np.asarray([0.0], dtype=np.float64))
-        cam.create_dataset("integration-time",
-                           data=np.asarray([0.0], dtype=np.float64))
+        cam.create_dataset("integration-time", data=np.asarray([0.0], dtype=np.float64))
 
 
 @pytest.fixture
@@ -54,8 +53,7 @@ def test_load_defaults_to_rgb_nir_with_current_channel_keys(synthetic_h5_path) -
     src = store.load_from_path(synthetic_h5_path)
     assert src.isp_mode_id == "rgb_nir"
     # Frozen channel-key schema preserved (ARCHITECTURE.md invariant #3).
-    expected = {"HG-R", "HG-G", "HG-B", "HG-NIR", "HG-Y",
-                "LG-R", "LG-G", "LG-B", "LG-NIR", "LG-Y"}
+    expected = {"HG-R", "HG-G", "HG-B", "HG-NIR", "HG-Y", "LG-R", "LG-G", "LG-B", "LG-NIR", "LG-Y"}
     assert expected.issubset(set(src.channels.keys()))
     assert src.raw_frame is not None  # cached for reconfigure
 
@@ -87,8 +85,7 @@ def test_origin_override_shifts_extraction(synthetic_h5_path) -> None:
     default_r = src.channels["HG-R"].copy()
     # Shift origin (0,0) → (1,0). Every channel's first row should now
     # be one deeper into the half-frame.
-    src2 = store.reconfigure_isp(src.source_id, "rgb_nir",
-                                 overrides={"origin": [1, 0]})
+    src2 = store.reconfigure_isp(src.source_id, "rgb_nir", overrides={"origin": [1, 0]})
     assert src2.isp_config["origin"] == (1, 0)
     # Pick the first column-0 sample — must differ from the default
     # origin because the row offset has increased by 1.
@@ -98,9 +95,9 @@ def test_origin_override_shifts_extraction(synthetic_h5_path) -> None:
 def test_rename_4th_channel(synthetic_h5_path) -> None:
     store = SessionStore()
     src = store.load_from_path(synthetic_h5_path)
-    src2 = store.reconfigure_isp(src.source_id, "rgb_nir",
-                                 overrides={"channel_name_overrides":
-                                            {"nir": "UV-650"}})
+    src2 = store.reconfigure_isp(
+        src.source_id, "rgb_nir", overrides={"channel_name_overrides": {"nir": "UV-650"}}
+    )
     assert "HG-UV-650" in src2.channels
     assert "LG-UV-650" in src2.channels
     assert "HG-NIR" not in src2.channels
@@ -114,6 +111,7 @@ def test_reconfigure_on_synthetic_source_rejects(synthetic_h5_path) -> None:
     instead of silently producing an inconsistent source.
     """
     from mantisanalysis.session import LoadedSource
+
     store = SessionStore()
     src = LoadedSource(
         source_id="aaaaaaaaaaaa",
@@ -150,7 +148,8 @@ def test_channel_loc_override_points_at_different_subtile(synthetic_h5_path) -> 
     # Stash default HG-NIR first sample — the pixel R should now point at.
     default_hg_nir_00 = int(src.channels["HG-NIR"][0, 0])
     src2 = store.reconfigure_isp(
-        src.source_id, "rgb_nir",
+        src.source_id,
+        "rgb_nir",
         overrides={"channel_loc_overrides": {"r": [1, 1]}},
     )
     assert src2.isp_config["channel_loc_overrides"]["r"] == (1, 1)
@@ -163,7 +162,8 @@ def test_channel_loc_override_drops_unknown_slots(synthetic_h5_path) -> None:
     # ``i0`` is not a slot on rgb_nir; it must be silently dropped
     # rather than surfacing as a silent re-route.
     src2 = store.reconfigure_isp(
-        src.source_id, "rgb_nir",
+        src.source_id,
+        "rgb_nir",
         overrides={"channel_loc_overrides": {"r": [1, 1], "i0": [0, 0]}},
     )
     assert "r" in src2.isp_config["channel_loc_overrides"]
@@ -175,7 +175,8 @@ def test_channel_loc_override_negative_rejects(synthetic_h5_path) -> None:
     src = store.load_from_path(synthetic_h5_path)
     with pytest.raises(ValueError):
         store.reconfigure_isp(
-            src.source_id, "rgb_nir",
+            src.source_id,
+            "rgb_nir",
             overrides={"channel_loc_overrides": {"r": [-1, 0]}},
         )
 
@@ -197,23 +198,20 @@ def test_odd_half_dimensions_crop_to_common_shape(tmp_path: Path) -> None:
     frame = (rr * 1000 + cc).astype(np.uint16)
     p = tmp_path / "odd_dims.h5"
     import h5py
+
     with h5py.File(p, "w") as f:
         cam = f.create_group("camera")
         cam.create_dataset("frames", data=frame[None, ...])
         cam.create_dataset("timestamp", data=np.asarray([0.0], dtype=np.float64))
-        cam.create_dataset("integration-time",
-                           data=np.asarray([0.0], dtype=np.float64))
+        cam.create_dataset("integration-time", data=np.asarray([0.0], dtype=np.float64))
 
     store = SessionStore()
     src = store.load_from_path(p)
     # Every channel under rgb_nir must share the exact same shape.
     shapes = {k: v.shape for k, v in src.channels.items()}
-    assert len(set(shapes.values())) == 1, (
-        f"channels ended up with mismatched shapes: {shapes}"
-    )
+    assert len(set(shapes.values())) == 1, f"channels ended up with mismatched shapes: {shapes}"
     # Reconfigure (even to the same mode) must also keep them consistent.
-    src2 = store.reconfigure_isp(src.source_id, "rgb_nir",
-                                 overrides={"origin": [1, 1]})
+    src2 = store.reconfigure_isp(src.source_id, "rgb_nir", overrides={"origin": [1, 1]})
     shapes2 = {k: v.shape for k, v in src2.channels.items()}
     assert len(set(shapes2.values())) == 1, (
         f"channels after reconfigure had mismatched shapes: {shapes2}"

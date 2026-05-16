@@ -5,10 +5,10 @@ auto-strip FFT MTF pipeline documented in the README (Workflow A).
 Without coverage, refactors have no safety net and the README pointer
 could silently bitrot. These tests pin the public surface.
 """
+
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mantisanalysis.resolution import (
     ChannelResult,

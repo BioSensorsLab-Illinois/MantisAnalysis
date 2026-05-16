@@ -1,4 +1,5 @@
 """R-0009 regression — evicted source_id returns 410 Gone (not 404)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -51,21 +52,25 @@ def test_server_returns_410_for_evicted_source():
     # Endpoints that route through _must_get — pick a read-only one.
     # Use a route that just does source lookup; the USAF measure is
     # one of the cheapest.
-    r_evicted = client.post("/api/usaf/measure", json={
-        "source_id": "evicted-id",
-        "channel": "L",
-        "line": {"group": 2, "element": 3, "direction": "H",
-                 "p0": [0, 0], "p1": [1, 1]},
-    })
+    r_evicted = client.post(
+        "/api/usaf/measure",
+        json={
+            "source_id": "evicted-id",
+            "channel": "L",
+            "line": {"group": 2, "element": 3, "direction": "H", "p0": [0, 0], "p1": [1, 1]},
+        },
+    )
     assert r_evicted.status_code == 410
     assert "evicted" in r_evicted.json().get("detail", "").lower()
 
-    r_never = client.post("/api/usaf/measure", json={
-        "source_id": "never-existed-id",
-        "channel": "L",
-        "line": {"group": 2, "element": 3, "direction": "H",
-                 "p0": [0, 0], "p1": [1, 1]},
-    })
+    r_never = client.post(
+        "/api/usaf/measure",
+        json={
+            "source_id": "never-existed-id",
+            "channel": "L",
+            "line": {"group": 2, "element": 3, "direction": "H", "p0": [0, 0], "p1": [1, 1]},
+        },
+    )
     assert r_never.status_code == 404
     assert "unknown source" in r_never.json().get("detail", "").lower()
 

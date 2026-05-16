@@ -43,13 +43,11 @@ Pure NumPy + h5py — no FastAPI / React / Qt imports, per AGENT_RULES rule 7.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Optional, Tuple
 
 import h5py
 import numpy as np
 
-
-LEGACY_FRAME_HW: Tuple[int, int] = (2048, 1024)
+LEGACY_FRAME_HW: tuple[int, int] = (2048, 1024)
 LEGACY_PIXELS_PER_FRAME: int = LEGACY_FRAME_HW[0] * LEGACY_FRAME_HW[1]
 
 
@@ -86,7 +84,7 @@ def is_legacy_gsbsi_h5(path: str | Path) -> bool:
         return False
 
 
-def legacy_inspect(path: str | Path) -> Dict[str, object]:
+def legacy_inspect(path: str | Path) -> dict[str, object]:
     """Return frame_count, per-frame exposures (s), per-frame timestamps.
 
     Timestamps are synthesized as ``arange(N)`` because the legacy container
@@ -152,7 +150,7 @@ def legacy_read_frame(dset, idx: int) -> np.ndarray:
     return np.left_shift(raw, LEGACY_TO_UINT16_SHIFT)
 
 
-def _luminance_rec601(rgb: Dict[str, np.ndarray]) -> np.ndarray:
+def _luminance_rec601(rgb: dict[str, np.ndarray]) -> np.ndarray:
     """Rec.601 luminance over R/G/B in the source dtype (clipped to dtype range)."""
     r = rgb["R"].astype(np.float64)
     g = rgb["G"].astype(np.float64)
@@ -165,7 +163,7 @@ def _luminance_rec601(rgb: Dict[str, np.ndarray]) -> np.ndarray:
     return y.astype(out_dtype, copy=False)
 
 
-def extract_legacy_channels(frame: np.ndarray) -> Dict[str, np.ndarray]:
+def extract_legacy_channels(frame: np.ndarray) -> dict[str, np.ndarray]:
     """Demosaic a (2048, 1024) legacy gsbsi frame into 10 base channels.
 
     Emits the canonical schema (``HG-R, HG-G, HG-B, HG-NIR, HG-Y, LG-R,
@@ -177,9 +175,7 @@ def extract_legacy_channels(frame: np.ndarray) -> Dict[str, np.ndarray]:
     if frame.ndim == 3 and frame.shape[-1] == 1:
         frame = frame[..., 0]
     if frame.shape != LEGACY_FRAME_HW:
-        raise ValueError(
-            f"expected legacy frame shape {LEGACY_FRAME_HW}, got {frame.shape}"
-        )
+        raise ValueError(f"expected legacy frame shape {LEGACY_FRAME_HW}, got {frame.shape}")
     f = frame
     # Calibrated bench layout (matches the legacy_gsbsi_rgb_nir ISP mode in
     # mantisanalysis/isp_modes.py): origin (0, 0), sub_step (1, 1),
@@ -187,15 +183,15 @@ def extract_legacy_channels(frame: np.ndarray) -> Dict[str, np.ndarray]:
     # half — NIR = (0, 0), G = (0, 1), R = (1, 0), B = (1, 1). The
     # row-period-4 split places LG on rows 0::4 + 2::4 and HG on rows
     # 1::4 + 3::4 (each gain therefore covers two super-rows mod 4).
-    channels: Dict[str, np.ndarray] = {
+    channels: dict[str, np.ndarray] = {
         "LG-NIR": np.ascontiguousarray(f[0::4, 0::2]),
-        "LG-G":   np.ascontiguousarray(f[0::4, 1::2]),
+        "LG-G": np.ascontiguousarray(f[0::4, 1::2]),
         "HG-NIR": np.ascontiguousarray(f[1::4, 0::2]),
-        "HG-G":   np.ascontiguousarray(f[1::4, 1::2]),
-        "LG-R":   np.ascontiguousarray(f[2::4, 0::2]),
-        "LG-B":   np.ascontiguousarray(f[2::4, 1::2]),
-        "HG-R":   np.ascontiguousarray(f[3::4, 0::2]),
-        "HG-B":   np.ascontiguousarray(f[3::4, 1::2]),
+        "HG-G": np.ascontiguousarray(f[1::4, 1::2]),
+        "LG-R": np.ascontiguousarray(f[2::4, 0::2]),
+        "LG-B": np.ascontiguousarray(f[2::4, 1::2]),
+        "HG-R": np.ascontiguousarray(f[3::4, 0::2]),
+        "HG-B": np.ascontiguousarray(f[3::4, 1::2]),
     }
     channels["HG-Y"] = _luminance_rec601(
         {"R": channels["HG-R"], "G": channels["HG-G"], "B": channels["HG-B"]}
@@ -217,7 +213,7 @@ class LegacyFrameReader:
 
     def __init__(self, path: str | Path):
         self.path: Path = Path(path)
-        self._h5: Optional[h5py.File] = None
+        self._h5: h5py.File | None = None
         # _dset starts as the h5py handle and is replaced by an in-memory
         # numpy array after the first read, since the legacy ``/dset`` is
         # un-chunked contiguous storage. Per-column reads on un-chunked
@@ -225,11 +221,11 @@ class LegacyFrameReader:
         # file), so caching the whole dataset once trades a one-time load
         # cost for O(1) per-frame slicing afterwards. This is what makes
         # the difference between ~1 fps playback and the target 10+ fps.
-        self._dset: Optional[h5py.Dataset] = None
-        self._mem: Optional[np.ndarray] = None
-        self._n: Optional[int] = None
-        self._exposures_s: Optional[np.ndarray] = None
-        self._timestamps: Optional[np.ndarray] = None
+        self._dset: h5py.Dataset | None = None
+        self._mem: np.ndarray | None = None
+        self._n: int | None = None
+        self._exposures_s: np.ndarray | None = None
+        self._timestamps: np.ndarray | None = None
 
     def _ensure_open(self) -> None:
         if self._h5 is not None:

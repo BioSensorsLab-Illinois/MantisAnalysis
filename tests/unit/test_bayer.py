@@ -1,4 +1,5 @@
 """Verify GSense dual-gain Bayer extraction invariants (README.md:20-27)."""
+
 from __future__ import annotations
 
 import numpy as np

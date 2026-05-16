@@ -13,6 +13,7 @@ You can run PyInstaller directly too:
     python -m pip install pyinstaller
     pyinstaller packaging/mantisanalysis.spec --noconfirm --clean
 """
+
 from __future__ import annotations
 
 import argparse
@@ -83,8 +84,7 @@ def _clean() -> None:
 
 
 def _pyinstaller(py: Path) -> None:
-    _run([str(py), "-m", "PyInstaller", str(SPEC), "--noconfirm", "--clean"],
-         cwd=REPO)
+    _run([str(py), "-m", "PyInstaller", str(SPEC), "--noconfirm", "--clean"], cwd=REPO)
 
 
 def _archive() -> Path:
@@ -116,14 +116,22 @@ def _archive() -> Path:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--no-venv", action="store_true",
-                        help="use the current interpreter instead of creating build/venv")
-    parser.add_argument("--skip-install", action="store_true",
-                        help="skip pip install step (assumes deps already present)")
-    parser.add_argument("--skip-frontend", action="store_true",
-                        help="skip `npm install && npm run build` (web/dist/ must already exist)")
-    parser.add_argument("--skip-archive", action="store_true",
-                        help="skip zipping / tarring")
+    parser.add_argument(
+        "--no-venv",
+        action="store_true",
+        help="use the current interpreter instead of creating build/venv",
+    )
+    parser.add_argument(
+        "--skip-install",
+        action="store_true",
+        help="skip pip install step (assumes deps already present)",
+    )
+    parser.add_argument(
+        "--skip-frontend",
+        action="store_true",
+        help="skip `npm install && npm run build` (web/dist/ must already exist)",
+    )
+    parser.add_argument("--skip-archive", action="store_true", help="skip zipping / tarring")
     args = parser.parse_args()
 
     _clean()

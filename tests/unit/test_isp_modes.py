@@ -12,6 +12,7 @@ The existing rgb_nir mode is covered twice — once here (mode-driven
 path) and once in tests/unit/test_bayer.py (legacy path) — to catch
 drift between them.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -27,18 +28,16 @@ def _synthetic_half(h: int = 32, w: int = 32) -> np.ndarray:
     return (rr * 100 + cc).astype(np.uint16)
 
 
-@pytest.mark.parametrize("mode", sorted(isp_modes.ALL_MODES.values(),
-                                        key=lambda m: m.id))
+@pytest.mark.parametrize("mode", sorted(isp_modes.ALL_MODES.values(), key=lambda m: m.id))
 def test_mode_extraction_matches_declared_locs(mode: isp_modes.ISPMode) -> None:
     """Every channel's first-sample pixel matches the formula."""
     h = max(16, mode.default_outer_stride[0] * 4)
     w = max(16, mode.default_outer_stride[1] * 4)
     half = _synthetic_half(h, w)
     for spec in mode.channels:
-        arr = extract_by_spec(half, spec.loc,
-                              mode.default_origin,
-                              mode.default_sub_step,
-                              mode.default_outer_stride)
+        arr = extract_by_spec(
+            half, spec.loc, mode.default_origin, mode.default_sub_step, mode.default_outer_stride
+        )
         r = spec.loc[0] * mode.default_sub_step[0] + mode.default_origin[0]
         c = spec.loc[1] * mode.default_sub_step[1] + mode.default_origin[1]
         assert arr.shape[0] > 0 and arr.shape[1] > 0, (
@@ -58,14 +57,14 @@ def test_rgb_nir_matches_legacy_extract_by_spec() -> None:
     isp_modes.py without updating extract.py (or vice versa).
     """
     from mantisanalysis.extract import extract_rgb_nir
+
     half = _synthetic_half(16, 16)
     mode = isp_modes.get_mode("rgb_nir")
     legacy = extract_rgb_nir(half)
     for spec in mode.channels:
-        via_spec = extract_by_spec(half, spec.loc,
-                                   mode.default_origin,
-                                   mode.default_sub_step,
-                                   mode.default_outer_stride)
+        via_spec = extract_by_spec(
+            half, spec.loc, mode.default_origin, mode.default_sub_step, mode.default_outer_stride
+        )
         assert np.array_equal(via_spec, legacy[spec.default_name]), (
             f"rgb_nir slot {spec.slot_id}: by-spec ≠ legacy extract_rgb_nir"
         )
@@ -88,16 +87,21 @@ def test_normalize_config_drops_non_renameable_slots() -> None:
     rename for, say, the ``b`` slot (which is not renameable in v1).
     """
     mode = isp_modes.get_mode("rgb_nir")
-    cfg = isp_modes.normalize_config(mode, {
-        "channel_name_overrides": {"nir": "UV-650", "b": "NOPE", "r": "also-nope"},
-    })
+    cfg = isp_modes.normalize_config(
+        mode,
+        {
+            "channel_name_overrides": {"nir": "UV-650", "b": "NOPE", "r": "also-nope"},
+        },
+    )
     assert cfg["channel_name_overrides"] == {"nir": "UV-650"}
 
 
 def test_build_channel_keys_respects_rename() -> None:
     mode = isp_modes.get_mode("rgb_nir")
     keys = isp_modes.build_channel_keys(
-        mode, {"nir": "UV-650"}, include_luminance=True,
+        mode,
+        {"nir": "UV-650"},
+        include_luminance=True,
     )
     assert "HG-UV-650" in keys and "LG-UV-650" in keys
     assert "HG-NIR" not in keys and "LG-NIR" not in keys
@@ -108,8 +112,14 @@ def test_polarization_dual_emits_hg_lg_prefixed_keys() -> None:
     mode = isp_modes.get_mode("polarization_dual")
     keys = isp_modes.build_channel_keys(mode, {}, include_luminance=False)
     assert set(keys) == {
-        "HG-I0", "HG-I45", "HG-I90", "HG-I135",
-        "LG-I0", "LG-I45", "LG-I90", "LG-I135",
+        "HG-I0",
+        "HG-I45",
+        "HG-I90",
+        "HG-I135",
+        "LG-I0",
+        "LG-I45",
+        "LG-I90",
+        "LG-I135",
     }
 
 
@@ -192,12 +202,18 @@ def test_rename_collision_with_another_override_rejected():
     second_slot = patched_channels[1].slot_id
     # Rename both to the same string.
     with pytest.raises(ValueError, match="collides with channel_name_overrides"):
-        _isp.normalize_config(test_mode, {
-            "channel_name_overrides": {first_slot: "BAND-A", second_slot: "BAND-A"},
-        })
+        _isp.normalize_config(
+            test_mode,
+            {
+                "channel_name_overrides": {first_slot: "BAND-A", second_slot: "BAND-A"},
+            },
+        )
     # Different names → fine.
-    cfg = _isp.normalize_config(test_mode, {
-        "channel_name_overrides": {first_slot: "BAND-A", second_slot: "BAND-B"},
-    })
+    cfg = _isp.normalize_config(
+        test_mode,
+        {
+            "channel_name_overrides": {first_slot: "BAND-A", second_slot: "BAND-B"},
+        },
+    )
     assert cfg["channel_name_overrides"][first_slot] == "BAND-A"
     assert cfg["channel_name_overrides"][second_slot] == "BAND-B"

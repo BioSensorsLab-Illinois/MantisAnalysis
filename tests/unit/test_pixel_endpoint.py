@@ -21,6 +21,7 @@ Covers:
 
 Synthetic fixture from test_session_frames.py.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -31,7 +32,6 @@ from fastapi.testclient import TestClient
 
 from mantisanalysis.server import app
 from mantisanalysis.session import STORE
-
 from tests.unit.test_session_frames import _make_synthetic_h5
 
 
@@ -163,7 +163,8 @@ def test_pixel_parity_with_one_pixel_roi_stats(client: TestClient, loaded: dict)
     pixel = client.post(
         f"/api/sources/{sid}/frame/0/channel/HG-G/pixel",
         json={
-            "x": x, "y": y,
+            "x": x,
+            "y": y,
             "apply_dark": True,
             "black_level": 0,
             "view_config": {"gain": 1.5, "offset": 3.0},
@@ -267,7 +268,8 @@ def test_pixel_gain_offset_affine(client: TestClient, loaded: dict):
     scaled = client.post(
         f"/api/sources/{sid}/frame/0/channel/HG-G/pixel",
         json={
-            "x": x, "y": y,
+            "x": x,
+            "y": y,
             "apply_dark": False,
             "black_level": 0,
             "view_config": {"gain": 2.0, "offset": 10.0},
@@ -297,7 +299,8 @@ def test_pixel_view_config_changes_value(client: TestClient, loaded: dict):
         smoothed = client.post(
             f"/api/sources/{sid}/frame/0/channel/HG-G/pixel",
             json={
-                "x": x, "y": y,
+                "x": x,
+                "y": y,
                 "apply_dark": False,
                 "view_config": {"median_size": 3},
             },
@@ -313,6 +316,7 @@ def test_pixel_pydantic_validator_rejects_bad_view_config():
     """Non-dict view_config fails Pydantic validation at the model
     layer — same envelope contract as ROIStatsRequest."""
     import pydantic
+
     from mantisanalysis.server import PixelRequest
 
     with pytest.raises(pydantic.ValidationError):

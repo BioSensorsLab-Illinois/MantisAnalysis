@@ -8,11 +8,10 @@ see `[project.optional-dependencies].web-smoke` in pyproject.toml).
 
 from __future__ import annotations
 
-import os
 import socket
 import threading
 import time
-from typing import Iterator
+from collections.abc import Iterator
 
 import pytest
 
@@ -30,9 +29,7 @@ def _server_alive(port: int, timeout_s: float = 10.0) -> bool:
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(
-                f"http://127.0.0.1:{port}/api/health", timeout=1
-            ) as r:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=1) as r:
                 if r.status == 200:
                     return True
         except (urllib.error.URLError, ConnectionError, TimeoutError):
@@ -51,9 +48,7 @@ def web_server() -> Iterator[str]:
         pytest.skip(f"mantisanalysis server deps missing: {e}")
 
     port = _free_port()
-    config = uvicorn.Config(
-        app, host="127.0.0.1", port=port, log_level="warning", lifespan="on"
-    )
+    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", lifespan="on")
     server = uvicorn.Server(config)
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
